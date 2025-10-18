@@ -1,0 +1,82 @@
+from fastapi import APIRouter
+
+from app.routers import (
+	data_object,
+	data_definition,
+	data_object_dependency,
+	data_object_system,
+	execution_context,
+	dashboard,
+	constructed_table,
+	constructed_field,
+	constructed_data,
+	constructed_table_approval,
+	role,
+	user,
+	field,
+	field_load,
+	ingestion_job,
+	process_area_role_assignment,
+	mapping,
+	mapping_set,
+	mock_cycle,
+	process_area,
+	post_load_validation_approval,
+	post_load_validation_issue,
+	post_load_validation_result,
+	project,
+	pre_load_validation_approval,
+	pre_load_validation_issue,
+	pre_load_validation_result,
+	release,
+	release_data_object,
+	system,
+	system_connection,
+	table,
+	table_dependency,
+	table_load_order,
+	table_load_order_approval,
+	dependency_approval,
+	dependency_dag,
+)
+
+api_router = APIRouter()
+api_router.include_router(project.router)
+api_router.include_router(release.router)
+api_router.include_router(release_data_object.router)
+api_router.include_router(mock_cycle.router)
+api_router.include_router(execution_context.router)
+api_router.include_router(dashboard.router)
+api_router.include_router(constructed_table.router)
+api_router.include_router(constructed_field.router)
+api_router.include_router(constructed_data.router)
+api_router.include_router(constructed_table_approval.router)
+api_router.include_router(role.router)
+api_router.include_router(user.router)
+api_router.include_router(process_area.router)
+api_router.include_router(data_object.router)
+api_router.include_router(data_definition.router)
+api_router.include_router(system.router)
+api_router.include_router(table.router)
+api_router.include_router(field.router)
+api_router.include_router(data_object_system.router)
+api_router.include_router(process_area_role_assignment.router)
+api_router.include_router(field_load.router)
+api_router.include_router(mapping_set.router)
+api_router.include_router(mapping.router)
+api_router.include_router(pre_load_validation_result.router)
+api_router.include_router(pre_load_validation_issue.router)
+api_router.include_router(pre_load_validation_approval.router)
+api_router.include_router(post_load_validation_result.router)
+api_router.include_router(post_load_validation_issue.router)
+api_router.include_router(post_load_validation_approval.router)
+api_router.include_router(system_connection.router)
+api_router.include_router(ingestion_job.router)
+api_router.include_router(data_object_dependency.router)
+api_router.include_router(table_dependency.router)
+api_router.include_router(table_load_order.router)
+api_router.include_router(table_load_order_approval.router)
+api_router.include_router(dependency_approval.router)
+api_router.include_router(dependency_dag.router)
+
+__all__ = ["api_router"]

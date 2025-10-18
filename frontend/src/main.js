@@ -1,0 +1,10 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { CssBaseline, ThemeProvider } from '@mui/material';
+import { QueryClient, QueryClientProvider } from 'react-query';
+import App from './routes/AppRouter';
+import theme from './theme/theme';
+import { ToastProvider } from './components/common/ToastProvider';
+const queryClient = new QueryClient();
+ReactDOM.createRoot(document.getElementById('root')).render(_jsx(React.StrictMode, { children: _jsx(QueryClientProvider, { client: queryClient, children: _jsxs(ThemeProvider, { theme: theme, children: [_jsx(CssBaseline, {}), _jsx(ToastProvider, { children: _jsx(App, {}) })] }) }) }));

@@ -1,0 +1,56 @@
+import client from './api/client';
+import { ProcessArea } from '../types/data';
+
+interface ProcessAreaResponse {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const mapProcessArea = (payload: ProcessAreaResponse): ProcessArea => ({
+  id: payload.id,
+  name: payload.name,
+  description: payload.description ?? null,
+  status: payload.status,
+  createdAt: payload.created_at,
+  updatedAt: payload.updated_at
+});
+
+export interface ProcessAreaInput {
+  name: string;
+  description?: string | null;
+  status?: string;
+}
+
+export const fetchProcessAreas = async (): Promise<ProcessArea[]> => {
+  const response = await client.get<ProcessAreaResponse[]>('/process-areas');
+  return response.data.map(mapProcessArea);
+};
+
+export const createProcessArea = async (input: ProcessAreaInput): Promise<ProcessArea> => {
+  const response = await client.post<ProcessAreaResponse>('/process-areas', {
+    name: input.name,
+    description: input.description ?? null,
+    status: input.status ?? 'draft'
+  });
+  return mapProcessArea(response.data);
+};
+
+export const updateProcessArea = async (
+  id: string,
+  input: Partial<ProcessAreaInput>
+): Promise<ProcessArea> => {
+  const response = await client.put<ProcessAreaResponse>(`/process-areas/${id}`, {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.status !== undefined ? { status: input.status } : {})
+  });
+  return mapProcessArea(response.data);
+};
+
+export const deleteProcessArea = async (id: string): Promise<void> => {
+  await client.delete(`/process-areas/${id}`);
+};

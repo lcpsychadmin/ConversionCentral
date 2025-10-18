@@ -1,0 +1,41 @@
+# Backend Dockerfile for ConversionCentral API
+FROM python:3.11-slim-bullseye AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    ACCEPT_EULA=Y
+
+# Install build dependencies and Microsoft ODBC Driver 18 for SQL Server
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        gnupg \
+        ca-certificates \
+        gcc \
+        g++ \
+        unixodbc \
+        unixodbc-dev \
+        libpq-dev \
+        netcat-openbsd \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/debian/11/prod.list -o /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends msodbcsql18 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /code
+
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+
+COPY . /code
+
+# Entrypoint script handles migrations before starting uvicorn
+RUN chmod +x docker/backend/start.sh
+
+EXPOSE 8000
+
+CMD ["docker/backend/start.sh"]

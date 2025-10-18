@@ -1,0 +1,5 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { LoadingButton } from '@mui/lab';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+const ConfirmDialog = ({ open, title, description, confirmLabel = 'Confirm', cancelLabel = 'Cancel', confirmColor = 'error', onClose, onConfirm, loading = false, confirmDisabled = false }) => (_jsxs(Dialog, { open: open, onClose: onClose, maxWidth: "xs", fullWidth: true, children: [_jsx(DialogTitle, { children: title }), description && (_jsx(DialogContent, { children: _jsx(DialogContentText, { children: description }) })), _jsxs(DialogActions, { children: [_jsx(Button, { onClick: onClose, disabled: loading, children: cancelLabel }), loading ? (_jsx(LoadingButton, { loading: true, color: confirmColor, variant: "contained", children: confirmLabel })) : (_jsx(Button, { color: confirmColor, onClick: onConfirm, variant: "contained", disabled: confirmDisabled, children: confirmLabel }))] })] }));
+export default ConfirmDialog;

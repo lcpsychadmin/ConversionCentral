@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+*.egg
+*.manifest
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+
+# Docker
+*.log
+
+# OS
+Thumbs.db
+Desktop.ini
