@@ -15,6 +15,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import ProcessAreaTable, { ProcessAreaRow } from '../components/process-area/ProcessAreaTable';
 import ProcessAreaForm from '../components/process-area/ProcessAreaForm';
@@ -51,6 +52,7 @@ const getStatusColor = (status: string): 'default' | 'success' | 'warning' => {
 const ProcessAreasPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
+  const theme = useTheme();
 
   const {
     processAreasQuery,
@@ -158,33 +160,31 @@ const ProcessAreasPage = () => {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <div>
-          <Typography variant="h4" gutterBottom>
-            Process Areas
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage process areas and review their related data objects.
-          </Typography>
-        </div>
-        {canManage && (
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
+          borderBottom: `3px solid ${theme.palette.primary.main}`,
+          borderRadius: '12px',
+          p: 3,
+          mb: 3,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
+        }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
+          Process Areas
+        </Typography>
+        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
+          Manage process areas and review their related data objects.
+        </Typography>
+      </Box>
+
+      {canManage && (
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
             New Process Area
           </Button>
-        )}
-      </Stack>
-
-      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-        <ProcessAreaTable
-          data={rows}
-          loading={tableLoading}
-          selectedId={selected?.id ?? null}
-          canManage={canManage}
-          onSelect={handleSelect}
-          onEdit={canManage ? handleEdit : undefined}
-          onDelete={canManage ? handleDelete : undefined}
-        />
-      </Paper>
+        </Box>
+      )}
 
       {dataObjectsErrorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -198,26 +198,40 @@ const ProcessAreasPage = () => {
         </Alert>
       )}
 
+      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+        <ProcessAreaTable
+          data={rows}
+          loading={tableLoading}
+          selectedId={selected?.id ?? null}
+          canManage={canManage}
+          onSelect={handleSelect}
+          onEdit={canManage ? handleEdit : undefined}
+          onDelete={canManage ? handleDelete : undefined}
+        />
+      </Paper>
+
       {selected && (
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Grid container spacing={2}>
+        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+            Process Area Details
+          </Typography>
+          <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Details
-              </Typography>
-              <Stack spacing={1}>
+              <Stack spacing={2}>
                 <DetailLine label="Name" value={selected.name} />
                 <DetailLine label="Description" value={selected.description ?? '—'} />
               </Stack>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Status
-              </Typography>
-              <Chip label={formatStatusLabel(selected.status)} color={getStatusColor(selected.status)} />
+              <Box>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                  Status
+                </Typography>
+                <Chip label={formatStatusLabel(selected.status)} color={getStatusColor(selected.status)} />
+              </Box>
             </Grid>
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700 }}>
                 Assigned Data Objects
               </Typography>
               {dataObjectsLoading ? (
@@ -279,11 +293,10 @@ interface DetailLineProps {
 
 const DetailLine = ({ label, value }: DetailLineProps) => (
   <Box>
-    <Typography variant="subtitle2" color="text.secondary">
+    <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
       {label}
     </Typography>
     <Typography variant="body1">{value}</Typography>
-    <Divider sx={{ my: 1.5 }} />
   </Box>
 );
 

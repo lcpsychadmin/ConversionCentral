@@ -10,6 +10,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import SystemTable from '../components/system/SystemTable';
 import SystemForm from '../components/system/SystemForm';
@@ -28,6 +29,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 const SystemsPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
+  const theme = useTheme();
 
   const {
     systemsQuery,
@@ -127,23 +129,39 @@ const SystemsPage = () => {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <div>
-          <Typography variant="h4" gutterBottom>
-            Systems
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Maintain the catalog of applications and systems available for data objects.
-          </Typography>
-        </div>
-        {canManage && (
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
+          borderBottom: `3px solid ${theme.palette.primary.main}`,
+          borderRadius: '12px',
+          p: 3,
+          mb: 3,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
+        }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
+          Systems
+        </Typography>
+        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
+          Maintain the catalog of applications and systems available for data objects.
+        </Typography>
+      </Box>
+
+      {canManage && (
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
             New System
           </Button>
-        )}
-      </Stack>
+        </Box>
+      )}
 
-      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
+      {errorMessage && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {errorMessage}
+        </Alert>
+      )}
+
+      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
         <SystemTable
           data={sortedSystems}
           loading={isLoading}
@@ -155,36 +173,25 @@ const SystemsPage = () => {
         />
       </Paper>
 
-      {errorMessage && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {errorMessage}
-        </Alert>
-      )}
-
       {selected && (
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Grid container spacing={2}>
+        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+            System Details
+          </Typography>
+          <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Details
-              </Typography>
-              <Stack spacing={1}>
+              <Stack spacing={2}>
                 <DetailLine label="Name" value={selected.name} />
                 <DetailLine label="Physical Name" value={selected.physicalName} />
                 <DetailLine label="Type" value={selected.systemType ?? '—'} />
-                <DetailLine label="Description" value={selected.description ?? '—'} />
               </Stack>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Status
-              </Typography>
-              <Chip label={selected.status} color={selected.status === 'active' ? 'success' : 'default'} />
-              <Divider sx={{ my: 1.5 }} />
-              <DetailLine
-                label="Security Classification"
-                value={selected.securityClassification ?? '—'}
-              />
+              <Stack spacing={2}>
+                <DetailLine label="Status" value={selected.status} isChip={true} chipColor={selected.status === 'active' ? 'success' : 'default'} />
+                <DetailLine label="Description" value={selected.description ?? '—'} />
+                <DetailLine label="Security Classification" value={selected.securityClassification ?? '—'} />
+              </Stack>
             </Grid>
           </Grid>
         </Paper>
@@ -216,15 +223,20 @@ const SystemsPage = () => {
 interface DetailLineProps {
   label: string;
   value: string;
+  isChip?: boolean;
+  chipColor?: 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success';
 }
 
-const DetailLine = ({ label, value }: DetailLineProps) => (
+const DetailLine = ({ label, value, isChip = false, chipColor = 'default' }: DetailLineProps) => (
   <Box>
-    <Typography variant="subtitle2" color="text.secondary">
+    <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
       {label}
     </Typography>
-    <Typography variant="body1">{value}</Typography>
-    <Divider sx={{ my: 1.5 }} />
+    {isChip ? (
+      <Chip label={value} color={chipColor} size="small" />
+    ) : (
+      <Typography variant="body1">{value}</Typography>
+    )}
   </Box>
 );
 

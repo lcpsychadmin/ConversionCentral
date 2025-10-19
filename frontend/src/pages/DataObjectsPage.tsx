@@ -10,6 +10,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import DataObjectTable, { DataObjectRow } from '../components/data-object/DataObjectTable';
 import DataObjectForm from '../components/data-object/DataObjectForm';
@@ -37,6 +38,7 @@ const InventoryPage = () => {
   const { hasRole } = useAuth();
   const toast = useToast();
   const canManage = hasRole('admin');
+  const theme = useTheme();
 
   const {
     dataObjectsQuery,
@@ -188,33 +190,31 @@ const InventoryPage = () => {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <div>
-          <Typography variant="h4" gutterBottom>
-            Inventory
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage data object inventory, process area alignment, and system ownership.
-          </Typography>
-        </div>
-        {canManage && (
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
+          borderBottom: `3px solid ${theme.palette.primary.main}`,
+          borderRadius: '12px',
+          p: 3,
+          mb: 3,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
+        }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
+          Inventory
+        </Typography>
+        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
+          Manage data object inventory, process area alignment, and system ownership.
+        </Typography>
+      </Box>
+
+      {canManage && (
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
             New Data Object
           </Button>
-        )}
-      </Stack>
-
-      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-        <DataObjectTable
-          data={rows}
-          loading={dataObjectsLoading}
-          selectedId={selected?.id ?? null}
-          canManage={canManage}
-          onSelect={handleSelect}
-          onEdit={canManage ? handleEdit : undefined}
-          onDelete={canManage ? handleDelete : undefined}
-        />
-      </Paper>
+        </Box>
+      )}
 
       {dataObjectsErrorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -240,39 +240,54 @@ const InventoryPage = () => {
         </Alert>
       )}
 
+      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+        <DataObjectTable
+          data={rows}
+          loading={dataObjectsLoading}
+          selectedId={selected?.id ?? null}
+          canManage={canManage}
+          onSelect={handleSelect}
+          onEdit={canManage ? handleEdit : undefined}
+          onDelete={canManage ? handleDelete : undefined}
+        />
+      </Paper>
+
       {selected && (
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Grid container spacing={2}>
+        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+            Data Object Details
+          </Typography>
+          <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Details
-              </Typography>
-              <Stack spacing={1}>
+              <Stack spacing={2}>
                 <DetailLine label="Name" value={selected.name} />
                 <DetailLine label="Domain" value={selected.processAreaName ?? 'Unassigned'} />
                 <DetailLine label="Description" value={selected.description ?? '—'} />
               </Stack>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Status
-              </Typography>
-              <Chip label={selected.status} color={selected.status === 'active' ? 'success' : 'default'} />
-              <Divider sx={{ my: 1.5 }} />
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Systems
-              </Typography>
-              {(selected.systems?.length ?? 0) === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No systems assigned.
+              <Box>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                  Status
                 </Typography>
-              ) : (
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  {selected.systems?.map((system: System) => (
-                    <Chip key={system.id} label={system.name} size="small" />
-                  ))}
-                </Stack>
-              )}
+                <Chip label={selected.status} color={selected.status === 'active' ? 'success' : 'default'} sx={{ mb: 2 }} />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 1 }}>
+                  Systems
+                </Typography>
+                {(selected.systems?.length ?? 0) === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    No systems assigned.
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {selected.systems?.map((system: System) => (
+                      <Chip key={system.id} label={system.name} size="small" />
+                    ))}
+                  </Stack>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </Paper>
@@ -310,11 +325,10 @@ interface DetailLineProps {
 
 const DetailLine = ({ label, value }: DetailLineProps) => (
   <Box>
-    <Typography variant="subtitle2" color="text.secondary">
+    <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
       {label}
     </Typography>
     <Typography variant="body1">{value}</Typography>
-    <Divider sx={{ my: 1.5 }} />
   </Box>
 );
 

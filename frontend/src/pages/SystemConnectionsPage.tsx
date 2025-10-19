@@ -9,6 +9,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import SystemConnectionTable from '../components/system-connection/SystemConnectionTable';
 import SystemConnectionForm from '../components/system-connection/SystemConnectionForm';
@@ -36,6 +37,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const SystemConnectionsPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
+  const theme = useTheme();
 
   const {
     systemsQuery: { data: systems = [], isLoading: systemsLoading, isError: systemsError, error: systemsErrorObj }
@@ -192,16 +194,26 @@ const SystemConnectionsPage = () => {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <div>
-          <Typography variant="h4" gutterBottom>
-            Data Source Connections
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Register JDBC connections for relational sources. Use these connections when ingesting tables.
-          </Typography>
-        </div>
-        {canManage && (
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
+          borderBottom: `3px solid ${theme.palette.primary.main}`,
+          borderRadius: '12px',
+          p: 3,
+          mb: 3,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
+        }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
+          Data Source Connections
+        </Typography>
+        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
+          Register JDBC connections for relational sources. Use these connections when ingesting tables.
+        </Typography>
+      </Box>
+
+      {canManage && (
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             variant="contained"
             onClick={handleCreateClick}
@@ -209,22 +221,8 @@ const SystemConnectionsPage = () => {
           >
             New Connection
           </Button>
-        )}
-      </Stack>
-
-      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-        <SystemConnectionTable
-          data={sortedConnections}
-          systems={systems}
-          loading={loading}
-          selectedId={selected?.id ?? null}
-          canManage={canManage}
-          onSelect={handleSelect}
-          onEdit={canManage ? handleEdit : undefined}
-          onDelete={canManage ? handleDelete : undefined}
-          onTest={canManage ? handleTestConnection : undefined}
-        />
-      </Paper>
+        </Box>
+      )}
 
       {canManage && !loading && systems.length === 0 && (
         <Alert severity="info" sx={{ mb: 3 }}>
@@ -238,14 +236,28 @@ const SystemConnectionsPage = () => {
         </Alert>
       )}
 
+      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+        <SystemConnectionTable
+          data={sortedConnections}
+          systems={systems}
+          loading={loading}
+          selectedId={selected?.id ?? null}
+          canManage={canManage}
+          onSelect={handleSelect}
+          onEdit={canManage ? handleEdit : undefined}
+          onDelete={canManage ? handleDelete : undefined}
+          onTest={canManage ? handleTestConnection : undefined}
+        />
+      </Paper>
+
       {selected && (
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Grid container spacing={2}>
+        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+            Connection Details
+          </Typography>
+          <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Connection Details
-              </Typography>
-              <Stack spacing={1.5}>
+              <Stack spacing={2}>
                 <DetailLine label="System" value={detailSystem?.name ?? '—'} />
                 <DetailLine
                   label="Endpoint"
@@ -262,10 +274,7 @@ const SystemConnectionsPage = () => {
               </Stack>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>
-                Access & Metadata
-              </Typography>
-              <Stack spacing={1.5}>
+              <Stack spacing={2}>
                 <DetailLine
                   label="Username"
                   value={detailParsed?.username ? detailParsed.username : '—'}
@@ -318,11 +327,10 @@ interface DetailLineProps {
 
 const DetailLine = ({ label, value }: DetailLineProps) => (
   <Box>
-    <Typography variant="subtitle2" color="text.secondary">
+    <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
       {label}
     </Typography>
     <Typography variant="body1">{value}</Typography>
-    <Divider sx={{ my: 1.5 }} />
   </Box>
 );
 

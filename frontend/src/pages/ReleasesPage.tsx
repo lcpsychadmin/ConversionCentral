@@ -9,6 +9,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../hooks/useProjects';
@@ -27,6 +28,7 @@ const formatStatusLabel = (status: string) =>
 const ReleasesPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
+  const theme = useTheme();
 
   const { projectsQuery } = useProjects();
   const { data: projects = [], isLoading: projectsLoading } = projectsQuery;
@@ -121,16 +123,26 @@ const ReleasesPage = () => {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <div>
-          <Typography variant="h4" gutterBottom>
-            Releases
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Plan releases and assign them to projects to track go-live milestones.
-          </Typography>
-        </div>
-        {canManage && (
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
+          borderBottom: `3px solid ${theme.palette.primary.main}`,
+          borderRadius: '12px',
+          p: 3,
+          mb: 3,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
+        }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
+          Releases
+        </Typography>
+        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
+          Plan releases and assign them to projects to track go-live milestones.
+        </Typography>
+      </Box>
+
+      {canManage && (
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             variant="contained"
             onClick={handleCreateClick}
@@ -138,8 +150,8 @@ const ReleasesPage = () => {
           >
             New Release
           </Button>
-        )}
-      </Stack>
+        </Box>
+      )}
 
       {noProjectsAvailable && (
         <Alert severity="info" sx={{ mb: 3 }}>
@@ -147,7 +159,13 @@ const ReleasesPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
+      {errorMessage && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {errorMessage}
+        </Alert>
+      )}
+
+      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
         <ReleaseTable
           data={rows}
           loading={releasesLoading}
@@ -159,34 +177,34 @@ const ReleasesPage = () => {
         />
       </Paper>
 
-      {errorMessage && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {errorMessage}
-        </Alert>
-      )}
-
       {selected && (
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Stack spacing={1}>
-            <Typography variant="h6">Details</Typography>
-            <Typography variant="subtitle2" color="text.secondary">
-              Project
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {projectLookup.get(selected.projectId)?.name ?? 'Unassigned'}
-            </Typography>
-            <Divider sx={{ my: 1.5 }} />
-            <Typography variant="subtitle2" color="text.secondary">
-              Status
-            </Typography>
-            <Chip label={formatStatusLabel(selected.status)} size="small" color="primary" />
-            <Divider sx={{ my: 1.5 }} />
-            <Typography variant="subtitle2" color="text.secondary">
-              Description
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {selected.description || 'No description provided.'}
-            </Typography>
+        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+            Release Details
+          </Typography>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                Project
+              </Typography>
+              <Typography variant="body1">
+                {projectLookup.get(selected.projectId)?.name ?? 'Unassigned'}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                Status
+              </Typography>
+              <Chip label={formatStatusLabel(selected.status)} size="small" color="primary" />
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                Description
+              </Typography>
+              <Typography variant="body1">
+                {selected.description || 'No description provided.'}
+              </Typography>
+            </Box>
           </Stack>
         </Paper>
       )}
