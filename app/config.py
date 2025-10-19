@@ -1,4 +1,6 @@
 from functools import lru_cache
+from typing import List
+
 from pydantic import BaseSettings, Field
 
 
@@ -17,9 +19,28 @@ class Settings(BaseSettings):
             "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
         ),
     )
+    frontend_origins: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "https://wescollins.duckdns.org",
+            "http://wescollins.duckdns.org",
+        ],
+        env="FRONTEND_ORIGINS",
+        description="Comma-separated list of allowed CORS origins for the frontend UI.",
+    )
 
     class Config:
         env_file = ".env"
+        case_sensitive = False
+
+        @classmethod
+        def parse_env_var(cls, field_name, raw_value):
+            if field_name == "frontend_origins" and isinstance(raw_value, str):
+                return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+            return raw_value
 
 
 @lru_cache()

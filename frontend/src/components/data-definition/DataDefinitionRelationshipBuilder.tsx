@@ -1,30 +1,9 @@
 import {
-  createContext,
-  memo,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
-  useState,
-  type MouseEvent
+  useState
 } from 'react';
-import {
-  Background,
-  Connection,
-  Controls,
-  Edge,
-  Handle,
-  MiniMap,
-  Node,
-  NodeProps,
-  OnConnectStart,
-  OnConnectEnd,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow
-} from 'reactflow';
-import 'reactflow/dist/style.css';
 import {
   Box,
   Button,
@@ -48,7 +27,10 @@ import {
   Stack,
   TextField,
   Tooltip,
-  Typography
+  Typography,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
@@ -83,28 +65,6 @@ interface DataDefinitionRelationshipBuilderProps {
   initialForeignFieldId?: string;
 }
 
-interface TableNodeData {
-  table: DataDefinitionTable;
-  canEdit: boolean;
-  disabled: boolean;
-}
-
-interface RelationshipHoverContextValue {
-  hoveredFieldId: string | null;
-  connectionHandleId: string | null;
-  setHoveredFieldId: (fieldId: string | null) => void;
-}
-
-const RelationshipHoverContext = createContext<RelationshipHoverContextValue>(
-  {
-    hoveredFieldId: null,
-    connectionHandleId: null,
-    setHoveredFieldId: () => {}
-  }
-);
-
-const useRelationshipHover = () => useContext(RelationshipHoverContext);
-
 const relationshipTypeOptions: { value: DataDefinitionRelationshipType; label: string }[] = [
   { value: 'one_to_one', label: 'One to One' },
   { value: 'one_to_many', label: 'One to Many' },
@@ -117,163 +77,13 @@ const relationshipTypeLabel = (value: DataDefinitionRelationshipType) => {
   return match ? match.label : value;
 };
 
-const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
-  const { table, canEdit, disabled } = data;
-  const { hoveredFieldId, connectionHandleId, setHoveredFieldId } = useRelationshipHover();
-  const tableName = table.alias || table.table.name;
-  const physicalName = table.table.schemaName
-    ? `${table.table.schemaName}.${table.table.physicalName}`
-    : table.table.physicalName;
-
-  const activeHighlightId = hoveredFieldId ?? connectionHandleId;
-  const [dragOverFieldId, setDragOverFieldId] = useState<string | null>(null);
-  const [isDraggingConnection, setIsDraggingConnection] = useState(false);
-
-  return (
-    <Paper variant="outlined" sx={{ p: 1.5, minWidth: 240 }}>
-      <Stack spacing={0.5}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-          {tableName}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {physicalName}
-        </Typography>
-      </Stack>
-      <Divider sx={{ my: 1 }} />
-      <Stack 
-        spacing={0.75}
-        onMouseEnter={() => setIsDraggingConnection(false)}
-      >
-        {table.fields.length === 0 ? (
-          <Typography variant="caption" color="text.secondary">
-            No fields in this definition.
-          </Typography>
-        ) : (
-          table.fields.map((definitionField: DataDefinitionField) => {
-            const isHighlighted = activeHighlightId === definitionField.id;
-            const isDragOver = dragOverFieldId === definitionField.id;
-            return (
-              <Box
-                key={definitionField.fieldId}
-                sx={{
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  py: 0.75,
-                  pl: 3,
-                  pr: 3,
-                  borderRadius: 1,
-                  cursor: canEdit && !disabled ? 'grab' : 'default',
-                  transition: 'all 120ms ease',
-                  backgroundColor: isHighlighted || isDragOver ? '#e3f2fd' : 'transparent',
-                  boxShadow: isDragOver 
-                    ? `inset 0 0 0 2px #1976d2, 0 0 8px rgba(25, 118, 210, 0.3)` 
-                    : isHighlighted 
-                    ? `inset 0 0 0 1px #1976d2` 
-                    : 'none',
-                  border: isDragOver ? `2px solid #1976d2` : 'none',
-                  '&:active': { cursor: 'grabbing' }
-                }}
-                onMouseEnter={() => {
-                  if (!canEdit || disabled) return;
-                  setHoveredFieldId(definitionField.id);
-                }}
-                onMouseLeave={() => {
-                  if (!canEdit || disabled) return;
-                  setHoveredFieldId(null);
-                  setDragOverFieldId(null);
-                }}
-              >
-                <Handle
-                  type="target"
-                  position={Position.Left}
-                  id={definitionField.id}
-                  isConnectable={canEdit && !disabled}
-                  onConnect={() => setIsDraggingConnection(true)}
-                  style={{
-                    background: 'transparent',
-                    width: '100%',
-                    height: '100%',
-                    left: -15,
-                    top: 0,
-                    borderRadius: 0,
-                    border: 'none',
-                    transform: 'none',
-                    pointerEvents: canEdit && !disabled ? 'auto' : 'none'
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: 2,
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    backgroundColor: isHighlighted || isDragOver ? '#1565c0' : '#1976d2',
-                    boxShadow: isHighlighted || isDragOver ? '0 0 8px rgba(21, 101, 192, 0.6)' : 'none',
-                    transition: 'all 120ms ease',
-                    cursor: canEdit && !disabled ? 'crosshair' : 'default'
-                  }}
-                />
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
-                    flexGrow: 1,
-                    fontWeight: isHighlighted || isDragOver ? 600 : 400,
-                    transition: 'font-weight 120ms ease'
-                  }}
-                >
-                  {definitionField.field.name}
-                </Typography>
-                <Handle
-                  type="source"
-                  position={Position.Right}
-                  id={definitionField.id}
-                  isConnectable={canEdit && !disabled}
-                  onConnect={() => setIsDraggingConnection(true)}
-                  style={{
-                    background: 'transparent',
-                    width: '100%',
-                    height: '100%',
-                    right: -15,
-                    top: 0,
-                    borderRadius: 0,
-                    border: 'none',
-                    transform: 'none',
-                    pointerEvents: canEdit && !disabled ? 'auto' : 'none'
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    right: 2,
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    backgroundColor: isHighlighted || isDragOver ? '#6a1b9a' : '#9c27b0',
-                    boxShadow: isHighlighted || isDragOver ? '0 0 8px rgba(106, 27, 154, 0.6)' : 'none',
-                    transition: 'all 120ms ease',
-                    cursor: canEdit && !disabled ? 'crosshair' : 'default'
-                  }}
-                />
-              </Box>
-            );
-          })
-        )}
-      </Stack>
-    </Paper>
-  );
-});
-
-TableNode.displayName = 'TableNode';
-
-const nodeTypes = { table: TableNode } as const;
-
-type RelationshipDialogMode = 'create' | 'edit';
+const sanitizeNotes = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+};
 
 interface RelationshipDialogState {
-  mode: RelationshipDialogMode;
+  mode: 'create' | 'edit';
   primaryFieldId: string;
   foreignFieldId: string;
   relationshipId?: string;
@@ -281,70 +91,296 @@ interface RelationshipDialogState {
   notes: string;
 }
 
-const sanitizeNotes = (value: string) => {
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-};
+interface TablePosition {
+  tableId: string;
+  x: number;
+  y: number;
+}
 
-const RelationshipFlow = memo(
-  ({
-    nodes,
-    edges,
-    canEdit,
-    disabled,
-    onConnect,
-    onEdgeClick,
-    onConnectStart,
-    onConnectEnd
-  }: {
-    nodes: Node<TableNodeData>[];
-    edges: Edge[];
-    canEdit: boolean;
-    disabled: boolean;
-    onConnect: (connection: Connection) => void;
-    onEdgeClick: (edge: Edge) => void;
-    onConnectStart: OnConnectStart;
-    onConnectEnd: OnConnectEnd;
-  }) => {
-    const { fitView } = useReactFlow();
+interface FieldRef {
+  tableId: string;
+  fieldId: string;
+  x: number;
+  y: number;
+  width?: number;
+}
 
-    useEffect(() => {
-      const timer = setTimeout(() => {
-        fitView({ padding: 0.2, duration: 300 });
-      }, 50);
-      return () => clearTimeout(timer);
-    }, [fitView, nodes.length]);
+// Table card component for two-column layout
+const TableCard = ({
+  table,
+  side,
+  isSource,
+  selectedFieldId,
+  onFieldSelect,
+  onFieldDragStart,
+  onFieldDragEnd,
+  onFieldDragOver,
+  onFieldDrop,
+  onFieldRefChange
+}: {
+  table: DataDefinitionTable;
+  side: 'left' | 'right';
+  isSource: boolean;
+  selectedFieldId?: string | null;
+  onFieldSelect?: (fieldId: string) => void;
+  onFieldDragStart?: (fieldId: string, e: React.DragEvent) => void;
+  onFieldDragEnd?: (e: React.DragEvent) => void;
+  onFieldDragOver?: (e: React.DragEvent) => void;
+  onFieldDrop?: (fieldId: string, e: React.DragEvent) => void;
+  onFieldRefChange?: (fieldId: string, ref: FieldRef) => void;
+}) => {
+  const theme = useTheme();
+  const tableName = table.alias || table.table.name;
+  const physicalName = table.table.schemaName
+    ? `${table.table.schemaName}.${table.table.physicalName}`
+    : table.table.physicalName;
+
+  // Use only blue header color
+  const headerColor = '#3b82f6';
+  const headerGradient = 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)';
+
+  // Group fields by groupingTab
+  const groupedFields = useMemo(() => {
+    const groups = new Map<string, DataDefinitionField[]>();
+    const ungroupedFields: DataDefinitionField[] = [];
+
+    table.fields.forEach((field) => {
+      const groupKey = field.field.groupingTab || '__ungrouped__';
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, []);
+      }
+      groups.get(groupKey)!.push(field);
+    });
+
+    // Ensure ungrouped fields are listed first if they exist
+    if (groups.has('__ungrouped__')) {
+      ungroupedFields.push(...groups.get('__ungrouped__')!);
+      groups.delete('__ungrouped__');
+    }
+
+    return { groups: Array.from(groups.entries()), ungroupedFields };
+  }, [table.fields]);
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(groupedFields.groups.map(([key]) => key))
+  );
+
+  const toggleGroup = useCallback((groupKey: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const renderFieldBox = (definitionField: DataDefinitionField) => {
+    const isSelected = selectedFieldId === definitionField.id;
+    const boxRef: React.Ref<HTMLDivElement> = (el) => {
+      if (el && onFieldRefChange) {
+        setTimeout(() => {
+          // Get the canvas container and field element positions
+          const fieldRect = el.getBoundingClientRect();
+          const canvasEl = el.closest('[data-canvas]');
+          
+          if (canvasEl) {
+            const canvasRect = (canvasEl as HTMLElement).getBoundingClientRect();
+            // Calculate position relative to canvas (using right edge as the x coordinate)
+            const relativeX = fieldRect.right - canvasRect.left;
+            const relativeY = fieldRect.top - canvasRect.top + fieldRect.height / 2;
+            const width = fieldRect.width;
+            
+            onFieldRefChange(definitionField.id, {
+              tableId: table.id,
+              fieldId: definitionField.id,
+              x: relativeX,
+              y: relativeY,
+              width: width
+            });
+          }
+        }, 0);
+      }
+    };
 
     return (
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        fitView
-        nodesDraggable={canEdit && !disabled}
-        nodesConnectable={canEdit && !disabled}
-        onConnect={onConnect}
-        onEdgeClick={(event: MouseEvent, edge: Edge) => {
-          event.preventDefault();
-          onEdgeClick(edge);
+      <Box
+        key={definitionField.id}
+        ref={boxRef}
+        draggable={true}
+        onClick={() => onFieldSelect?.(definitionField.id)}
+        onDragStart={(e) => onFieldDragStart?.(definitionField.id, e)}
+        onDragEnd={(e) => onFieldDragEnd?.(e)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          onFieldDragOver?.(e);
         }}
-        onConnectStart={onConnectStart}
-        onConnectEnd={onConnectEnd}
-        elementsSelectable={canEdit && !disabled}
-        panOnScroll
-        panOnDrag={[2, 4]}
-        minZoom={0.4}
-        maxZoom={1.5}
+        onDrop={(e) => {
+          e.preventDefault();
+          onFieldDrop?.(definitionField.id, e);
+        }}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          padding: '8px 10px',
+          borderRadius: '6px',
+          cursor: 'grab',
+          background: isSelected
+            ? alpha(headerColor, 0.15)
+            : 'rgba(249, 250, 251, 0.6)',
+          border: isSelected ? `1.5px solid ${headerColor}` : '1px solid rgba(0, 0, 0, 0.08)',
+          transition: 'all 150ms ease',
+          '&:active': {
+            cursor: 'grabbing'
+          },
+          '&:hover': {
+            background: alpha(headerColor, 0.1),
+            borderColor: headerColor
+          }
+        }}
       >
-        <MiniMap pannable zoomable style={{ height: 100 }} />
-        <Controls showInteractive={false} />
-        <Background gap={24} size={1} />
-      </ReactFlow>
+        <Box
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: headerColor,
+            boxShadow: `0 0 6px ${alpha(headerColor, 0.5)}`
+          }}
+        />
+        <Typography
+          variant="body2"
+          sx={{
+            flex: 1,
+            fontWeight: isSelected ? 600 : 500,
+            color: isSelected ? headerColor : '#374151',
+            fontSize: '0.875rem'
+          }}
+        >
+          {definitionField.field.name}
+        </Typography>
+      </Box>
     );
-  }
-);
+  };
 
-RelationshipFlow.displayName = 'RelationshipFlow';
+  return (
+    <Paper
+      sx={{
+        borderRadius: '8px',
+        overflow: 'hidden',
+        border: `1px solid ${alpha(headerColor, 0.2)}`,
+        boxShadow: `0 4px 12px ${alpha(headerColor, 0.08)}`,
+        transition: 'all 200ms ease',
+        '&:hover': {
+          boxShadow: `0 8px 24px ${alpha(headerColor, 0.12)}`
+        }
+      }}
+    >
+      <Box
+        sx={{
+          background: headerGradient,
+          padding: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}
+      >
+        <Typography
+          sx={{
+            fontWeight: 700,
+            color: 'white',
+            fontSize: '0.9rem',
+            flex: 1
+          }}
+        >
+          {tableName}
+        </Typography>
+      </Box>
+
+      <Box sx={{ p: 1.5 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: '#666',
+            display: 'block',
+            mb: 1,
+            fontSize: '0.75rem',
+            fontWeight: 500
+          }}
+        >
+          {physicalName}
+        </Typography>
+
+        <Stack spacing={0.75}>
+          {table.fields.length === 0 ? (
+            <Typography variant="caption" color="text.secondary">
+              No fields
+            </Typography>
+          ) : (
+            <>
+              {/* Render ungrouped fields */}
+              {groupedFields.ungroupedFields.length > 0 && (
+                <Stack spacing={0.5}>
+                  {groupedFields.ungroupedFields.map((field) => renderFieldBox(field))}
+                </Stack>
+              )}
+
+              {/* Render grouped fields with expandable sections */}
+              {groupedFields.groups.map(([groupKey, fields]) => (
+                <Accordion
+                  key={groupKey}
+                  defaultExpanded={expandedGroups.has(groupKey)}
+                  onChange={() => toggleGroup(groupKey)}
+                  sx={{
+                    boxShadow: 'none',
+                    border: `1px solid ${alpha(headerColor, 0.15)}`,
+                    '&.Mui-expanded': {
+                      margin: 0
+                    },
+                    '&:before': {
+                      display: 'none'
+                    }
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      background: alpha(headerColor, 0.08),
+                      padding: '8px 12px',
+                      minHeight: 'auto',
+                      '&.Mui-expanded': {
+                        minHeight: 'auto'
+                      }
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontWeight: 600,
+                        color: headerColor,
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      {groupKey}
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ padding: '8px 12px' }}>
+                    <Stack spacing={0.5}>
+                      {fields.map((field) => renderFieldBox(field))}
+                    </Stack>
+                  </AccordionDetails>
+                </Accordion>
+              ))}
+            </>
+          )}
+        </Stack>
+      </Box>
+    </Paper>
+  );
+};
 
 const DataDefinitionRelationshipBuilder = ({
   tables,
@@ -358,22 +394,29 @@ const DataDefinitionRelationshipBuilder = ({
   initialForeignFieldId
 }: DataDefinitionRelationshipBuilderProps) => {
   const toast = useToast();
+  const theme = useTheme();
   const [expanded, setExpanded] = useState(false);
   const [dialogState, setDialogState] = useState<RelationshipDialogState | null>(null);
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DataDefinitionRelationship | null>(null);
-  const [hoveredFieldId, setHoveredFieldId] = useState<string | null>(null);
-  const [connectionHandleId, setConnectionHandleId] = useState<string | null>(null);
-  const theme = useTheme();
-
-  const hoverContextValue = useMemo(
-    () => ({ 
-      hoveredFieldId, 
-      connectionHandleId, 
-      setHoveredFieldId
-    }),
-    [hoveredFieldId, connectionHandleId]
-  );
+  const [draggedFieldId, setDraggedFieldId] = useState<string | null>(null);
+  const [dragOverFieldId, setDragOverFieldId] = useState<string | null>(null);
+  const [tablePositions, setTablePositions] = useState<Map<string, TablePosition>>(() => {
+    const positions = new Map<string, TablePosition>();
+    tables.forEach((table, idx) => {
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      positions.set(table.id, {
+        tableId: table.id,
+        x: col * 450 + 20,
+        y: row * 320 + 20
+      });
+    });
+    return positions;
+  });
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [fieldRefs, setFieldRefs] = useState<Map<string, FieldRef>>(new Map());
 
   const fieldLookup = useMemo(() => {
     const map = new Map<string, { definitionField: DataDefinitionField; table: DataDefinitionTable }>();
@@ -412,59 +455,12 @@ const DataDefinitionRelationshipBuilder = ({
     }
   }, [initialPrimaryFieldId, initialForeignFieldId]);
 
-  const nodes: Node<TableNodeData>[] = useMemo(() => {
-    if (!tables.length) {
-      return [];
-    }
-    const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(tables.length))));
-    const horizontalGap = 320;
-    const verticalGap = 260;
-
-    return tables.map((table, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      return {
-        id: table.id,
-        type: 'table',
-        position: { x: column * horizontalGap, y: row * verticalGap },
-        data: {
-          table,
-          canEdit,
-          disabled: busy
-        }
-      } satisfies Node<TableNodeData>;
-    });
-  }, [tables, canEdit, busy]);
-
-  const edges: Edge[] = useMemo(
-    () =>
-      relationships.map((relationship) => ({
-        id: relationship.id,
-        source: relationship.primaryTableId,
-        target: relationship.foreignTableId,
-        sourceHandle: relationship.primaryFieldId,
-        targetHandle: relationship.foreignFieldId,
-        label: relationshipTypeLabel(relationship.relationshipType),
-        animated: false,
-        type: 'smoothstep',
-        style: { strokeWidth: 2 },
-        labelStyle: {
-          fill: '#374151',
-          fontWeight: 600
-        }
-      })),
-    [relationships]
-  );
-
   const openCreateDialog = useCallback(
-    (connection: Connection) => {
-      if (!connection.sourceHandle || !connection.targetHandle) {
-        return;
-      }
+    (primaryFieldId: string, foreignFieldId: string) => {
       setDialogState({
         mode: 'create',
-        primaryFieldId: connection.sourceHandle,
-        foreignFieldId: connection.targetHandle,
+        primaryFieldId,
+        foreignFieldId,
         relationshipType: 'one_to_one',
         notes: ''
       });
@@ -483,66 +479,97 @@ const DataDefinitionRelationshipBuilder = ({
     });
   }, []);
 
-  const handleConnect = useCallback(
-    (connection: Connection) => {
-      if (!canEdit || busy) {
-        return;
-      }
-      if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) {
-        return;
-      }
-      if (connection.source === connection.target) {
-        toast.showError('Choose fields from different tables.');
-        return;
-      }
-      if (connection.sourceHandle === connection.targetHandle) {
-        toast.showError('Primary and foreign fields must be different.');
-        return;
-      }
-      const exists = relationships.some(
-        (relationship) =>
-          relationship.primaryFieldId === connection.sourceHandle &&
-          relationship.foreignFieldId === connection.targetHandle
-      );
-      if (exists) {
-        toast.showInfo('This relationship already exists.');
-        return;
-      }
-      openCreateDialog(connection);
+  const handleFieldDragStart = useCallback((fieldId: string) => {
+    setDraggedFieldId(fieldId);
+  }, []);
+
+  const handleFieldDragEnd = useCallback(() => {
+    setDraggedFieldId(null);
+    setDragOverFieldId(null);
+  }, []);
+
+  const handleFieldDragOver = useCallback(() => {
+    // Allow drop
+  }, []);
+
+  const handleFieldDrop = useCallback((targetFieldId: string) => {
+    if (!draggedFieldId) return;
+    if (draggedFieldId === targetFieldId) {
+      toast.showError('Select different fields');
+      return;
+    }
+
+    const draggedEntry = fieldLookup.get(draggedFieldId);
+    const targetEntry = fieldLookup.get(targetFieldId);
+
+    if (!draggedEntry || !targetEntry) {
+      toast.showError('Invalid field selection');
+      return;
+    }
+
+    // Check if they're from different tables
+    if (draggedEntry.table.id === targetEntry.table.id) {
+      toast.showError('Select fields from different tables');
+      return;
+    }
+
+    // Create relationship from dragged field to target field
+    openCreateDialog(draggedFieldId, targetFieldId);
+    setDraggedFieldId(null);
+    setDragOverFieldId(null);
+  }, [draggedFieldId, fieldLookup, openCreateDialog, toast]);
+
+  const handleTableMouseDown = useCallback(
+    (tableId: string, e: React.MouseEvent) => {
+      if (!canEdit || busy) return;
+      if ((e.target as HTMLElement).closest('[data-no-drag]')) return; // Prevent dragging from certain elements
+
+      const position = tablePositions.get(tableId);
+      if (!position) return;
+
+      setDraggingTableId(tableId);
+      setDragOffset({
+        x: e.clientX - position.x,
+        y: e.clientY - position.y
+      });
     },
-    [busy, canEdit, openCreateDialog, relationships, toast]
+    [canEdit, busy, tablePositions]
   );
 
-  const handleEdgeClick = useCallback(
-    (edge: Edge) => {
-      if (!canEdit || busy) {
-        return;
-      }
-      const relationship = relationships.find((item) => item.id === edge.id);
-      if (relationship) {
-        openEditDialog(relationship);
-      }
-    },
-    [busy, canEdit, openEditDialog, relationships]
-  );
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingTableId) return;
 
-  const handleConnectStart = useCallback(
-    (_event: Parameters<OnConnectStart>[0], params: Parameters<OnConnectStart>[1]) => {
-      if (!canEdit || busy) {
-        return;
-      }
-      setConnectionHandleId(params.handleId ?? null);
-    },
-    [busy, canEdit]
-  );
+      const position = tablePositions.get(draggingTableId);
+      if (!position) return;
 
-  const handleConnectEnd = useCallback<OnConnectEnd>(
-    () => {
-      setConnectionHandleId(null);
-      setHoveredFieldId(null);
-    },
-    []
-  );
+      const newX = Math.max(0, e.clientX - dragOffset.x);
+      const newY = Math.max(0, e.clientY - dragOffset.y);
+
+      setTablePositions((prev) => {
+        const next = new Map(prev);
+        next.set(draggingTableId, {
+          ...position,
+          x: newX,
+          y: newY
+        });
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      setDraggingTableId(null);
+    };
+
+    if (draggingTableId) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [draggingTableId, dragOffset, tablePositions]);
 
   const closeDialog = useCallback(() => {
     setDialogState(null);
@@ -706,15 +733,55 @@ const DataDefinitionRelationshipBuilder = ({
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, bgcolor: theme.palette.common.white, borderColor: alpha(theme.palette.info.main, 0.25), borderLeft: `4px solid ${theme.palette.info.main}`, boxShadow: `0 4px 12px ${alpha(theme.palette.common.black, 0.05)}` }}>
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 2,
+        bgcolor: theme.palette.common.white,
+        borderColor: alpha(theme.palette.primary.main, 0.2),
+        borderLeft: `5px solid ${theme.palette.primary.main}`,
+        boxShadow: `0 4px 16px ${alpha(theme.palette.common.black, 0.08)}`,
+        borderRadius: '8px',
+        background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 250, 251, 0.98) 100%)'
+      }}
+    >
       <Stack spacing={2}>
-        <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between">
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <LinkIcon color="primary" />
-            <Typography variant="h6">Table Relationships</Typography>
+        <Stack direction="row" alignItems="center" spacing={1.5} justifyContent="space-between">
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            <Box
+              sx={{
+                p: 1,
+                borderRadius: '6px',
+                background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <LinkIcon sx={{ color: 'white', fontSize: '1.25rem' }} />
+            </Box>
+            <Stack spacing={0.25}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}
+              >
+                Table Relationships
+              </Typography>
+            </Stack>
             <Chip
               label={`${relationships.length} relationship${relationships.length === 1 ? '' : 's'}`}
               size="small"
+              sx={{
+                background: 'linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%)',
+                color: '#1e40af',
+                fontWeight: 600
+              }}
             />
           </Stack>
           <IconButton
@@ -722,37 +789,154 @@ const DataDefinitionRelationshipBuilder = ({
             size="small"
             aria-label={expanded ? 'Collapse relationships' : 'Expand relationships'}
             aria-expanded={expanded}
+            sx={{
+              transition: 'all 200ms ease',
+              '&:hover': {
+                background: alpha(theme.palette.primary.main, 0.08)
+              }
+            }}
           >
             {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
         </Stack>
+
         <Collapse in={expanded} unmountOnExit>
           <Stack spacing={2}>
-            <Typography variant="body2" color="text.secondary">
-              Drag from a primary field to a foreign field to define a relationship. Existing connections can be clicked or managed in the list below.
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{
+                fontSize: '0.875rem',
+                lineHeight: 1.6,
+                color: '#666'
+              }}
+            >
+              Drag fields between tables to create relationships. Drag table headers to reposition.
             </Typography>
-            <Box sx={{ height: 360 }}>
-              <RelationshipHoverContext.Provider value={hoverContextValue}>
-                <ReactFlowProvider>
-                  <RelationshipFlow
-                    nodes={nodes}
-                    edges={edges}
-                    canEdit={canEdit}
-                    disabled={busy}
-                    onConnect={handleConnect}
-                    onEdgeClick={handleEdgeClick}
-                    onConnectStart={handleConnectStart}
-                    onConnectEnd={handleConnectEnd}
-                  />
-                </ReactFlowProvider>
-              </RelationshipHoverContext.Provider>
+
+            {/* Canvas-based free-form layout */}
+            <Box
+              data-canvas
+              sx={{
+                position: 'relative',
+                minHeight: 600,
+                p: 2,
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, rgba(249, 250, 251, 0.5) 0%, rgba(240, 249, 255, 0.5) 100%)',
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+                overflow: 'hidden'
+              }}
+            >
+              {/* SVG layer for connecting lines */}
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 1
+                }}
+              >
+                <defs>
+                  <marker
+                    id="arrowhead"
+                    markerWidth="10"
+                    markerHeight="10"
+                    refX="9"
+                    refY="3"
+                    orient="auto"
+                  >
+                    <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+                  </marker>
+                </defs>
+                {relationships.map((rel) => {
+                  const primaryRef = fieldRefs.get(rel.primaryFieldId);
+                  const foreignRef = fieldRefs.get(rel.foreignFieldId);
+
+                  if (!primaryRef || !foreignRef) return null;
+
+                  // Connection points on the right edge of primary field and left edge of foreign field
+                  const x1 = primaryRef.x;
+                  const y1 = primaryRef.y;
+                  const x2 = foreignRef.x - (foreignRef.width || 0);
+                  const y2 = foreignRef.y;
+                  const midX = (x1 + x2) / 2;
+
+                  return (
+                    <g key={`line-${rel.id}`}>
+                      <path
+                        d={`M ${x1} ${y1} Q ${midX} ${y1}, ${midX} ${(y1 + y2) / 2} T ${x2} ${y2}`}
+                        stroke="#3b82f6"
+                        strokeWidth="2"
+                        fill="none"
+                        opacity="0.6"
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* Tables positioned on canvas */}
+              <Box sx={{ position: 'relative', zIndex: 2 }}>
+                {tables.map((table) => {
+                  const position = tablePositions.get(table.id);
+                  if (!position) return null;
+
+                  return (
+                    <Box
+                      key={table.id}
+                      onMouseDown={(e) => handleTableMouseDown(table.id, e)}
+                      sx={{
+                        position: 'absolute',
+                        left: `${position.x}px`,
+                        top: `${position.y}px`,
+                        width: '320px',
+                        cursor: draggingTableId === table.id ? 'grabbing' : 'grab',
+                        userSelect: 'none'
+                      }}
+                    >
+                      <TableCard
+                        table={table}
+                        side="left"
+                        isSource={true}
+                        selectedFieldId={draggedFieldId}
+                        onFieldDragStart={handleFieldDragStart}
+                        onFieldDragEnd={handleFieldDragEnd}
+                        onFieldDragOver={handleFieldDragOver}
+                        onFieldDrop={handleFieldDrop}
+                        onFieldRefChange={(fieldId, ref) => {
+                          setFieldRefs((prev) => {
+                            const next = new Map(prev);
+                            next.set(fieldId, ref);
+                            return next;
+                          });
+                        }}
+                      />
+                    </Box>
+                  );
+                })}
+              </Box>
             </Box>
-            <Divider />
+
+            <Divider sx={{ background: 'linear-gradient(90deg, transparent, #e0e7ff, transparent)' }} />
+
+            {/* Relationships List */}
             <Stack spacing={1.5}>
-              <Typography variant="subtitle2">Defined Relationships</Typography>
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 700,
+                  color: '#1e40af',
+                  fontSize: '0.95rem'
+                }}
+              >
+                Defined Relationships
+              </Typography>
               {relationships.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No relationships yet. Create one by connecting fields in the diagram above.
+                  No relationships yet. Create one by clicking fields in the diagram above.
                 </Typography>
               ) : (
                 <List disablePadding>
@@ -765,15 +949,33 @@ const DataDefinitionRelationshipBuilder = ({
                       <ListItem
                         key={relationship.id}
                         disableGutters
-                        secondaryAction=
-                          {canEdit ? (
-                            <Stack direction="row" spacing={1}>
+                        sx={{
+                          p: 1.5,
+                          mb: 0.75,
+                          borderRadius: '6px',
+                          background: 'linear-gradient(135deg, rgba(243, 244, 246, 0.6) 0%, rgba(249, 250, 251, 0.6) 100%)',
+                          border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+                          transition: 'all 200ms ease',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, rgba(219, 234, 254, 0.4) 0%, rgba(240, 249, 255, 0.4) 100%)',
+                            boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.1)}`
+                          }
+                        }}
+                        secondaryAction={
+                          canEdit ? (
+                            <Stack direction="row" spacing={0.5}>
                               <IconButton
                                 edge="end"
                                 aria-label="Edit relationship"
                                 onClick={() => openEditDialog(relationship)}
                                 disabled={busy}
                                 size="small"
+                                sx={{
+                                  color: theme.palette.primary.main,
+                                  '&:hover': {
+                                    background: alpha(theme.palette.primary.main, 0.1)
+                                  }
+                                }}
                               >
                                 <EditIcon fontSize="small" />
                               </IconButton>
@@ -783,27 +985,45 @@ const DataDefinitionRelationshipBuilder = ({
                                 onClick={() => setDeleteTarget(relationship)}
                                 disabled={busy}
                                 size="small"
+                                sx={{
+                                  color: theme.palette.error.main,
+                                  '&:hover': {
+                                    background: alpha(theme.palette.error.main, 0.1)
+                                  }
+                                }}
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
                             </Stack>
-                          ) : undefined}
+                          ) : undefined
+                        }
                       >
                         <ListItemText
                           primary={`${primaryLabel} → ${foreignLabel}`}
-                          primaryTypographyProps={{ variant: 'body2' }}
+                          primaryTypographyProps={{
+                            variant: 'body2',
+                            sx: { fontWeight: 600, color: '#1e40af' }
+                          }}
                           secondaryTypographyProps={{ component: 'div' }}
                           secondary={
-                            <Stack direction="row" spacing={1} alignItems="center">
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.75 }}>
                               <Chip
                                 label={relationshipTypeLabel(relationship.relationshipType)}
                                 size="small"
-                                color="primary"
-                                variant="outlined"
+                                sx={{
+                                  background: 'linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%)',
+                                  color: '#1e40af',
+                                  fontWeight: 600,
+                                  fontSize: '0.75rem'
+                                }}
                               />
                               {secondary && (
                                 <Tooltip title={secondary}>
-                                  <Typography variant="caption" color="text.secondary">
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ fontSize: '0.75rem' }}
+                                  >
                                     {secondary}
                                   </Typography>
                                 </Tooltip>

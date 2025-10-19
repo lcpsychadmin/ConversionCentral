@@ -234,8 +234,6 @@ const MainLayout = () => {
       <AppBar
         position="fixed"
         sx={{
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          ml: { sm: `${drawerWidth}px` },
           background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.main, 0.95)} 100%)`,
           boxShadow: `0 4px 20px ${alpha(theme.palette.primary.main, 0.3)}`,
           borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`
@@ -247,7 +245,12 @@ const MainLayout = () => {
             aria-label="open drawer"
             edge="start"
             onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: 'none' } }}
+            sx={{
+              mr: 2,
+              [theme.breakpoints.up('lg')]: {
+                display: 'none'
+              }
+            }}
           >
             <MenuIcon />
           </IconButton>
@@ -272,22 +275,30 @@ const MainLayout = () => {
           )}
         </Toolbar>
       </AppBar>
-      <Box
-        component="nav"
-        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-        aria-label="navigation"
-      >
+      <Box component="nav" sx={{ flexShrink: 0 }} aria-label="navigation">
+        {/* Mobile drawer - only on small screens */}
         <Drawer
           variant="temporary"
           open={mobileOpen}
           onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
+          ModalProps={{
+            keepMounted: true,
+            BackdropProps: {
+              sx: {
+                backdropFilter: 'blur(4px)',
+                backgroundColor: alpha(theme.palette.common.black, 0.75)
+              }
+            }
+          }}
           sx={{
-            display: { xs: 'block', sm: 'none' },
+            display: 'block',
+            [theme.breakpoints.up('lg')]: {
+              display: 'none'
+            },
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: alpha(theme.palette.primary.main, 0.08),
+              backgroundColor: alpha(theme.palette.background.default, 0.96),
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
               boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`
             }
@@ -295,26 +306,40 @@ const MainLayout = () => {
         >
           {drawer}
         </Drawer>
+        {/* Permanent drawer - only on large screens */}
         <Drawer
           variant="permanent"
           sx={{
-            display: { xs: 'none', sm: 'block' },
+            display: 'none',
+            [theme.breakpoints.up('lg')]: {
+              display: 'block'
+            },
+            width: drawerWidth,
+            flexShrink: 0,
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: alpha(theme.palette.primary.main, 0.08),
+              backgroundColor: alpha(theme.palette.background.default, 0.96),
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
-              boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`
+              boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
+              position: 'fixed',
+              height: '100vh',
+              top: 0,
+              left: 0
             }
           }}
-          open
         >
           {drawer}
         </Drawer>
       </Box>
       <Box
         component="main"
-        sx={{ flexGrow: 1, p: 3, width: { sm: `calc(100% - ${drawerWidth}px)` } }}
+        sx={{
+          flexGrow: 1,
+          p: 3,
+          width: '100%',
+          minWidth: 0
+        }}
       >
         <Toolbar />
         <Outlet />

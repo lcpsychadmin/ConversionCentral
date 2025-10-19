@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const rawBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const isBrowser = typeof window !== 'undefined';
+const fallbackBaseUrl = import.meta.env.DEV || !isBrowser ? 'http://localhost:8000' : window.location.origin;
+const rawBaseUrl = import.meta.env.VITE_API_URL ?? fallbackBaseUrl;
 const normalizedBaseUrl = rawBaseUrl.endsWith('/api')
   ? rawBaseUrl
   : `${rawBaseUrl.replace(/\/$/, '')}/api`;

@@ -70,6 +70,7 @@ services:
       APP_NAME: "Conversion Central API"
       DATABASE_URL: "postgresql+psycopg://postgres:postgres@postgres:5432/conversion_central"
       INGESTION_DATABASE_URL: "mssql+pyodbc://ingestion_user:Ch%40ngeMe123%21@sqlserver:1433/ConversionIngestion?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+      FRONTEND_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,https://wescollins.duckdns.org,http://wescollins.duckdns.org"
     depends_on:
       postgres:
         condition: service_healthy

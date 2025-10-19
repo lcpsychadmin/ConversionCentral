@@ -36,6 +36,8 @@ tests/               # Pytest-based API tests
 
 ## Getting Started
 
+For production guidance on Azure Container Apps, see `docs/azure-container-apps.md`. It walks through building images, configuring managed databases, and deploying backend/frontend workloads.
+
 ### 1. Prerequisites
 
 - Python 3.11+
@@ -58,6 +60,8 @@ Copy the sample below into an `.env` file at the project root or export equivale
 ```
 DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/conversion_central
 APP_NAME=Conversion Central API
+# Optional: override default CORS allow list (comma separated)
+FRONTEND_ORIGINS=http://localhost:5173,http://localhost:3000,https://wescollins.duckdns.org
 ```
 
 Adjust credentials, host, port, and database name to match your environment.

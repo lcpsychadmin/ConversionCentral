@@ -7,7 +7,7 @@ const LoginPage = () => {
     const { login } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const [email, setEmail] = useState('');
+    const [email, setEmail] = useState('admin@conversioncentral.com');
     const from = location.state?.from?.pathname ?? '/';
     const resolveRoles = (address) => {
         const normalized = address.trim().toLowerCase();
@@ -15,7 +15,7 @@ const LoginPage = () => {
             return ['viewer'];
         }
         const roles = ['viewer'];
-        const adminEmails = new Set(['j.wes.collins@outlook.com']);
+    const adminEmails = new Set(['admin@conversioncentral.com']);
         if (adminEmails.has(normalized)) {
             roles.push('admin');
         }
