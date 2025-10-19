@@ -8,8 +8,10 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
 
 import { ProcessArea } from '../../types/data';
+import { getDataGridStyles } from '../../utils/tableStyles';
 
 const formatStatusLabel = (status: string) =>
   status
@@ -87,6 +89,7 @@ const ProcessAreaTable = ({
   onEdit,
   onDelete
 }: ProcessAreaTableProps) => {
+  const theme = useTheme();
   const columnConfig = useMemo(() => columns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {
@@ -106,6 +109,7 @@ const ProcessAreaTable = ({
         onRowClick={(params) => onSelect?.(params.row)}
         getRowId={(row) => row.id}
         disableRowSelectionOnClick={false}
+        sx={getDataGridStyles(theme)}
       />
     </div>
   );

@@ -8,8 +8,10 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
 
 import { Project } from '../../types/data';
+import { getDataGridStyles } from '../../utils/tableStyles';
 
 export type ProjectRow = Project;
 
@@ -87,6 +89,7 @@ const ProjectTable = ({
   onEdit,
   onDelete
 }: ProjectTableProps) => {
+  const theme = useTheme();
   const columns = useMemo(() => buildColumns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {
@@ -106,6 +109,7 @@ const ProjectTable = ({
         onRowClick={(params) => onSelect?.(params.row)}
         getRowId={(row) => row.id}
         disableRowSelectionOnClick={false}
+        sx={getDataGridStyles(theme)}
       />
     </div>
   );

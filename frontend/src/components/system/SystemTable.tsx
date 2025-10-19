@@ -8,8 +8,10 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
 
 import { System } from '../../types/data';
+import { getDataGridStyles } from '../../utils/tableStyles';
 
 interface SystemTableProps {
   data: System[];
@@ -67,6 +69,7 @@ const buildColumns = (
 };
 
 const SystemTable = ({ data, loading, selectedId, canManage, onSelect, onEdit, onDelete }: SystemTableProps) => {
+  const theme = useTheme();
   const columns = useMemo(() => buildColumns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {
@@ -86,6 +89,7 @@ const SystemTable = ({ data, loading, selectedId, canManage, onSelect, onEdit, o
         onRowClick={(params) => onSelect?.(params.row)}
         getRowId={(row) => row.id}
         disableRowSelectionOnClick={false}
+        sx={getDataGridStyles(theme)}
       />
     </div>
   );

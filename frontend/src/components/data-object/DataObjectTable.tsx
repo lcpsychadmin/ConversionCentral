@@ -8,8 +8,10 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
 
 import { DataObject } from '../../types/data';
+import { getDataGridStyles } from '../../utils/tableStyles';
 
 interface DataObjectTableProps {
   data: DataObjectRow[];
@@ -92,6 +94,7 @@ const DataObjectTable = ({
   onDelete
 }: DataObjectTableProps) => {
   const columns = useMemo(() => buildColumns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
+  const theme = useTheme();
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {
     const id = (selection[0] as string) ?? null;
@@ -110,6 +113,7 @@ const DataObjectTable = ({
         onRowClick={(params) => onSelect?.(params.row)}
         getRowId={(row) => row.id}
         disableRowSelectionOnClick={false}
+        sx={getDataGridStyles(theme)}
       />
     </div>
   );

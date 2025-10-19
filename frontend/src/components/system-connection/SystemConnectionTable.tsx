@@ -10,9 +10,11 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FlashOnIcon from '@mui/icons-material/FlashOn';
 import { Chip, Tooltip } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 
 import { SystemConnection, System } from '../../types/data';
 import { formatConnectionSummary, parseJdbcConnectionString } from '../../utils/connectionString';
+import { getDataGridStyles } from '../../utils/tableStyles';
 
 interface SystemConnectionTableProps {
   data: SystemConnection[];
@@ -134,6 +136,8 @@ const SystemConnectionTable = ({
     [systems]
   );
 
+  const theme = useTheme();
+
   const columns = useMemo(
     () => buildColumns(systemLookup, canManage, onEdit, onDelete, onTest),
     [systemLookup, canManage, onEdit, onDelete, onTest]
@@ -156,6 +160,7 @@ const SystemConnectionTable = ({
         onRowClick={(params) => onSelect?.(params.row)}
         getRowId={(row) => row.id}
         disableRowSelectionOnClick={false}
+        sx={getDataGridStyles(theme)}
       />
     </div>
   );
