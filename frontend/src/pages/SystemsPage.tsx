@@ -161,7 +161,11 @@ const SystemsPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+      <Paper elevation={3} sx={{ 
+        p: 3, 
+        mb: 3,
+        background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+      }}>
         <SystemTable
           data={sortedSystems}
           loading={isLoading}

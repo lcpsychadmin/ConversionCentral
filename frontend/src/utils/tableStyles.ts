@@ -60,6 +60,9 @@ export const getDataGridStyles = (theme: Theme) => ({
       }
     }
   },
+  '& .MuiDataGrid-row:nth-of-type(even) .MuiDataGrid-cell': {
+    backgroundColor: alpha(theme.palette.action.hover, 0.12)
+  },
   '& .MuiDataGrid-row:focus': {
     boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.45)}`,
     transition: theme.transitions.create(['box-shadow', 'background-color'], { duration: 200 })
