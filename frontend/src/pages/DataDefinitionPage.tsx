@@ -1091,6 +1091,7 @@ const DataDefinitionsPage = () => {
           initialDefinition={formMode === 'edit' ? definition : null}
           tables={tablesForSystem}
           systemId={selectedSystemId}
+          dataObjectId={dataObjectId}
           onMetadataRefresh={refreshMetadata}
         />
       )}

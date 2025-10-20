@@ -35,6 +35,7 @@ interface DataDefinitionFormProps {
   onClose: () => void;
   onSubmit: (payload: { description: string | null; tables: DataDefinitionTableInput[] }) => void;
   initialDefinition?: DataDefinition | null;
+  dataObjectId?: string;
   tables: Table[];
   systemId: string;
   onMetadataRefresh?: () => Promise<void>;
@@ -150,6 +151,7 @@ const DataDefinitionForm = ({
   onClose,
   onSubmit,
   initialDefinition,
+  dataObjectId,
   tables,
   systemId,
   onMetadataRefresh
@@ -338,15 +340,16 @@ const DataDefinitionForm = ({
   };
 
   const handleOpenAddSourceTable = async () => {
-    if (!initialDefinition) {
-      toast.showError('Data definition not available.');
+    const objectId = initialDefinition?.dataObjectId ?? dataObjectId;
+    if (!objectId) {
+      toast.showError('Data object not available.');
       return;
     }
     
     setSourceTableDialogLoading(true);
     setSourceTableDialogError(null);
     try {
-      const tables = await fetchAvailableSourceTables(initialDefinition.dataObjectId);
+      const tables = await fetchAvailableSourceTables(objectId);
       setAvailableSourceTables(tables);
       setSourceTableDialogOpen(true);
     } catch (error) {
@@ -754,7 +757,7 @@ const DataDefinitionForm = ({
                   variant="outlined"
                   startIcon={<AddCircleOutlineIcon />}
                   onClick={handleOpenAddSourceTable}
-                  disabled={loading || sourceTableDialogLoading || !initialDefinition}
+                  disabled={loading || sourceTableDialogLoading || (!initialDefinition && !dataObjectId)}
                 >
                   Add Source Table
                 </Button>
