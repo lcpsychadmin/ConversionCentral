@@ -11,12 +11,20 @@ import {
   TextField,
   Typography,
   CircularProgress,
-  Alert
+  Alert,
+  Checkbox,
+  FormControlLabel,
+  Box,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText
 } from '@mui/material';
 
-import { AvailableSourceTable } from '../../services/dataDefinitionService';
+import { AvailableSourceTable, fetchSourceTableColumns, SourceTableColumn } from '../../services/dataDefinitionService';
 
 interface AddExistingSourceTableDialogProps {
+  dataObjectId?: string;
   open: boolean;
   tables: AvailableSourceTable[];
   loading?: boolean;
@@ -28,10 +36,12 @@ interface AddExistingSourceTableDialogProps {
     tableType?: string | null;
     columnCount?: number | null;
     estimatedRows?: number | null;
+    selectedColumns: SourceTableColumn[];
   }) => Promise<void> | void;
 }
 
 const AddExistingSourceTableDialog = ({
+  dataObjectId,
   open,
   tables,
   loading = false,
@@ -40,15 +50,52 @@ const AddExistingSourceTableDialog = ({
   onSubmit
 }: AddExistingSourceTableDialogProps) => {
   const [selectedTable, setSelectedTable] = useState<AvailableSourceTable | null>(null);
+  const [columns, setColumns] = useState<SourceTableColumn[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
+  const [columnsLoading, setColumnsLoading] = useState(false);
 
   useEffect(() => {
     if (!open) {
       return;
     }
     setSelectedTable(null);
+    setColumns([]);
+    setSelectedColumns(new Set());
     setLocalError(null);
+    setColumnsLoading(false);
   }, [open, tables]);
+
+  // Fetch columns when table is selected
+  useEffect(() => {
+    if (!selectedTable || !dataObjectId) {
+      return;
+    }
+
+    const fetchColumns = async () => {
+      setColumnsLoading(true);
+      setLocalError(null);
+      try {
+        const cols = await fetchSourceTableColumns(
+          dataObjectId,
+          selectedTable.schemaName,
+          selectedTable.tableName
+        );
+        setColumns(cols);
+        // Auto-select all columns by default
+        setSelectedColumns(new Set(cols.map((c) => c.name)));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load columns';
+        setLocalError(message);
+        setColumns([]);
+        setSelectedColumns(new Set());
+      } finally {
+        setColumnsLoading(false);
+      }
+    };
+
+    fetchColumns();
+  }, [selectedTable, dataObjectId]);
 
   const tableOptions = useMemo(
     () =>
@@ -62,10 +109,37 @@ const AddExistingSourceTableDialog = ({
   );
 
   const handleClose = () => {
-    if (loading) {
+    if (loading || columnsLoading) {
       return;
     }
     onClose();
+  };
+
+  const handleTableChange = (_: unknown, value: AvailableSourceTable | null) => {
+    setSelectedTable(value);
+    setColumns([]);
+    setSelectedColumns(new Set());
+    setLocalError(null);
+  };
+
+  const handleColumnToggle = (columnName: string) => {
+    setSelectedColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnName)) {
+        next.delete(columnName);
+      } else {
+        next.add(columnName);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedColumns.size === columns.length) {
+      setSelectedColumns(new Set());
+    } else {
+      setSelectedColumns(new Set(columns.map((c) => c.name)));
+    }
   };
 
   const handleSubmit = async () => {
@@ -74,13 +148,21 @@ const AddExistingSourceTableDialog = ({
       return;
     }
 
+    if (selectedColumns.size === 0) {
+      setLocalError('Select at least one column to add.');
+      return;
+    }
+
     setLocalError(null);
+    const columnsToAdd = columns.filter((c) => selectedColumns.has(c.name));
+    
     await onSubmit({
       schemaName: selectedTable.schemaName,
       tableName: selectedTable.tableName,
       tableType: selectedTable.tableType,
       columnCount: selectedTable.columnCount,
-      estimatedRows: selectedTable.estimatedRows
+      estimatedRows: selectedTable.estimatedRows,
+      selectedColumns: columnsToAdd
     });
   };
 
@@ -95,68 +177,128 @@ const AddExistingSourceTableDialog = ({
           <Typography variant="body2" color="text.secondary">
             Available source tables from your system connections
           </Typography>
-          {loading ? (
-            <CircularProgress />
-          ) : (
-            <Autocomplete
-              options={tableOptions}
-              value={selectedTable}
-              onChange={(_, value) => {
-                setSelectedTable(value);
-                setLocalError(null);
-              }}
-              getOptionLabel={(option) => `${option.schemaName}.${option.tableName}`}
-              isOptionEqualToValue={(option, value) =>
-                option.schemaName === value.schemaName && option.tableName === value.tableName
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Source Table"
-                  placeholder={tableOptions.length ? 'Select table' : 'No tables available'}
-                  required
-                  error={Boolean(localError)}
-                  helperText={localError}
-                />
-              )}
-              disabled={loading || !tableOptions.length}
-            />
-          )}
+          <Autocomplete
+            options={tableOptions}
+            value={selectedTable}
+            onChange={handleTableChange}
+            getOptionLabel={(option) => `${option.schemaName}.${option.tableName}`}
+            isOptionEqualToValue={(option, value) =>
+              option.schemaName === value.schemaName && option.tableName === value.tableName
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Source Table"
+                placeholder={tableOptions.length ? 'Select table' : 'No tables available'}
+                required
+                error={Boolean(localError && !selectedTable)}
+                helperText={localError && !selectedTable ? localError : ''}
+              />
+            )}
+            disabled={loading || !tableOptions.length}
+          />
+
           {selectedTable && (
-            <Stack spacing={1}>
-              <Typography variant="caption" color="text.secondary">
-                <strong>Details:</strong>
-              </Typography>
-              {selectedTable.tableType && (
-                <Typography variant="body2" color="text.secondary">
-                  Type: {selectedTable.tableType}
+            <Stack spacing={2}>
+              <Stack spacing={1}>
+                <Typography variant="caption" color="text.secondary">
+                  <strong>Table Details:</strong>
                 </Typography>
-              )}
-              {selectedTable.columnCount !== null && selectedTable.columnCount !== undefined && (
-                <Typography variant="body2" color="text.secondary">
-                  Columns: {selectedTable.columnCount}
+                {selectedTable.tableType && (
+                  <Typography variant="body2" color="text.secondary">
+                    Type: {selectedTable.tableType}
+                  </Typography>
+                )}
+                {selectedTable.columnCount !== null && selectedTable.columnCount !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    Columns: {selectedTable.columnCount}
+                  </Typography>
+                )}
+                {selectedTable.estimatedRows !== null && selectedTable.estimatedRows !== undefined && (
+                  <Typography variant="body2" color="text.secondary">
+                    Est. Rows: {new Intl.NumberFormat().format(selectedTable.estimatedRows)}
+                  </Typography>
+                )}
+              </Stack>
+
+              <Stack spacing={1}>
+                <Typography variant="caption" color="text.secondary">
+                  <strong>Columns to Import:</strong>
                 </Typography>
-              )}
-              {selectedTable.estimatedRows !== null && selectedTable.estimatedRows !== undefined && (
-                <Typography variant="body2" color="text.secondary">
-                  Est. Rows: {new Intl.NumberFormat().format(selectedTable.estimatedRows)}
-                </Typography>
-              )}
+                {columnsLoading ? (
+                  <Box display="flex" justifyContent="center" py={2}>
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : columns.length > 0 ? (
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={selectedColumns.size === columns.length && columns.length > 0}
+                          indeterminate={
+                            selectedColumns.size > 0 && selectedColumns.size < columns.length
+                          }
+                          onChange={handleSelectAll}
+                        />
+                      }
+                      label={`Select All (${selectedColumns.size}/${columns.length})`}
+                    />
+                    <List
+                      dense
+                      sx={{
+                        maxHeight: 300,
+                        overflow: 'auto',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1
+                      }}
+                    >
+                      {columns.map((col) => (
+                        <ListItem
+                          key={col.name}
+                          dense
+                          onClick={() => handleColumnToggle(col.name)}
+                          sx={{ cursor: 'pointer' }}
+                        >
+                          <ListItemIcon>
+                            <Checkbox
+                              edge="start"
+                              checked={selectedColumns.has(col.name)}
+                              tabIndex={-1}
+                              disableRipple
+                            />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={col.name}
+                            secondary={col.typeName}
+                            primaryTypographyProps={{ variant: 'body2' }}
+                            secondaryTypographyProps={{ variant: 'caption' }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No columns available
+                  </Typography>
+                )}
+              </Stack>
             </Stack>
           )}
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClose} disabled={loading}>
+        <Button onClick={handleClose} disabled={loading || columnsLoading}>
           Cancel
         </Button>
         <LoadingButton
           onClick={handleSubmit}
           variant="contained"
           loading={loading}
-          disabled={loading || !tableOptions.length}
+          disabled={loading || columnsLoading || !selectedTable || selectedColumns.size === 0}
         >
-          Add Table
+          Add Table with Fields
         </LoadingButton>
       </DialogActions>
     </Dialog>

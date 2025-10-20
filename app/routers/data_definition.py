@@ -26,6 +26,7 @@ from app.schemas import (
     DataDefinitionRelationshipUpdate,
     DataDefinitionUpdate,
 )
+from app.services.catalog_browser import fetch_source_table_columns, ConnectionCatalogError
 
 router = APIRouter(prefix="/data-definitions", tags=["Data Definitions"])
 
@@ -555,6 +556,99 @@ def get_available_source_tables(
     
     return result
 
+
+@router.get("/source-table-columns/{data_object_id}")
+def get_source_table_columns(
+    data_object_id: UUID,
+    schema_name: str = Query(...),
+    table_name: str = Query(...),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """
+    Get column metadata for a specific source table from a data object's system connections.
+    Finds the appropriate connection that has this table selected and retrieves column details.
+    """
+    # Get the data object
+    data_object = db.query(DataObject).filter(DataObject.id == data_object_id).one_or_none()
+    if not data_object:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data object not found")
+    
+    # Get the systems associated with this data object
+    system_links = (
+        db.query(DataObjectSystem)
+        .filter(DataObjectSystem.data_object_id == data_object_id)
+        .all()
+    )
+    system_ids = [link.system_id for link in system_links]
+    
+    if not system_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No systems associated with this data object"
+        )
+    
+    # Get all system connections for these systems
+    connections = (
+        db.query(SystemConnection)
+        .filter(SystemConnection.system_id.in_(system_ids))
+        .all()
+    )
+    
+    if not connections:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No connections found for this data object's systems"
+        )
+    
+    # Find a connection that has this table selected
+    connection_with_table = None
+    for conn in connections:
+        selection = (
+            db.query(ConnectionTableSelection)
+            .filter(
+                ConnectionTableSelection.system_connection_id == conn.id,
+                ConnectionTableSelection.schema_name == schema_name,
+                ConnectionTableSelection.table_name == table_name,
+            )
+            .one_or_none()
+        )
+        if selection:
+            connection_with_table = conn
+            break
+    
+    if not connection_with_table:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {schema_name}.{table_name} not found in any connection"
+        )
+    
+    # Fetch columns from the source connection
+    try:
+        columns = fetch_source_table_columns(
+            connection_type=connection_with_table.connection_type,
+            connection_string=connection_with_table.connection_string,
+            schema_name=schema_name,
+            table_name=table_name,
+        )
+    except ConnectionCatalogError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch column metadata: {str(e)}"
+        )
+    
+    # Format the results
+    result = []
+    for col in columns:
+        result.append({
+            "name": col.name,
+            "typeName": col.type_name,
+            "length": col.length,
+            "numericPrecision": col.numeric_precision,
+            "numericScale": col.numeric_scale,
+            "nullable": col.nullable,
+        })
+    
+    return result
 
 
 @router.get("/{definition_id}", response_model=DataDefinitionRead)

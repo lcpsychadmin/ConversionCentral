@@ -179,11 +179,37 @@ export interface AvailableSourceTable {
   estimatedRows?: number | null;
 }
 
+export interface SourceTableColumn {
+  name: string;
+  typeName: string;
+  length: number | null;
+  numericPrecision: number | null;
+  numericScale: number | null;
+  nullable: boolean;
+}
+
 export const fetchAvailableSourceTables = async (
   dataObjectId: string
 ): Promise<AvailableSourceTable[]> => {
   const response = await client.get<AvailableSourceTable[]>(
     `/data-definitions/data-objects/${dataObjectId}/available-source-tables`
+  );
+  return response.data;
+};
+
+export const fetchSourceTableColumns = async (
+  dataObjectId: string,
+  schemaName: string,
+  tableName: string
+): Promise<SourceTableColumn[]> => {
+  const response = await client.get<SourceTableColumn[]>(
+    `/data-definitions/source-table-columns/${dataObjectId}`,
+    {
+      params: {
+        schema_name: schemaName,
+        table_name: tableName
+      }
+    }
   );
   return response.data;
 };

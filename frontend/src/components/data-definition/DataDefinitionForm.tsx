@@ -20,9 +20,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 
-import { DataDefinition, DataDefinitionTableInput, Table, TableInput } from '../../types/data';
-import { createTable, updateTable } from '../../services/tableService';
-import { fetchAvailableSourceTables, AvailableSourceTable } from '../../services/dataDefinitionService';
+import { DataDefinition, DataDefinitionTableInput, Table, TableInput, FieldInput, Field } from '../../types/data';
+import { createTable, updateTable, createField } from '../../services/tableService';
+import { fetchAvailableSourceTables, AvailableSourceTable, SourceTableColumn } from '../../services/dataDefinitionService';
 import { useToast } from '../../hooks/useToast';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CreateTableDialog from './CreateTableDialog';
@@ -366,6 +366,7 @@ const DataDefinitionForm = ({
     tableType?: string | null;
     columnCount?: number | null;
     estimatedRows?: number | null;
+    selectedColumns: SourceTableColumn[];
   }) => {
     // Check if table already exists in definition
     const existingTableInDefinition = tableRows.find(
@@ -405,6 +406,47 @@ const DataDefinitionForm = ({
       }
     }
 
+    // Create fields for the selected columns
+    const createdFields: FieldRow[] = [];
+    for (const column of sourceTable.selectedColumns) {
+      try {
+        // Map source column type to field type
+        const fieldType = column.typeName || 'VARCHAR';
+        
+        const newField: Field = await createField({
+          tableId: table.id,
+          name: column.name,
+          description: null,
+          fieldType: fieldType,
+          fieldLength: column.length ?? null,
+          decimalPlaces: column.numericScale ?? null,
+          systemRequired: false,
+          businessProcessRequired: false,
+          suppressedField: false,
+          active: true,
+          applicationUsage: null,
+          businessDefinition: null,
+          enterpriseAttribute: null,
+          legalRegulatoryImplications: null,
+          securityClassification: null,
+          dataValidation: null,
+          referenceTable: null,
+          groupingTab: null
+        });
+
+        createdFields.push({
+          id: generateId(),
+          fieldId: newField.id,
+          notes: ''
+        });
+      } catch (error) {
+        toast.showError(
+          getErrorMessage(error, `Unable to create field "${column.name}" from source.`)
+        );
+        // Continue with remaining columns
+      }
+    }
+
     // Add the table to the data definition
     setTableRows((prev) => {
       const nextLoadOrder = getNextLoadOrderValue(prev);
@@ -417,13 +459,15 @@ const DataDefinitionForm = ({
           alias,
           description: `Source: ${alias}`,
           loadOrder: nextLoadOrder,
-          fields: []
+          fields: createdFields
         }
       ];
     });
 
     setSourceTableDialogOpen(false);
-    toast.showSuccess(`Table "${sourceTable.tableName}" added to definition.`);
+    toast.showSuccess(
+      `Table "${sourceTable.tableName}" added with ${createdFields.length} field${createdFields.length === 1 ? '' : 's'}.`
+    );
   };
 
   const handleTableDialogSubmit = async (values: {
@@ -817,6 +861,7 @@ const DataDefinitionForm = ({
         />
       )}
       <AddExistingSourceTableDialog
+        dataObjectId={dataObjectId}
         open={sourceTableDialogOpen}
         tables={availableSourceTables}
         loading={sourceTableDialogLoading}

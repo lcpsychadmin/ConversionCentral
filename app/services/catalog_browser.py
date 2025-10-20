@@ -39,6 +39,74 @@ class TablePreview:
     rows: list[dict[str, object]]
 
 
+@dataclass(frozen=True)
+class SourceTableColumn:
+    name: str
+    type_name: str
+    length: int | None
+    numeric_precision: int | None
+    numeric_scale: int | None
+    nullable: bool
+
+
+def fetch_source_table_columns(
+    connection_type: SystemConnectionType,
+    connection_string: str,
+    schema_name: str | None,
+    table_name: str,
+) -> list[SourceTableColumn]:
+    """Return metadata about columns for a specific source table."""
+    if not table_name:
+        raise ConnectionCatalogError("Table name is required.")
+
+    try:
+        url = resolve_sqlalchemy_url(connection_type, connection_string)
+    except UnsupportedConnectionError as exc:
+        raise ConnectionCatalogError(str(exc)) from exc
+
+    engine = create_engine(url, pool_pre_ping=True)
+
+    try:
+        inspector = inspect(engine)
+        columns_info = inspector.get_columns(table_name, schema=schema_name or None)
+
+        result: list[SourceTableColumn] = []
+        for col in columns_info:
+            col_type = col.get("type")
+            type_name = str(col_type) if col_type else "UNKNOWN"
+            
+            # Extract length from string type representation if available
+            length: int | None = None
+            if col_type and hasattr(col_type, "length"):
+                length = col_type.length  # type: ignore
+
+            # Extract numeric precision and scale
+            numeric_precision: int | None = None
+            numeric_scale: int | None = None
+            if col_type:
+                if hasattr(col_type, "precision"):
+                    numeric_precision = col_type.precision  # type: ignore
+                if hasattr(col_type, "scale"):
+                    numeric_scale = col_type.scale  # type: ignore
+
+            result.append(
+                SourceTableColumn(
+                    name=col.get("name", ""),
+                    type_name=type_name,
+                    length=length,
+                    numeric_precision=numeric_precision,
+                    numeric_scale=numeric_scale,
+                    nullable=col.get("nullable", True),
+                )
+            )
+
+        return result
+    except SQLAlchemyError as exc:
+        raise ConnectionCatalogError(str(exc)) from exc
+    finally:
+        engine.dispose()
+
+
 def fetch_connection_catalog(
     connection_type: SystemConnectionType,
     connection_string: str,
