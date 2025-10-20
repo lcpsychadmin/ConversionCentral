@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   Button,
-  Grid,
   Paper,
   Stack,
   Typography
@@ -11,6 +10,7 @@ import {
 import { alpha, useTheme } from '@mui/material/styles';
 
 import SystemConnectionTable from '../components/system-connection/SystemConnectionTable';
+import SystemConnectionDetailModal from '../components/system-connection/SystemConnectionDetailModal';
 import ConnectionCatalogTable from '../components/system-connection/ConnectionCatalogTable';
 import SystemConnectionForm from '../components/system-connection/SystemConnectionForm';
 import ConnectionDataPreviewDialog from '../components/system-connection/ConnectionDataPreviewDialog';
@@ -26,7 +26,6 @@ import {
   SystemConnection,
   SystemConnectionFormValues
 } from '../types/data';
-import { formatConnectionSummary, parseJdbcConnectionString } from '../utils/connectionString';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchSystemConnectionCatalog,
@@ -90,6 +89,7 @@ const SystemConnectionsPage = () => {
   const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   const systemLookup = useMemo(
     () => new Map<string, System>(systems.map((system) => [system.id, system])),
@@ -243,6 +243,11 @@ const SystemConnectionsPage = () => {
     setSelected(connection);
   };
 
+  const handleOpenDetail = (connection: SystemConnection) => {
+    setSelected(connection);
+    setDetailModalOpen(true);
+  };
+
   const handleCreateClick = () => {
     setFormMode('create');
     setSelected(null);
@@ -338,7 +343,6 @@ const SystemConnectionsPage = () => {
     ? getErrorMessage(primaryError, 'Unable to load connections.')
     : null;
 
-  const detailParsed = selected ? parseJdbcConnectionString(selected.connectionString) : null;
   const detailSystem = selected ? systemLookup.get(selected.systemId) : null;
 
   return (
@@ -397,6 +401,7 @@ const SystemConnectionsPage = () => {
           selectedId={selected?.id ?? null}
           canManage={canManage}
           onSelect={handleSelect}
+          onViewDetail={handleOpenDetail}
           onEdit={canManage ? handleEdit : undefined}
           onDelete={canManage ? handleDelete : undefined}
           onTest={canManage ? handleTestConnection : undefined}
@@ -405,49 +410,6 @@ const SystemConnectionsPage = () => {
 
       {selected && (
         <>
-          <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
-              Connection Details
-            </Typography>
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={2}>
-                  <DetailLine label="System" value={detailSystem?.name ?? '—'} />
-                  <DetailLine
-                    label="Endpoint"
-                    value={formatConnectionSummary(selected.connectionString)}
-                  />
-                  <DetailLine
-                    label="Database"
-                    value={detailParsed ? detailParsed.database : '—'}
-                  />
-                  <DetailLine
-                    label="Host"
-                    value={detailParsed ? `${detailParsed.host}${detailParsed.port ? `:${detailParsed.port}` : ''}` : '—'}
-                  />
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={2}>
-                  <DetailLine
-                    label="Username"
-                    value={detailParsed?.username ? detailParsed.username : '—'}
-                  />
-                  <DetailLine label="Status" value={selected.active ? 'Active' : 'Disabled'} />
-                  <DetailLine
-                    label="Ingestion"
-                    value={selected.ingestionEnabled ? 'Enabled' : 'Disabled'}
-                  />
-                  <DetailLine label="Notes" value={selected.notes ?? '—'} />
-                  <DetailLine
-                    label="Last Updated"
-                    value={selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '—'}
-                  />
-                </Stack>
-              </Grid>
-            </Grid>
-          </Paper>
-
           {selected.ingestionEnabled ? (
             <>
               <Paper
@@ -469,7 +431,14 @@ const SystemConnectionsPage = () => {
                 />
               </Paper>
 
-              <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+              <Paper
+                elevation={3}
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.04)} 100%)`
+                }}
+              >
                 <ConnectionIngestionPanel
                   connection={selected}
                   system={detailSystem}
@@ -522,22 +491,15 @@ const SystemConnectionsPage = () => {
           loading={deleting}
         />
       )}
+
+      <SystemConnectionDetailModal
+        open={detailModalOpen}
+        connection={selected}
+        system={detailSystem}
+        onClose={() => setDetailModalOpen(false)}
+      />
     </Box>
   );
 };
-
-interface DetailLineProps {
-  label: string;
-  value: string;
-}
-
-const DetailLine = ({ label, value }: DetailLineProps) => (
-  <Box>
-    <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
-      {label}
-    </Typography>
-    <Typography variant="body1">{value}</Typography>
-  </Box>
-);
 
 export default SystemConnectionsPage;

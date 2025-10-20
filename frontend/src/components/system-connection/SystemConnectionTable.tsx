@@ -9,7 +9,7 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FlashOnIcon from '@mui/icons-material/FlashOn';
-import { Chip, Tooltip } from '@mui/material';
+import { Chip, Link, Tooltip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 
 import { SystemConnection, System } from '../../types/data';
@@ -23,6 +23,7 @@ interface SystemConnectionTableProps {
   selectedId?: string | null;
   canManage?: boolean;
   onSelect?: (connection: SystemConnection | null) => void;
+  onViewDetail?: (connection: SystemConnection) => void;
   onEdit?: (connection: SystemConnection) => void;
   onDelete?: (connection: SystemConnection) => void;
   onTest?: (connection: SystemConnection) => void;
@@ -35,6 +36,7 @@ const DATABASE_LABELS: Record<string, string> = {
 const buildColumns = (
   systemLookup: Map<string, string>,
   canManage: boolean,
+  onViewDetail?: (connection: SystemConnection) => void,
   onEdit?: (connection: SystemConnection) => void,
   onDelete?: (connection: SystemConnection) => void,
   onTest?: (connection: SystemConnection) => void
@@ -64,7 +66,17 @@ const buildColumns = (
         const summary = formatConnectionSummary(row.connectionString);
         return (
           <Tooltip title={row.notes ?? summary} placement="top" enterDelay={600}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{summary}</span>
+            <Link
+              component="button"
+              variant="body2"
+              onClick={(e) => {
+                e.preventDefault();
+                onViewDetail?.(row);
+              }}
+              sx={{ cursor: 'pointer', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              {summary}
+            </Link>
           </Tooltip>
         );
       }
@@ -140,6 +152,7 @@ const SystemConnectionTable = ({
   selectedId,
   canManage = false,
   onSelect,
+  onViewDetail,
   onEdit,
   onDelete,
   onTest
@@ -152,8 +165,8 @@ const SystemConnectionTable = ({
   const theme = useTheme();
 
   const columns = useMemo(
-    () => buildColumns(systemLookup, canManage, onEdit, onDelete, onTest),
-    [systemLookup, canManage, onEdit, onDelete, onTest]
+    () => buildColumns(systemLookup, canManage, onViewDetail, onEdit, onDelete, onTest),
+    [systemLookup, canManage, onViewDetail, onEdit, onDelete, onTest]
   );
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {
