@@ -410,59 +410,52 @@ const SystemConnectionsPage = () => {
 
       {selected && (
         <>
-          {selected.ingestionEnabled ? (
-            <>
-              <Paper
-                elevation={3}
-                sx={{
-                  p: 3,
-                  mb: 3,
-                  background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-                }}
-              >
-                <ConnectionCatalogTable
-                  rows={catalogRows}
-                  loading={catalogLoading}
-                  saving={catalogSaving}
-                  error={catalogError}
-                  onRefresh={handleCatalogRefresh}
-                  onSelectionChange={handleCatalogSelectionChange}
-                  onPreview={handlePreviewRequest}
-                />
-              </Paper>
+          <Paper
+            elevation={3}
+            sx={{
+              p: 3,
+              mb: 3,
+              background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+            }}
+          >
+            <ConnectionCatalogTable
+              rows={catalogRows}
+              loading={catalogLoading}
+              saving={catalogSaving}
+              error={catalogError}
+              onRefresh={handleCatalogRefresh}
+              onSelectionChange={handleCatalogSelectionChange}
+              onPreview={handlePreviewRequest}
+            />
+          </Paper>
 
-              <Paper
-                elevation={3}
-                sx={{
-                  p: 3,
-                  mb: 3,
-                  background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.04)} 100%)`
-                }}
-              >
-                <ConnectionIngestionPanel
-                  connection={selected}
-                  system={detailSystem}
-                  catalogRows={catalogRows}
-                />
-              </Paper>
-
-              <ConnectionDataPreviewDialog
-                open={previewOpen}
-                schemaName={previewTarget?.schemaName ?? null}
-                tableName={previewTarget?.tableName ?? 'Table'}
-                loading={previewLoading}
-                error={previewError}
-                preview={previewData}
-                onClose={handlePreviewClose}
-                onRefresh={handlePreviewRefresh}
+          {selected.ingestionEnabled && (
+            <Paper
+              elevation={3}
+              sx={{
+                p: 3,
+                mb: 3,
+                background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+              }}
+            >
+              <ConnectionIngestionPanel
+                connection={selected}
+                system={detailSystem}
+                catalogRows={catalogRows}
               />
-            </>
-          ) : (
-            <Alert severity="info" sx={{ mb: 3 }}>
-              Enable ingestion on this connection to manage source catalog selections and schedules.
-              Edit the connection and toggle "Ingestion features enabled".
-            </Alert>
+            </Paper>
           )}
+
+          <ConnectionDataPreviewDialog
+            open={previewOpen}
+            schemaName={previewTarget?.schemaName ?? null}
+            tableName={previewTarget?.tableName ?? 'Table'}
+            loading={previewLoading}
+            error={previewError}
+            preview={previewData}
+            onClose={handlePreviewClose}
+            onRefresh={handlePreviewRefresh}
+          />
         </>
       )}
 
