@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
-  Divider,
   Grid,
   Paper,
   Stack,
@@ -12,13 +11,28 @@ import {
 import { alpha, useTheme } from '@mui/material/styles';
 
 import SystemConnectionTable from '../components/system-connection/SystemConnectionTable';
+import ConnectionCatalogTable from '../components/system-connection/ConnectionCatalogTable';
 import SystemConnectionForm from '../components/system-connection/SystemConnectionForm';
+import ConnectionDataPreviewDialog from '../components/system-connection/ConnectionDataPreviewDialog';
+import ConnectionIngestionPanel from '../components/system-connection/ConnectionIngestionPanel';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { useSystemConnections } from '../hooks/useSystemConnections';
 import { useSystems } from '../hooks/useSystems';
-import { System, SystemConnection, SystemConnectionFormValues } from '../types/data';
+import {
+  ConnectionCatalogSelectionInput,
+  ConnectionCatalogTable as CatalogRow,
+  ConnectionTablePreview,
+  System,
+  SystemConnection,
+  SystemConnectionFormValues
+} from '../types/data';
 import { formatConnectionSummary, parseJdbcConnectionString } from '../utils/connectionString';
 import { useAuth } from '../context/AuthContext';
+import {
+  fetchSystemConnectionCatalog,
+  fetchConnectionTablePreview,
+  updateSystemConnectionCatalogSelection
+} from '../services/systemConnectionService';
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (!error) return fallback;
@@ -66,6 +80,16 @@ const SystemConnectionsPage = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [catalogRows, setCatalogRows] = useState<CatalogRow[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSaving, setCatalogSaving] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<{ schemaName: string | null; tableName: string } | null>(null);
+  const [previewConnectionId, setPreviewConnectionId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const systemLookup = useMemo(
     () => new Map<string, System>(systems.map((system) => [system.id, system])),
@@ -90,6 +114,130 @@ const SystemConnectionsPage = () => {
       setSelected(null);
     }
   }, [connections, selected]);
+
+  useEffect(() => {
+    if (
+      !selected ||
+      !selected.ingestionEnabled ||
+      (previewConnectionId && selected.id !== previewConnectionId)
+    ) {
+      setPreviewOpen(false);
+      setPreviewTarget(null);
+      setPreviewConnectionId(null);
+      setPreviewData(null);
+      setPreviewError(null);
+    }
+  }, [selected, previewConnectionId]);
+
+  const loadCatalog = useCallback(
+    async (connectionId: string) => {
+      setCatalogLoading(true);
+      setCatalogError(null);
+      try {
+        const data = await fetchSystemConnectionCatalog(connectionId);
+        setCatalogRows(data);
+      } catch (error) {
+        setCatalogError(getErrorMessage(error, 'Unable to load source catalog.'));
+      } finally {
+        setCatalogLoading(false);
+      }
+    },
+    []
+  );
+
+  const loadPreview = useCallback(
+    async (connectionId: string, schemaName: string | null, tableName: string) => {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const data = await fetchConnectionTablePreview(connectionId, schemaName, tableName);
+        setPreviewData(data);
+      } catch (error) {
+        setPreviewError(getErrorMessage(error, 'Unable to load preview.'));
+      } finally {
+        setPreviewLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!selected || !selected.ingestionEnabled) {
+      setCatalogRows([]);
+      setCatalogError(null);
+      setCatalogLoading(false);
+      setCatalogSaving(false);
+      return;
+    }
+    loadCatalog(selected.id);
+  }, [selected, loadCatalog]);
+
+  const handleCatalogSelectionChange = useCallback(
+    async (nextSelection: string[]) => {
+  if (!selected || !selected.ingestionEnabled) return;
+
+      const selectionSet = new Set(nextSelection);
+      const payload: ConnectionCatalogSelectionInput[] = catalogRows
+        .filter((row) => selectionSet.has(`${row.schemaName}.${row.tableName}`))
+        .map((row) => ({
+          schemaName: row.schemaName,
+          tableName: row.tableName,
+          tableType: row.tableType ?? undefined,
+          columnCount: row.columnCount ?? undefined,
+          estimatedRows: row.estimatedRows ?? undefined
+        }));
+
+      setCatalogSaving(true);
+      setCatalogError(null);
+
+      try {
+        await updateSystemConnectionCatalogSelection(selected.id, payload);
+        await loadCatalog(selected.id);
+      } catch (error) {
+        setCatalogError(getErrorMessage(error, 'Unable to save selection.'));
+      } finally {
+        setCatalogSaving(false);
+      }
+    },
+    [selected, catalogRows, loadCatalog]
+  );
+
+  const handleCatalogRefresh = useCallback(() => {
+    if (selected?.ingestionEnabled) {
+      loadCatalog(selected.id);
+    }
+  }, [selected, loadCatalog]);
+
+  const handlePreviewRequest = useCallback(
+    (row: CatalogRow) => {
+      if (!selected) return;
+      const schemaName = row.schemaName?.trim() ? row.schemaName : null;
+      const target = {
+        schemaName,
+        tableName: row.tableName
+      };
+      setPreviewTarget(target);
+      setPreviewData(null);
+      setPreviewError(null);
+      setPreviewOpen(true);
+      setPreviewConnectionId(selected.id);
+      loadPreview(selected.id, target.schemaName, target.tableName);
+    },
+    [selected, loadPreview]
+  );
+
+  const handlePreviewRefresh = useCallback(() => {
+    if (!selected || !previewTarget) return;
+    loadPreview(selected.id, previewTarget.schemaName, previewTarget.tableName);
+  }, [selected, previewTarget, loadPreview]);
+
+  const handlePreviewClose = useCallback(() => {
+    setPreviewOpen(false);
+    setPreviewTarget(null);
+    setPreviewConnectionId(null);
+    setPreviewData(null);
+    setPreviewError(null);
+  }, []);
 
   const handleSelect = (connection: SystemConnection | null) => {
     setSelected(connection);
@@ -123,7 +271,8 @@ const SystemConnectionsPage = () => {
       connectionString,
       authMethod: 'username_password' as const,
       notes: values.notes ?? null,
-      active: values.active
+      active: values.active,
+      ingestionEnabled: values.ingestionEnabled
     };
 
     try {
@@ -255,44 +404,97 @@ const SystemConnectionsPage = () => {
       </Paper>
 
       {selected && (
-        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
-            Connection Details
-          </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Stack spacing={2}>
-                <DetailLine label="System" value={detailSystem?.name ?? '—'} />
-                <DetailLine
-                  label="Endpoint"
-                  value={formatConnectionSummary(selected.connectionString)}
-                />
-                <DetailLine
-                  label="Database"
-                  value={detailParsed ? detailParsed.database : '—'}
-                />
-                <DetailLine
-                  label="Host"
-                  value={detailParsed ? `${detailParsed.host}${detailParsed.port ? `:${detailParsed.port}` : ''}` : '—'}
-                />
-              </Stack>
+        <>
+          <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+              Connection Details
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Stack spacing={2}>
+                  <DetailLine label="System" value={detailSystem?.name ?? '—'} />
+                  <DetailLine
+                    label="Endpoint"
+                    value={formatConnectionSummary(selected.connectionString)}
+                  />
+                  <DetailLine
+                    label="Database"
+                    value={detailParsed ? detailParsed.database : '—'}
+                  />
+                  <DetailLine
+                    label="Host"
+                    value={detailParsed ? `${detailParsed.host}${detailParsed.port ? `:${detailParsed.port}` : ''}` : '—'}
+                  />
+                </Stack>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Stack spacing={2}>
+                  <DetailLine
+                    label="Username"
+                    value={detailParsed?.username ? detailParsed.username : '—'}
+                  />
+                  <DetailLine label="Status" value={selected.active ? 'Active' : 'Disabled'} />
+                  <DetailLine
+                    label="Ingestion"
+                    value={selected.ingestionEnabled ? 'Enabled' : 'Disabled'}
+                  />
+                  <DetailLine label="Notes" value={selected.notes ?? '—'} />
+                  <DetailLine
+                    label="Last Updated"
+                    value={selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '—'}
+                  />
+                </Stack>
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={6}>
-              <Stack spacing={2}>
-                <DetailLine
-                  label="Username"
-                  value={detailParsed?.username ? detailParsed.username : '—'}
+          </Paper>
+
+          {selected.ingestionEnabled ? (
+            <>
+              <Paper
+                elevation={3}
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+                }}
+              >
+                <ConnectionCatalogTable
+                  rows={catalogRows}
+                  loading={catalogLoading}
+                  saving={catalogSaving}
+                  error={catalogError}
+                  onRefresh={handleCatalogRefresh}
+                  onSelectionChange={handleCatalogSelectionChange}
+                  onPreview={handlePreviewRequest}
                 />
-                <DetailLine label="Status" value={selected.active ? 'Active' : 'Disabled'} />
-                <DetailLine label="Notes" value={selected.notes ?? '—'} />
-                <DetailLine
-                  label="Last Updated"
-                  value={selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '—'}
+              </Paper>
+
+              <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+                <ConnectionIngestionPanel
+                  connection={selected}
+                  system={detailSystem}
+                  catalogRows={catalogRows}
                 />
-              </Stack>
-            </Grid>
-          </Grid>
-        </Paper>
+              </Paper>
+
+              <ConnectionDataPreviewDialog
+                open={previewOpen}
+                schemaName={previewTarget?.schemaName ?? null}
+                tableName={previewTarget?.tableName ?? 'Table'}
+                loading={previewLoading}
+                error={previewError}
+                preview={previewData}
+                onClose={handlePreviewClose}
+                onRefresh={handlePreviewRefresh}
+              />
+            </>
+          ) : (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Enable ingestion on this connection to manage source catalog selections and schedules.
+              Edit the connection and toggle "Ingestion features enabled".
+            </Alert>
+          )}
+        </>
       )}
 
       {canManage && (

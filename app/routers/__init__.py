@@ -16,6 +16,7 @@ from app.routers import (
 	field,
 	field_load,
 	ingestion_job,
+	ingestion_schedule,
 	process_area_role_assignment,
 	mapping,
 	mapping_set,
@@ -72,6 +73,7 @@ api_router.include_router(post_load_validation_issue.router)
 api_router.include_router(post_load_validation_approval.router)
 api_router.include_router(system_connection.router)
 api_router.include_router(ingestion_job.router)
+api_router.include_router(ingestion_schedule.router)
 api_router.include_router(data_object_dependency.router)
 api_router.include_router(table_dependency.router)
 api_router.include_router(table_load_order.router)

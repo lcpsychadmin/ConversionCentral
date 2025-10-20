@@ -80,6 +80,19 @@ const buildColumns = (
           size="small"
         />
       )
+    },
+    {
+      field: 'ingestionEnabled',
+      headerName: 'Ingestion',
+      flex: 0.7,
+      renderCell: ({ value }) => (
+        <Chip
+          label={value ? 'Enabled' : 'Hidden'}
+          color={value ? 'primary' : 'default'}
+          size="small"
+          variant={value ? 'filled' : 'outlined'}
+        />
+      )
     }
   ];
 

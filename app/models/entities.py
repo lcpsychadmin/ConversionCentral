@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -1369,9 +1369,51 @@ class SystemConnection(Base, TimestampMixin):
         default="username_password",
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    ingestion_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     system: Mapped[System] = relationship("System", back_populates="connections")
+    catalog_selections: Mapped[list["ConnectionTableSelection"]] = relationship(
+        "ConnectionTableSelection",
+        back_populates="system_connection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ConnectionTableSelection(Base, TimestampMixin):
+    __tablename__ = "connection_table_selections"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "system_connection_id",
+            "schema_name",
+            "table_name",
+            name="uq_connection_table_selection",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    system_connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("system_connections.system_connection_id", ondelete="CASCADE"), nullable=False
+    )
+    schema_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    table_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    table_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    column_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_rows: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    system_connection: Mapped[SystemConnection] = relationship(
+        "SystemConnection", back_populates="catalog_selections"
+    )
+    ingestion_schedules: Mapped[list["IngestionSchedule"]] = relationship(
+        "IngestionSchedule",
+        back_populates="table_selection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class IngestionJob(Base, TimestampMixin):
@@ -1403,6 +1445,98 @@ class IngestionJob(Base, TimestampMixin):
         "ExecutionContext", back_populates="ingestion_jobs"
     )
     table: Mapped[Table] = relationship("Table", back_populates="ingestion_jobs")
+
+
+class IngestionSchedule(Base, TimestampMixin):
+    __tablename__ = "ingestion_schedules"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        "ingestion_schedule_id",
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    connection_table_selection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connection_table_selections.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schedule_expression: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    load_strategy: Mapped[str] = mapped_column(
+        sa.Enum(
+            "timestamp",
+            "numeric_key",
+            "full",
+            name="ingestion_load_strategy_enum",
+        ),
+        nullable=False,
+        default="timestamp",
+    )
+    watermark_column: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    primary_key_column: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_table_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=5_000)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_watermark_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_watermark_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_run_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_rows_loaded: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+    table_selection: Mapped[ConnectionTableSelection] = relationship(
+        "ConnectionTableSelection", back_populates="ingestion_schedules"
+    )
+    runs: Mapped[list["IngestionRun"]] = relationship(
+        "IngestionRun",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class IngestionRun(Base, TimestampMixin):
+    __tablename__ = "ingestion_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        "ingestion_run_id",
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    ingestion_schedule_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_schedules.ingestion_schedule_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        sa.Enum(
+            "scheduled",
+            "running",
+            "completed",
+            "failed",
+            name="ingestion_run_status_enum",
+        ),
+        nullable=False,
+        default="scheduled",
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rows_loaded: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watermark_timestamp_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    watermark_timestamp_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    watermark_id_before: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    watermark_id_after: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    schedule: Mapped[IngestionSchedule] = relationship(
+        "IngestionSchedule", back_populates="runs"
+    )
 
 
 class MappingSet(Base, TimestampMixin):

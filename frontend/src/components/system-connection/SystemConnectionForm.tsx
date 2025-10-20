@@ -57,7 +57,8 @@ const buildInitialSnapshot = (
     password: parsed?.password ?? '',
     options: parsed?.options ?? {},
     notes: sanitizeNotes(initialValues?.notes),
-    active: initialValues?.active ?? true
+    active: initialValues?.active ?? true,
+    ingestionEnabled: initialValues?.ingestionEnabled ?? true
   };
 };
 
@@ -140,6 +141,10 @@ const SystemConnectionForm = ({
     setValues((prev) => ({ ...prev, active: checked }));
   };
 
+  const handleToggleIngestion = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+    setValues((prev) => ({ ...prev, ingestionEnabled: checked }));
+  };
+
   const resetAndClose = () => {
     setValues(initialSnapshot);
     setErrors({});
@@ -194,7 +199,8 @@ const SystemConnectionForm = ({
       values.username !== initialSnapshot.username ||
       values.password !== initialSnapshot.password ||
       sanitizeNotes(values.notes) !== sanitizeNotes(initialSnapshot.notes) ||
-      values.active !== initialSnapshot.active
+      values.active !== initialSnapshot.active ||
+      values.ingestionEnabled !== initialSnapshot.ingestionEnabled
     );
   }, [values, initialSnapshot]);
 
@@ -325,6 +331,20 @@ const SystemConnectionForm = ({
             <FormControlLabel
               control={<Switch checked={values.active} onChange={handleToggleActive} />}
               label={values.active ? 'Connection is active' : 'Connection is disabled'}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={values.ingestionEnabled}
+                  onChange={handleToggleIngestion}
+                  color="secondary"
+                />
+              }
+              label={
+                values.ingestionEnabled
+                  ? 'Ingestion features enabled'
+                  : 'Hide ingestion features for this connection'
+              }
             />
           </Stack>
         </DialogContent>

@@ -779,6 +779,7 @@ class SystemConnectionBase(BaseModel):
     connection_string: str
     auth_method: SystemConnectionAuthMethod = SystemConnectionAuthMethod.USERNAME_PASSWORD
     active: bool = True
+    ingestion_enabled: bool = True
     notes: Optional[str] = None
 
 
@@ -792,6 +793,7 @@ class SystemConnectionUpdate(BaseModel):
     connection_string: Optional[str] = None
     auth_method: Optional[SystemConnectionAuthMethod] = None
     active: Optional[bool] = None
+    ingestion_enabled: Optional[bool] = None
     notes: Optional[str] = None
 
 
@@ -809,6 +811,34 @@ class SystemConnectionTestResult(BaseModel):
     message: str
     duration_ms: float | None = None
     connection_summary: str | None = None
+
+
+class ConnectionCatalogTable(BaseModel):
+    schema_name: str
+    table_name: str
+    table_type: Optional[str] = None
+    column_count: Optional[int] = None
+    estimated_rows: Optional[int] = None
+    selected: bool = False
+    available: bool = True
+    selection_id: Optional[UUID] = None
+
+
+class ConnectionTablePreview(BaseModel):
+    columns: list[str]
+    rows: list[dict[str, Any]]
+
+
+class ConnectionTableIdentifier(BaseModel):
+    schema_name: str
+    table_name: str
+    table_type: Optional[str] = None
+    column_count: Optional[int] = None
+    estimated_rows: Optional[int] = None
+
+
+class ConnectionCatalogSelectionUpdate(BaseModel):
+    selected_tables: list[ConnectionTableIdentifier]
 
 
 class IngestionJobStatus(str, Enum):
@@ -849,6 +879,75 @@ class IngestionJobRead(IngestionJobBase, TimestampSchema):
 class IngestionJobRunRequest(BaseModel):
     replace: bool = False
     batch_size: Optional[int] = Field(default=None, ge=1, le=100_000)
+
+
+class IngestionLoadStrategy(str, Enum):
+    TIMESTAMP = "timestamp"
+    NUMERIC_KEY = "numeric_key"
+    FULL = "full"
+
+
+class IngestionScheduleBase(BaseModel):
+    connection_table_selection_id: UUID
+    schedule_expression: str = Field(..., max_length=120)
+    timezone: Optional[str] = Field(None, max_length=60)
+    load_strategy: IngestionLoadStrategy = IngestionLoadStrategy.TIMESTAMP
+    watermark_column: Optional[str] = Field(None, max_length=120)
+    primary_key_column: Optional[str] = Field(None, max_length=120)
+    target_schema: Optional[str] = Field(None, max_length=120)
+    target_table_name: Optional[str] = Field(None, max_length=200)
+    batch_size: int = Field(5_000, ge=1, le=100_000)
+    is_active: bool = True
+
+
+class IngestionScheduleCreate(IngestionScheduleBase):
+    pass
+
+
+class IngestionScheduleUpdate(BaseModel):
+    schedule_expression: Optional[str] = Field(None, max_length=120)
+    timezone: Optional[str] = Field(None, max_length=60)
+    load_strategy: Optional[IngestionLoadStrategy] = None
+    watermark_column: Optional[str] = Field(None, max_length=120)
+    primary_key_column: Optional[str] = Field(None, max_length=120)
+    target_schema: Optional[str] = Field(None, max_length=120)
+    target_table_name: Optional[str] = Field(None, max_length=200)
+    batch_size: Optional[int] = Field(None, ge=1, le=100_000)
+    is_active: Optional[bool] = None
+
+
+class IngestionScheduleRead(IngestionScheduleBase, TimestampSchema):
+    id: UUID
+    last_watermark_timestamp: Optional[datetime]
+    last_watermark_id: Optional[int]
+    last_run_started_at: Optional[datetime]
+    last_run_completed_at: Optional[datetime]
+    last_run_status: Optional[str]
+    last_run_error: Optional[str]
+    total_runs: int
+    total_rows_loaded: int
+
+
+class IngestionRunStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class IngestionRunRead(TimestampSchema):
+    id: UUID
+    ingestion_schedule_id: UUID
+    status: IngestionRunStatus
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    rows_loaded: Optional[int]
+    watermark_timestamp_before: Optional[datetime]
+    watermark_timestamp_after: Optional[datetime]
+    watermark_id_before: Optional[int]
+    watermark_id_after: Optional[int]
+    query_text: Optional[str]
+    error_message: Optional[str]
 
 
 class PreLoadValidationResultBase(BaseModel):

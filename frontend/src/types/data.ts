@@ -132,6 +132,7 @@ export interface SystemConnection {
   connectionString: string;
   authMethod: SystemConnectionAuthMethod;
   active: boolean;
+  ingestionEnabled: boolean;
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -144,6 +145,7 @@ export interface SystemConnectionInput {
   authMethod: SystemConnectionAuthMethod;
   notes?: string | null;
   active?: boolean;
+  ingestionEnabled?: boolean;
 }
 
 export interface SystemConnectionUpdateInput {
@@ -153,6 +155,7 @@ export interface SystemConnectionUpdateInput {
   authMethod?: SystemConnectionAuthMethod;
   notes?: string | null;
   active?: boolean;
+  ingestionEnabled?: boolean;
 }
 
 export interface SystemConnectionFormValues {
@@ -166,6 +169,99 @@ export interface SystemConnectionFormValues {
   options?: Record<string, string>;
   notes?: string | null;
   active: boolean;
+  ingestionEnabled: boolean;
+}
+
+export interface ConnectionCatalogTable {
+  schemaName: string;
+  tableName: string;
+  tableType?: string | null;
+  columnCount?: number | null;
+  estimatedRows?: number | null;
+  selected: boolean;
+  available: boolean;
+  selectionId?: string | null;
+}
+
+export interface ConnectionTablePreview {
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+
+export interface ConnectionCatalogSelectionInput {
+  schemaName: string;
+  tableName: string;
+  tableType?: string | null;
+  columnCount?: number | null;
+  estimatedRows?: number | null;
+}
+
+export type IngestionLoadStrategy = 'timestamp' | 'numeric_key' | 'full';
+
+export interface IngestionSchedule {
+  id: string;
+  connectionTableSelectionId: string;
+  scheduleExpression: string;
+  timezone?: string | null;
+  loadStrategy: IngestionLoadStrategy;
+  watermarkColumn?: string | null;
+  primaryKeyColumn?: string | null;
+  targetSchema?: string | null;
+  targetTableName?: string | null;
+  batchSize: number;
+  isActive: boolean;
+  lastWatermarkTimestamp?: string | null;
+  lastWatermarkId?: number | null;
+  lastRunStartedAt?: string | null;
+  lastRunCompletedAt?: string | null;
+  lastRunStatus?: string | null;
+  lastRunError?: string | null;
+  totalRuns: number;
+  totalRowsLoaded: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface IngestionScheduleInput {
+  connectionTableSelectionId: string;
+  scheduleExpression: string;
+  timezone?: string | null;
+  loadStrategy: IngestionLoadStrategy;
+  watermarkColumn?: string | null;
+  primaryKeyColumn?: string | null;
+  targetSchema?: string | null;
+  targetTableName?: string | null;
+  batchSize: number;
+  isActive: boolean;
+}
+
+export interface IngestionScheduleUpdateInput {
+  scheduleExpression?: string;
+  timezone?: string | null;
+  loadStrategy?: IngestionLoadStrategy;
+  watermarkColumn?: string | null;
+  primaryKeyColumn?: string | null;
+  targetSchema?: string | null;
+  targetTableName?: string | null;
+  batchSize?: number;
+  isActive?: boolean;
+}
+
+export interface IngestionRun {
+  id: string;
+  ingestionScheduleId: string;
+  status: 'scheduled' | 'running' | 'completed' | 'failed';
+  startedAt?: string | null;
+  completedAt?: string | null;
+  rowsLoaded?: number | null;
+  watermarkTimestampBefore?: string | null;
+  watermarkTimestampAfter?: string | null;
+  watermarkIdBefore?: number | null;
+  watermarkIdAfter?: number | null;
+  queryText?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Table {
