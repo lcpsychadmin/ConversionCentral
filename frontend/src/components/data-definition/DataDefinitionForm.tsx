@@ -19,14 +19,16 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import PreviewIcon from '@mui/icons-material/Preview';
 
-import { DataDefinition, DataDefinitionTableInput, Table, TableInput, FieldInput, Field } from '../../types/data';
-import { createTable, updateTable, createField } from '../../services/tableService';
+import { DataDefinition, DataDefinitionTableInput, Table, TableInput, FieldInput, Field, ConnectionTablePreview } from '../../types/data';
+import { createTable, updateTable, createField, fetchTablePreview } from '../../services/tableService';
 import { fetchAvailableSourceTables, AvailableSourceTable, SourceTableColumn } from '../../services/dataDefinitionService';
 import { useToast } from '../../hooks/useToast';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CreateTableDialog from './CreateTableDialog';
 import AddExistingSourceTableDialog from './AddExistingSourceTableDialog';
+import ConnectionDataPreviewDialog from '../system-connection/ConnectionDataPreviewDialog';
 
 interface DataDefinitionFormProps {
   open: boolean;
@@ -176,6 +178,13 @@ const DataDefinitionForm = ({
   const [availableSourceTables, setAvailableSourceTables] = useState<AvailableSourceTable[]>([]);
   const [sourceTableDialogLoading, setSourceTableDialogLoading] = useState(false);
   const [sourceTableDialogError, setSourceTableDialogError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTableId, setPreviewTableId] = useState<string | null>(null);
+  const [previewTableName, setPreviewTableName] = useState<string>('');
+  const [previewSchemaName, setPreviewSchemaName] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -470,6 +479,48 @@ const DataDefinitionForm = ({
     );
   };
 
+  const handleOpenPreview = async (table: Table) => {
+    setPreviewTableId(table.id);
+    setPreviewTableName(table.physicalName);
+    setPreviewSchemaName(table.schemaName ?? null);
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+
+    try {
+      const data = await fetchTablePreview(table.id);
+      setPreviewData(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load preview data';
+      setPreviewError(message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleClosePreview = () => {
+    setPreviewOpen(false);
+  };
+
+  const handleRefreshPreview = async () => {
+    if (!previewTableId) return;
+    
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+
+    try {
+      const data = await fetchTablePreview(previewTableId);
+      setPreviewData(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load preview data';
+      setPreviewError(message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleTableDialogSubmit = async (values: {
     name: string;
     physicalName: string;
@@ -711,6 +762,14 @@ const DataDefinitionForm = ({
                         />
                         <Stack direction="row" spacing={1} alignItems="center">
                           <IconButton
+                            aria-label="Preview table data"
+                            onClick={() => selectedTable && handleOpenPreview(selectedTable)}
+                            disabled={loading || !selectedTable}
+                            title="Preview data"
+                          >
+                            <PreviewIcon />
+                          </IconButton>
+                          <IconButton
                             aria-label="Edit table"
                             onClick={() => handleOpenEditTable(row)}
                             disabled={loading || !row.tableId}
@@ -868,6 +927,17 @@ const DataDefinitionForm = ({
         error={sourceTableDialogError}
         onClose={() => setSourceTableDialogOpen(false)}
         onSubmit={handleAddSourceTable}
+      />
+
+      <ConnectionDataPreviewDialog
+        open={previewOpen}
+        schemaName={previewSchemaName}
+        tableName={previewTableName}
+        loading={previewLoading}
+        error={previewError}
+        preview={previewData}
+        onClose={handleClosePreview}
+        onRefresh={handleRefreshPreview}
       />
     </>
   );

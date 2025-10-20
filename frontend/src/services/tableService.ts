@@ -1,5 +1,5 @@
 import client from './api/client';
-import { Field, FieldInput, Table, TableInput } from '../types/data';
+import { Field, FieldInput, Table, TableInput, ConnectionTablePreview } from '../types/data';
 
 export interface TableResponse {
   id: string;
@@ -196,4 +196,19 @@ export const updateField = async (id: string, input: FieldUpdateInput): Promise<
 
   const response = await client.put<FieldResponse>(`/fields/${id}`, payload);
   return mapField(response.data);
+};
+
+export const fetchTablePreview = async (
+  tableId: string,
+  limit = 100
+): Promise<ConnectionTablePreview> => {
+  const response = await client.get<ConnectionTablePreview>(
+    `/tables/${tableId}/preview`,
+    {
+      params: {
+        limit
+      }
+    }
+  );
+  return response.data;
 };
