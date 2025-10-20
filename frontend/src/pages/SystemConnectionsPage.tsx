@@ -118,7 +118,6 @@ const SystemConnectionsPage = () => {
   useEffect(() => {
     if (
       !selected ||
-      !selected.ingestionEnabled ||
       (previewConnectionId && selected.id !== previewConnectionId)
     ) {
       setPreviewOpen(false);
@@ -174,7 +173,7 @@ const SystemConnectionsPage = () => {
 
   const handleCatalogSelectionChange = useCallback(
     async (nextSelection: string[]) => {
-  if (!selected || !selected.ingestionEnabled) return;
+      if (!selected) return;
 
       const selectionSet = new Set(nextSelection);
       const payload: ConnectionCatalogSelectionInput[] = catalogRows

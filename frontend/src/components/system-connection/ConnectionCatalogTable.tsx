@@ -6,19 +6,23 @@ import {
   CircularProgress,
   Stack,
   Typography,
-  Alert
+  Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Checkbox,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import {
-  DataGrid,
-  GridColDef,
-  GridRenderCellParams,
-  GridRowClassNameParams,
-  GridRowSelectionModel
-} from '@mui/x-data-grid';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { ConnectionCatalogTable as CatalogTable } from '../../types/data';
-import { getDataGridStyles } from '../../utils/tableStyles';
 
 export interface ConnectionCatalogTableProps {
   rows: CatalogTable[];
@@ -61,7 +65,7 @@ const ConnectionCatalogTable = ({
   onPreview
 }: ConnectionCatalogTableProps) => {
   const theme = useTheme();
-  const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>([]);
+  const [selectionModel, setSelectionModel] = useState<string[]>([]);
 
   const gridRows = useMemo<GridRow[]>(
     () =>
@@ -79,87 +83,64 @@ const ConnectionCatalogTable = ({
     [rows]
   );
 
+  // Group rows by schema
+  const groupedBySchema = useMemo(() => {
+    const groups: { [schema: string]: GridRow[] } = {};
+    gridRows.forEach((row) => {
+      if (!groups[row.schema]) {
+        groups[row.schema] = [];
+      }
+      groups[row.schema].push(row);
+    });
+    // Sort schemas and tables alphabetically
+    return Object.keys(groups)
+      .sort()
+      .reduce((acc, schema) => {
+        acc[schema] = groups[schema].sort((a, b) => a.table.localeCompare(b.table));
+        return acc;
+      }, {} as { [schema: string]: GridRow[] });
+  }, [gridRows]);
+
   useEffect(() => {
     setSelectionModel(gridRows.filter((row) => row.selected).map((row) => row.id));
   }, [gridRows]);
 
-  const columns = useMemo<GridColDef<GridRow>[]>(() => {
-    const base: GridColDef<GridRow>[] = [
-      { field: 'schema', headerName: 'Schema', flex: 0.6, minWidth: 140 },
-      { field: 'table', headerName: 'Table', flex: 1, minWidth: 200 },
-      {
-        field: 'type',
-        headerName: 'Type',
-        width: 140,
-        valueFormatter: (params) => params.value?.toString().replace('_', ' ') ?? '—'
-      },
-      {
-        field: 'columnCount',
-        headerName: 'Columns',
-        width: 120,
-        align: 'center',
-        headerAlign: 'center',
-        valueFormatter: (params) => (params.value ?? '—') as string
-      },
-      {
-        field: 'estimatedRows',
-        headerName: 'Rows (est.)',
-        width: 150,
-        valueFormatter: (params) => formatNumber(params.value as number | undefined)
-      },
-      {
-        field: 'status',
-        headerName: 'Status',
-        width: 150,
-        sortable: false,
-        filterable: false,
-        disableColumnMenu: true,
-        renderCell: (params: GridRenderCellParams<GridRow>) => (
-          <Chip
-            label={params.row.available ? 'Available' : 'Missing'}
-            color={params.row.available ? 'success' : 'warning'}
-            size="small"
-            variant={params.row.available ? 'outlined' : 'filled'}
-          />
-        )
-      }
-    ];
-
-    if (onPreview) {
-      base.push({
-        field: 'preview',
-        headerName: 'Preview',
-        width: 140,
-        sortable: false,
-        filterable: false,
-        disableColumnMenu: true,
-        renderCell: (params: GridRenderCellParams<GridRow>) => (
-          <Button
-            variant="text"
-            size="small"
-            onClick={() => onPreview?.(params.row.original)}
-            disabled={!params.row.available || saving}
-          >
-            Preview
-          </Button>
-        )
-      });
-    }
-
-    return base;
-  }, [onPreview, saving]);
-
-  const handleSelectionChange = (model: GridRowSelectionModel) => {
-    if (saving) {
-      setSelectionModel(gridRows.filter((row) => row.selected).map((row) => row.id));
-      return;
-    }
-    setSelectionModel(model);
-    onSelectionChange?.(model.map((id) => id.toString()));
+  const handleRowCheckChange = (rowId: string, checked: boolean) => {
+    const newSelection = checked
+      ? [...selectionModel, rowId]
+      : selectionModel.filter((id: string) => id !== rowId);
+    setSelectionModel(newSelection);
+    onSelectionChange?.(newSelection.map((id: string) => id.toString()));
   };
 
-  const getRowClassName = (params: GridRowClassNameParams) =>
-    params.row.available ? '' : 'catalog-row-missing';
+  const handleSchemaCheckChange = (schema: string, checked: boolean) => {
+    const schemaRows = groupedBySchema[schema];
+    const schemaRowIds = schemaRows.map((row: GridRow) => row.id);
+    let newSelection = [...selectionModel];
+    if (checked) {
+      newSelection = [...new Set([...newSelection, ...schemaRowIds])];
+    } else {
+      newSelection = newSelection.filter((id: string) => !schemaRowIds.includes(id));
+    }
+    setSelectionModel(newSelection);
+    onSelectionChange?.(newSelection.map((id: string) => id.toString()));
+  };
+
+  const isSchemaSelected = (schema: string): boolean => {
+    const schemaRows = groupedBySchema[schema];
+    return schemaRows.every((row) => selectionModel.includes(row.id));
+  };
+
+  const isSchemaIndeterminate = (schema: string): boolean => {
+    const schemaRows = groupedBySchema[schema];
+    const selectedCount = schemaRows.filter((row) => selectionModel.includes(row.id)).length;
+    return selectedCount > 0 && selectedCount < schemaRows.length;
+  };
+
+  const getSchemaSelectedCount = (schema: string): number => {
+    const schemaRows = groupedBySchema[schema];
+    return schemaRows.filter((row) => selectionModel.includes(row.id)).length;
+  };
 
   return (
     <Stack spacing={2} sx={{ position: 'relative' }}>
@@ -185,29 +166,106 @@ const ConnectionCatalogTable = ({
         </Alert>
       )}
 
-      <Box sx={{ height: 520, width: '100%' }}>
-        <DataGrid<GridRow>
-          rows={gridRows}
-          columns={columns}
-          loading={loading}
-          checkboxSelection
-          disableColumnSelector
-          disableDensitySelector
-          disableRowSelectionOnClick
-          hideFooterSelectedRowCount
-          rowSelectionModel={selectionModel}
-          onRowSelectionModelChange={handleSelectionChange}
-          getRowClassName={getRowClassName}
-          sx={{
-            ...getDataGridStyles(theme),
-            '& .catalog-row-missing .MuiDataGrid-cell': {
-              color: theme.palette.text.disabled,
-              fontStyle: 'italic',
-              backgroundColor: alpha(theme.palette.warning.light, 0.08)
-            }
-          }}
-        />
-      </Box>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Box sx={{ maxHeight: 600, overflow: 'auto', border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+          {Object.entries(groupedBySchema).map(([schema, tables]) => (
+            <Accordion key={schema} defaultExpanded={false}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Checkbox
+                  checked={isSchemaSelected(schema)}
+                  indeterminate={isSchemaIndeterminate(schema)}
+                  onChange={(e) => handleSchemaCheckChange(schema, e.target.checked)}
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{ mr: 1 }}
+                />
+                <Typography sx={{ fontWeight: 600, flex: 1 }}>
+                  {schema} ({getSchemaSelectedCount(schema)}/{tables.length})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                <TableContainer component={Paper} elevation={0}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.05) }}>
+                        <TableCell padding="checkbox" sx={{ width: 44 }} />
+                        <TableCell sx={{ fontWeight: 600 }}>Table</TableCell>
+                        <TableCell sx={{ fontWeight: 600, width: 120 }}>Type</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 600, width: 100 }}>
+                          Columns
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, width: 130 }}>
+                          Rows (est.)
+                        </TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 600, width: 110 }}>
+                          Status
+                        </TableCell>
+                        {onPreview && <TableCell align="center" sx={{ fontWeight: 600, width: 100 }}>
+                          Preview
+                        </TableCell>}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tables.map((row) => (
+                        <TableRow
+                          key={row.id}
+                          sx={{
+                            backgroundColor: !row.available ? alpha(theme.palette.warning.light, 0.08) : undefined,
+                            '&:hover': {
+                              backgroundColor: alpha(theme.palette.action.hover, 0.5)
+                            }
+                          }}
+                        >
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              checked={selectionModel.includes(row.id)}
+                              onChange={(e) => handleRowCheckChange(row.id, e.target.checked)}
+                              disabled={saving}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ color: !row.available ? theme.palette.text.disabled : undefined }}>
+                            {row.table}
+                          </TableCell>
+                          <TableCell sx={{ color: !row.available ? theme.palette.text.disabled : undefined }}>
+                            {row.type?.replace('_', ' ') ?? '—'}
+                          </TableCell>
+                          <TableCell align="center" sx={{ color: !row.available ? theme.palette.text.disabled : undefined }}>
+                            {row.columnCount ?? '—'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ color: !row.available ? theme.palette.text.disabled : undefined }}>
+                            {formatNumber(row.estimatedRows)}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip
+                              label={row.available ? 'Available' : 'Missing'}
+                              color={row.available ? 'success' : 'warning'}
+                              size="small"
+                              variant={row.available ? 'outlined' : 'filled'}
+                            />
+                          </TableCell>
+                          {onPreview && <TableCell align="center">
+                            <Button
+                              variant="text"
+                              size="small"
+                              onClick={() => onPreview?.(row.original)}
+                              disabled={!row.available || saving}
+                            >
+                              Preview
+                            </Button>
+                          </TableCell>}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </Box>
+      )}
     </Stack>
   );
 };
