@@ -170,3 +170,20 @@ export const updateDataDefinition = async (
 export const deleteDataDefinition = async (id: string): Promise<void> => {
   await client.delete(`/data-definitions/${id}`);
 };
+
+export interface AvailableSourceTable {
+  schemaName: string;
+  tableName: string;
+  tableType?: string | null;
+  columnCount?: number | null;
+  estimatedRows?: number | null;
+}
+
+export const fetchAvailableSourceTables = async (
+  dataObjectId: string
+): Promise<AvailableSourceTable[]> => {
+  const response = await client.get<AvailableSourceTable[]>(
+    `/data-definitions/data-objects/${dataObjectId}/available-source-tables`
+  );
+  return response.data;
+};

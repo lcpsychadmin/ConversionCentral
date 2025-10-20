@@ -15,6 +15,8 @@ from app.models import (
     Field,
     System,
     Table,
+    SystemConnection,
+    ConnectionTableSelection,
 )
 from app.schemas import (
     DataDefinitionCreate,
@@ -495,6 +497,64 @@ def list_data_definitions(
     if system_id:
         query = query.filter(DataDefinition.system_id == system_id)
     return query.all()
+
+
+@router.get("/data-objects/{data_object_id}/available-source-tables")
+def get_available_source_tables(
+    data_object_id: UUID,
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """
+    Get all selected tables from system connections of a data object's systems.
+    Returns tables grouped by system and connection.
+    """
+    # Get the data object
+    data_object = db.query(DataObject).filter(DataObject.id == data_object_id).one_or_none()
+    if not data_object:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data object not found")
+    
+    # Get the systems associated with this data object
+    system_links = (
+        db.query(DataObjectSystem)
+        .filter(DataObjectSystem.data_object_id == data_object_id)
+        .all()
+    )
+    system_ids = [link.system_id for link in system_links]
+    
+    if not system_ids:
+        return []
+    
+    # Get all system connections for these systems
+    connections = (
+        db.query(SystemConnection)
+        .filter(SystemConnection.system_id.in_(system_ids))
+        .all()
+    )
+    connection_ids = [conn.id for conn in connections]
+    
+    if not connection_ids:
+        return []
+    
+    # Get all selected tables from these connections
+    selections = (
+        db.query(ConnectionTableSelection)
+        .filter(ConnectionTableSelection.system_connection_id.in_(connection_ids))
+        .all()
+    )
+    
+    # Format the results
+    result = []
+    for selection in selections:
+        result.append({
+            "schemaName": selection.schema_name,
+            "tableName": selection.table_name,
+            "tableType": selection.table_type,
+            "columnCount": selection.column_count,
+            "estimatedRows": selection.estimated_rows
+        })
+    
+    return result
+
 
 
 @router.get("/{definition_id}", response_model=DataDefinitionRead)

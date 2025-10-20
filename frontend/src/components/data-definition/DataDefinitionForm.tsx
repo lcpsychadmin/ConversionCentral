@@ -22,9 +22,11 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 
 import { DataDefinition, DataDefinitionTableInput, Table, TableInput } from '../../types/data';
 import { createTable, updateTable } from '../../services/tableService';
+import { fetchAvailableSourceTables, AvailableSourceTable } from '../../services/dataDefinitionService';
 import { useToast } from '../../hooks/useToast';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CreateTableDialog from './CreateTableDialog';
+import AddExistingSourceTableDialog from './AddExistingSourceTableDialog';
 
 interface DataDefinitionFormProps {
   open: boolean;
@@ -168,6 +170,10 @@ const DataDefinitionForm = ({
     table: Table;
     sanitized: SanitizedTablePayload;
   } | null>(null);
+  const [sourceTableDialogOpen, setSourceTableDialogOpen] = useState(false);
+  const [availableSourceTables, setAvailableSourceTables] = useState<AvailableSourceTable[]>([]);
+  const [sourceTableDialogLoading, setSourceTableDialogLoading] = useState(false);
+  const [sourceTableDialogError, setSourceTableDialogError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -329,6 +335,92 @@ const DataDefinitionForm = ({
     setEditingTable(tableMeta);
     setTableDialogMode('edit');
     setTableDialogOpen(true);
+  };
+
+  const handleOpenAddSourceTable = async () => {
+    if (!initialDefinition) {
+      toast.showError('Data definition not available.');
+      return;
+    }
+    
+    setSourceTableDialogLoading(true);
+    setSourceTableDialogError(null);
+    try {
+      const tables = await fetchAvailableSourceTables(initialDefinition.dataObjectId);
+      setAvailableSourceTables(tables);
+      setSourceTableDialogOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load source tables.';
+      setSourceTableDialogError(message);
+    } finally {
+      setSourceTableDialogLoading(false);
+    }
+  };
+
+  const handleAddSourceTable = async (sourceTable: {
+    schemaName: string;
+    tableName: string;
+    tableType?: string | null;
+    columnCount?: number | null;
+    estimatedRows?: number | null;
+  }) => {
+    // Check if table already exists in definition
+    const existingTableInDefinition = tableRows.find(
+      (row) => row.tableId && combinedTables.find(
+        (t) => t.id === row.tableId && 
+        t.physicalName === sourceTable.tableName && 
+        (t.schemaName ?? '') === sourceTable.schemaName
+      )
+    );
+    
+    if (existingTableInDefinition) {
+      toast.showError('This table is already in the data definition.');
+      return;
+    }
+
+    // Check if table exists in the Table repository
+    let table = combinedTables.find(
+      (t) => t.physicalName === sourceTable.tableName && (t.schemaName ?? '') === sourceTable.schemaName && t.systemId === systemId
+    );
+
+    if (!table) {
+      // Create a new table from the source table
+      try {
+        table = await createTable({
+          systemId,
+          name: sourceTable.tableName,
+          physicalName: sourceTable.tableName,
+          schemaName: sourceTable.schemaName,
+          description: null,
+          tableType: sourceTable.tableType,
+          status: 'active'
+        });
+        setLocalTables((prev) => [...prev, table!]);
+      } catch (error) {
+        toast.showError(getErrorMessage(error, 'Unable to create table from source.'));
+        return;
+      }
+    }
+
+    // Add the table to the data definition
+    setTableRows((prev) => {
+      const nextLoadOrder = getNextLoadOrderValue(prev);
+      const alias = `${sourceTable.schemaName}.${sourceTable.tableName}`;
+      return [
+        ...prev,
+        {
+          id: generateId(),
+          tableId: table!.id,
+          alias,
+          description: `Source: ${alias}`,
+          loadOrder: nextLoadOrder,
+          fields: []
+        }
+      ];
+    });
+
+    setSourceTableDialogOpen(false);
+    toast.showSuccess(`Table "${sourceTable.tableName}" added to definition.`);
   };
 
   const handleTableDialogSubmit = async (values: {
@@ -659,6 +751,14 @@ const DataDefinitionForm = ({
                   Add Table
                 </Button>
                 <Button
+                  variant="outlined"
+                  startIcon={<AddCircleOutlineIcon />}
+                  onClick={handleOpenAddSourceTable}
+                  disabled={loading || sourceTableDialogLoading || !initialDefinition}
+                >
+                  Add Source Table
+                </Button>
+                <Button
                   variant="contained"
                   startIcon={<PostAddIcon />}
                   onClick={handleOpenCreateTable}
@@ -713,6 +813,14 @@ const DataDefinitionForm = ({
           onConfirm={handleExistingTableConfirm}
         />
       )}
+      <AddExistingSourceTableDialog
+        open={sourceTableDialogOpen}
+        tables={availableSourceTables}
+        loading={sourceTableDialogLoading}
+        error={sourceTableDialogError}
+        onClose={() => setSourceTableDialogOpen(false)}
+        onSubmit={handleAddSourceTable}
+      />
     </>
   );
 };
