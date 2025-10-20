@@ -162,7 +162,7 @@ const SystemConnectionsPage = () => {
   );
 
   useEffect(() => {
-    if (!selected || !selected.ingestionEnabled) {
+    if (!selected) {
       setCatalogRows([]);
       setCatalogError(null);
       setCatalogLoading(false);
@@ -203,7 +203,7 @@ const SystemConnectionsPage = () => {
   );
 
   const handleCatalogRefresh = useCallback(() => {
-    if (selected?.ingestionEnabled) {
+    if (selected) {
       loadCatalog(selected.id);
     }
   }, [selected, loadCatalog]);
