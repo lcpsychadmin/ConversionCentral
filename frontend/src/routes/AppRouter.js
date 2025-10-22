@@ -5,6 +5,7 @@ import { Suspense } from 'react';
 import MainLayout from '../layout/MainLayout';
 import OverviewPage from '@pages/OverviewPage';
 import DataDefinitionsPage from '@pages/DataDefinitionPage';
+import DataConstructionPage from '@pages/DataConstructionPage';
 import ProcessAreasPage from '@pages/ProcessAreasPage';
 import InventoryPage from '@pages/DataObjectsPage';
 import SystemsPage from '@pages/SystemsPage';
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
                     { index: true, element: _jsx(OverviewPage, {}) },
                     { path: 'data-definitions', element: _jsx(DataDefinitionsPage, {}) },
                     { path: 'data-definition', element: _jsx(Navigate, { to: "/data-definitions", replace: true }) },
+                    { path: 'data-construction', element: _jsx(DataConstructionPage, {}) },
                     { path: 'process-areas', element: _jsx(ProcessAreasPage, {}) },
                     { path: 'systems', element: _jsx(SystemsPage, {}) },
                     { path: 'application-settings/connections', element: _jsx(SystemConnectionsPage, {}) },

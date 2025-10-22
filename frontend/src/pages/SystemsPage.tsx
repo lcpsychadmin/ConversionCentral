@@ -54,7 +54,7 @@ const SystemsPage = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const sortedSystems = useMemo(
-    () => systems.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    () => systems.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
     [systems]
   );
 

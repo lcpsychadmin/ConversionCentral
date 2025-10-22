@@ -357,8 +357,8 @@ export interface DataDefinitionRelationship {
   foreignFieldId: string;
   relationshipType: DataDefinitionRelationshipType;
   notes?: string | null;
-  primaryField: DataDefinitionField;
-  foreignField: DataDefinitionField;
+  primaryField: DataDefinitionField | null;
+  foreignField: DataDefinitionField | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -384,6 +384,7 @@ export interface DataDefinitionTable {
   alias?: string | null;
   description?: string | null;
   loadOrder?: number | null;
+  isConstruction: boolean;
   table: Table;
   fields: DataDefinitionField[];
   createdAt?: string;
@@ -412,6 +413,7 @@ export interface DataDefinitionTableInput {
   alias?: string | null;
   description?: string | null;
   loadOrder?: number | null;
+  isConstruction?: boolean;
   fields: DataDefinitionFieldInput[];
 }
 

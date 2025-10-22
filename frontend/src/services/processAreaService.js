@@ -4,8 +4,8 @@ const mapProcessArea = (payload) => ({
     name: payload.name,
     description: payload.description ?? null,
     status: payload.status,
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt
 });
 export const fetchProcessAreas = async () => {
     const response = await client.get('/process-areas');

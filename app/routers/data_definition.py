@@ -13,6 +13,7 @@ from app.models import (
     DataObject,
     DataObjectSystem,
     Field,
+    ProcessArea,
     System,
     Table,
     SystemConnection,
@@ -27,6 +28,7 @@ from app.schemas import (
     DataDefinitionUpdate,
 )
 from app.services.catalog_browser import fetch_source_table_columns, ConnectionCatalogError
+from app.services.data_construction_sync import sync_construction_tables_for_definition
 
 router = APIRouter(prefix="/data-definitions", tags=["Data Definitions"])
 
@@ -36,6 +38,7 @@ def _definition_query(db: Session):
         db.query(DataDefinition)
         .options(
             selectinload(DataDefinition.system),
+            selectinload(DataDefinition.data_object).selectinload(DataObject.process_area),
             selectinload(DataDefinition.tables).selectinload(DataDefinitionTable.table),
             selectinload(DataDefinition.tables)
             .selectinload(DataDefinitionTable.fields)
@@ -46,6 +49,7 @@ def _definition_query(db: Session):
             selectinload(DataDefinition.relationships)
             .selectinload(DataDefinitionRelationship.foreign_field)
             .selectinload(DataDefinitionField.field),
+            selectinload(DataDefinition.tables).selectinload(DataDefinitionTable.constructed_table),
         )
         .order_by(DataDefinition.created_at.desc())
     )
@@ -139,6 +143,7 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
             alias=table_data.get("alias"),
             description=table_data.get("description"),
             load_order=load_order,
+            is_construction=bool(table_data.get("is_construction", False)),
         )
         db.add(definition_table)
         db.flush()
@@ -229,6 +234,7 @@ def _update_tables_preserve_relationships(
                 alias=table_data.get("alias"),
                 description=table_data.get("description"),
                 load_order=load_order,
+                is_construction=bool(table_data.get("is_construction", False)),
             )
             db.add(definition_table)
             db.flush()
@@ -237,6 +243,7 @@ def _update_tables_preserve_relationships(
             definition_table.alias = table_data.get("alias")
             definition_table.description = table_data.get("description")
             definition_table.load_order = load_order
+            definition_table.is_construction = bool(table_data.get("is_construction", False))
 
         existing_fields_by_field_id: dict[UUID, DataDefinitionField] = {
             field.field_id: field for field in definition_table.fields
@@ -352,7 +359,8 @@ def create_data_definition(
     db.flush()
 
     _build_tables(definition, payload.tables, db)
-
+    db.flush()
+    sync_construction_tables_for_definition(definition.id, db)
     db.commit()
     return _get_definition_or_404(definition.id, db)
 
@@ -392,6 +400,21 @@ def create_relationship(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Relationships must connect fields from different tables.",
+        )
+
+    existing_relationship = (
+        db.query(DataDefinitionRelationship)
+        .filter(
+            DataDefinitionRelationship.data_definition_id == definition.id,
+            DataDefinitionRelationship.primary_field_id == payload.primary_field_id,
+            DataDefinitionRelationship.foreign_field_id == payload.foreign_field_id,
+        )
+        .one_or_none()
+    )
+    if existing_relationship:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A relationship between the selected fields already exists.",
         )
 
     relationship = DataDefinitionRelationship(
@@ -671,6 +694,8 @@ def update_data_definition(
     if "tables" in update_data:
         _update_tables_preserve_relationships(definition, update_data["tables"], db)
 
+    db.flush()
+    sync_construction_tables_for_definition(definition.id, db)
     db.commit()
     return _get_definition_or_404(definition.id, db)
 

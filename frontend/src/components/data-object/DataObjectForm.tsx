@@ -196,7 +196,7 @@ const DataObjectForm = ({
               options={systems}
               disableCloseOnSelect
               getOptionLabel={(option) => option.name}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
+              isOptionEqualToValue={(option, value) => option.id === value?.id}
               value={systems.filter((system) => values.systemIds.includes(system.id))}
               onChange={handleSystemsChange}
               renderInput={(params) => (

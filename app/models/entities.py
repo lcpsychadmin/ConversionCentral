@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
@@ -219,8 +220,14 @@ class ConstructedTable(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    execution_context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_contexts.id", ondelete="CASCADE"), nullable=False
+    execution_context_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("execution_contexts.id", ondelete="CASCADE"), nullable=True
+    )
+    data_definition_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("data_definitions.id", ondelete="CASCADE"), nullable=True
+    )
+    data_definition_table_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("data_definition_tables.id", ondelete="CASCADE"), nullable=True, unique=True
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -237,8 +244,14 @@ class ConstructedTable(Base, TimestampMixin):
         default="draft",
     )
 
-    execution_context: Mapped["ExecutionContext"] = relationship(
+    execution_context: Mapped[Optional["ExecutionContext"]] = relationship(
         "ExecutionContext", back_populates="constructed_tables"
+    )
+    data_definition: Mapped[Optional["DataDefinition"]] = relationship(
+        "DataDefinition", back_populates="constructed_tables"
+    )
+    data_definition_table: Mapped[Optional["DataDefinitionTable"]] = relationship(
+        "DataDefinitionTable", back_populates="constructed_table"
     )
     fields: Mapped[list["ConstructedField"]] = relationship(
         "ConstructedField",
@@ -255,6 +268,11 @@ class ConstructedTable(Base, TimestampMixin):
     approvals: Mapped[list["ConstructedTableApproval"]] = relationship(
         "ConstructedTableApproval",
         back_populates="constructed_table",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    validation_rules: Mapped[list["ConstructedDataValidationRule"]] = relationship(
+        "ConstructedDataValidationRule",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
@@ -337,6 +355,58 @@ class ConstructedTableApproval(Base, TimestampMixin):
     )
     approver: Mapped[User] = relationship(
         "User", back_populates="constructed_table_approvals"
+    )
+
+
+class ConstructedDataValidationRule(Base, TimestampMixin):
+    """Validation rules for constructed table data."""
+    __tablename__ = "constructed_data_validation_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    constructed_table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("constructed_tables.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rule_type: Mapped[str] = mapped_column(
+        sa.Enum(
+            "required",  # Field must not be empty
+            "unique",  # Value must be unique across all rows
+            "range",  # Numeric value between min and max
+            "pattern",  # String matches regex pattern
+            "custom",  # Custom expression/formula
+            "cross_field",  # Validation across multiple fields
+            name="validation_rule_type_enum",
+        ),
+        nullable=False,
+    )
+    field_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("constructed_fields.id", ondelete="CASCADE"), nullable=True
+    )
+    # Rule configuration stored as JSON for flexibility
+    # Examples:
+    # Required: { "fieldName": "FirstName" }
+    # Unique: { "fieldName": "Email" }
+    # Range: { "fieldName": "Age", "min": 0, "max": 150 }
+    # Pattern: { "fieldName": "Phone", "pattern": "^\\d{3}-\\d{3}-\\d{4}$" }
+    # Custom: { "expression": "field1 > 100 AND field2 < 50" }
+    # CrossField: { "fields": ["StartDate", "EndDate"], "rule": "StartDate <= EndDate" }
+    configuration: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    error_message: Mapped[str] = mapped_column(
+        Text, nullable=False, default="Validation failed"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    applies_to_new_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
+    constructed_table: Mapped[ConstructedTable] = relationship(
+        "ConstructedTable", passive_deletes=True
+    )
+    field: Mapped[Optional["ConstructedField"]] = relationship(
+        "ConstructedField", passive_deletes=True
     )
 
 
@@ -592,6 +662,12 @@ class DataDefinition(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    constructed_tables: Mapped[list["ConstructedTable"]] = relationship(
+        "ConstructedTable",
+        back_populates="data_definition",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class DataDefinitionTable(Base, TimestampMixin):
@@ -616,6 +692,7 @@ class DataDefinitionTable(Base, TimestampMixin):
     alias: Mapped[str | None] = mapped_column(String(200), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     load_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_construction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     data_definition: Mapped[DataDefinition] = relationship("DataDefinition", back_populates="tables")
     table: Mapped["Table"] = relationship("Table", back_populates="definition_tables")
@@ -637,6 +714,21 @@ class DataDefinitionTable(Base, TimestampMixin):
         passive_deletes=True,
         foreign_keys="[DataDefinitionRelationship.foreign_table_id]",
     )
+    constructed_table: Mapped[Optional["ConstructedTable"]] = relationship(
+        "ConstructedTable", back_populates="data_definition_table", uselist=False
+    )
+
+    @property
+    def constructed_table_id(self) -> uuid.UUID | None:
+        return self.constructed_table.id if self.constructed_table else None
+
+    @property
+    def constructed_table_name(self) -> str | None:
+        return self.constructed_table.name if self.constructed_table else None
+
+    @property
+    def constructed_table_status(self) -> str | None:
+        return self.constructed_table.status if self.constructed_table else None
 
 
 class DataDefinitionField(Base, TimestampMixin):

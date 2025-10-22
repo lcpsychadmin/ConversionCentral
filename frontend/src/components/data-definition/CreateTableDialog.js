@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LoadingButton } from '@mui/lab';
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material';
 const STATUS_OPTIONS = ['active', 'draft', 'deprecated'];
-const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE'];
+const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE', 'CONSTRUCTION'];
 const defaultValues = {
     name: '',
     physicalName: '',

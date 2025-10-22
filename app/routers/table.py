@@ -24,6 +24,44 @@ def create_table(payload: TableCreate, db: Session = Depends(get_db)) -> TableRe
     if not db.get(System, payload.system_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
+    existing = (
+        db.query(Table)
+        .filter(
+            Table.system_id == payload.system_id,
+            Table.physical_name == payload.physical_name,
+        )
+        .one_or_none()
+    )
+
+    if existing:
+        updated = False
+        if payload.name and existing.name != payload.name:
+            existing.name = payload.name
+            updated = True
+        if payload.schema_name is not None and existing.schema_name != payload.schema_name:
+            existing.schema_name = payload.schema_name
+            updated = True
+        if payload.description is not None and existing.description != payload.description:
+            existing.description = payload.description
+            updated = True
+        if payload.table_type is not None and existing.table_type != payload.table_type:
+            existing.table_type = payload.table_type
+            updated = True
+        if payload.status is not None and existing.status != payload.status:
+            existing.status = payload.status
+            updated = True
+        if (
+            payload.security_classification is not None
+            and existing.security_classification != payload.security_classification
+        ):
+            existing.security_classification = payload.security_classification
+            updated = True
+
+        if updated:
+            db.commit()
+            db.refresh(existing)
+        return existing
+
     table = Table(**payload.dict())
     db.add(table)
     db.commit()
@@ -89,7 +127,7 @@ def preview_table(
         db.query(SystemConnection)
         .filter(
             SystemConnection.system_id == table.system_id,
-            SystemConnection.status == "active"
+            SystemConnection.active == True
         )
         .first()
     )

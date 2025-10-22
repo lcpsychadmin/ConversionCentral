@@ -102,8 +102,8 @@ const AddExistingSourceTableDialog = ({
       tables
         .slice()
         .sort((a, b) => {
-          const schemaCompare = a.schemaName.localeCompare(b.schemaName);
-          return schemaCompare !== 0 ? schemaCompare : a.tableName.localeCompare(b.tableName);
+          const schemaCompare = (a.schemaName ?? '').localeCompare(b.schemaName ?? '');
+          return schemaCompare !== 0 ? schemaCompare : (a.tableName ?? '').localeCompare(b.tableName ?? '');
         }),
     [tables]
   );

@@ -6,8 +6,8 @@ interface ProcessAreaResponse {
   name: string;
   description?: string | null;
   status: string;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const mapProcessArea = (payload: ProcessAreaResponse): ProcessArea => ({
@@ -15,8 +15,8 @@ const mapProcessArea = (payload: ProcessAreaResponse): ProcessArea => ({
   name: payload.name,
   description: payload.description ?? null,
   status: payload.status,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export interface ProcessAreaInput {

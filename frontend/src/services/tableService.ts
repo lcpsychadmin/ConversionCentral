@@ -3,76 +3,76 @@ import { Field, FieldInput, Table, TableInput, ConnectionTablePreview } from '..
 
 export interface TableResponse {
   id: string;
-  system_id: string;
+  systemId: string;
   name: string;
-  physical_name: string;
-  schema_name?: string | null;
+  physicalName: string;
+  schemaName?: string | null;
   description?: string | null;
-  table_type?: string | null;
+  tableType?: string | null;
   status: string;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface FieldResponse {
   id: string;
-  table_id: string;
+  tableId: string;
   name: string;
   description?: string | null;
-  application_usage?: string | null;
-  business_definition?: string | null;
-  enterprise_attribute?: string | null;
-  field_type: string;
-  field_length?: number | null;
-  decimal_places?: number | null;
-  system_required: boolean;
-  business_process_required: boolean;
-  suppressed_field: boolean;
+  applicationUsage?: string | null;
+  businessDefinition?: string | null;
+  enterpriseAttribute?: string | null;
+  fieldType: string;
+  fieldLength?: number | null;
+  decimalPlaces?: number | null;
+  systemRequired: boolean;
+  businessProcessRequired: boolean;
+  suppressedField: boolean;
   active: boolean;
-  legal_regulatory_implications?: string | null;
-  security_classification?: string | null;
-  data_validation?: string | null;
-  reference_table?: string | null;
-  grouping_tab?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  legalRegulatoryImplications?: string | null;
+  securityClassification?: string | null;
+  dataValidation?: string | null;
+  referenceTable?: string | null;
+  groupingTab?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const mapTable = (payload: TableResponse): Table => ({
   id: payload.id,
-  systemId: payload.system_id,
+  systemId: payload.systemId,
   name: payload.name,
-  physicalName: payload.physical_name,
-  schemaName: payload.schema_name ?? null,
+  physicalName: payload.physicalName,
+  schemaName: payload.schemaName ?? null,
   description: payload.description ?? null,
-  tableType: payload.table_type ?? null,
+  tableType: payload.tableType ?? null,
   status: payload.status,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const mapField = (payload: FieldResponse): Field => ({
   id: payload.id,
-  tableId: payload.table_id,
+  tableId: payload.tableId,
   name: payload.name,
   description: payload.description ?? null,
-  applicationUsage: payload.application_usage ?? null,
-  businessDefinition: payload.business_definition ?? null,
-  enterpriseAttribute: payload.enterprise_attribute ?? null,
-  fieldType: payload.field_type,
-  fieldLength: payload.field_length ?? null,
-  decimalPlaces: payload.decimal_places ?? null,
-  systemRequired: payload.system_required,
-  businessProcessRequired: payload.business_process_required,
-  suppressedField: payload.suppressed_field,
+  applicationUsage: payload.applicationUsage ?? null,
+  businessDefinition: payload.businessDefinition ?? null,
+  enterpriseAttribute: payload.enterpriseAttribute ?? null,
+  fieldType: payload.fieldType,
+  fieldLength: payload.fieldLength ?? null,
+  decimalPlaces: payload.decimalPlaces ?? null,
+  systemRequired: payload.systemRequired,
+  businessProcessRequired: payload.businessProcessRequired,
+  suppressedField: payload.suppressedField,
   active: payload.active,
-  legalRegulatoryImplications: payload.legal_regulatory_implications ?? null,
-  securityClassification: payload.security_classification ?? null,
-  dataValidation: payload.data_validation ?? null,
-  referenceTable: payload.reference_table ?? null,
-  groupingTab: payload.grouping_tab ?? null,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  legalRegulatoryImplications: payload.legalRegulatoryImplications ?? null,
+  securityClassification: payload.securityClassification ?? null,
+  dataValidation: payload.dataValidation ?? null,
+  referenceTable: payload.referenceTable ?? null,
+  groupingTab: payload.groupingTab ?? null,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchTables = async (): Promise<Table[]> => {

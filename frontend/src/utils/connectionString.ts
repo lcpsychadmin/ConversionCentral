@@ -49,9 +49,9 @@ export const buildJdbcConnectionString = (values: SystemConnectionFormValues): s
 };
 
 export const parseJdbcConnectionString = (
-  connectionString: string
+  connectionString: string | null | undefined
 ): JdbcConnectionDetails | null => {
-  if (!connectionString.startsWith('jdbc:')) {
+  if (!connectionString || !connectionString.startsWith('jdbc:')) {
     return null;
   }
 
@@ -84,10 +84,10 @@ export const parseJdbcConnectionString = (
   }
 };
 
-export const formatConnectionSummary = (connectionString: string): string => {
+export const formatConnectionSummary = (connectionString: string | null | undefined): string => {
   const parsed = parseJdbcConnectionString(connectionString);
   if (!parsed) {
-    return connectionString;
+    return connectionString ?? '—';
   }
 
   const { databaseType, username, host, port, database } = parsed;

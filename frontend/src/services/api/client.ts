@@ -7,9 +7,34 @@ const normalizedBaseUrl = rawBaseUrl.endsWith('/api')
   ? rawBaseUrl
   : `${rawBaseUrl.replace(/\/$/, '')}/api`;
 
+const shouldSkipCamelCase = (url?: string): boolean => {
+  if (!url) {
+    return false;
+  }
+
+  // Preserve payload keys for preview endpoints so column names remain untouched.
+  return /\/preview(\?|$)/.test(url);
+};
+
 const client = axios.create({
   baseURL: normalizedBaseUrl
 });
+
+// Helper function to convert snake_case keys to camelCase
+const toCamelCase = (obj: any): any => {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toCamelCase);
+  if (typeof obj !== 'object') return obj;
+
+  const result: any = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      result[camelKey] = toCamelCase(obj[key]);
+    }
+  }
+  return result;
+};
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('cc_token');
@@ -17,6 +42,14 @@ client.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
+});
+
+// Response interceptor to convert snake_case to camelCase
+client.interceptors.response.use((response) => {
+  if (response.data && !shouldSkipCamelCase(response.config?.url)) {
+    response.data = toCamelCase(response.data);
+  }
+  return response;
 });
 
 export default client;

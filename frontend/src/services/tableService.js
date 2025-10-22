@@ -1,38 +1,38 @@
 import client from './api/client';
 export const mapTable = (payload) => ({
     id: payload.id,
-    systemId: payload.system_id,
+    systemId: payload.systemId,
     name: payload.name,
-    physicalName: payload.physical_name,
-    schemaName: payload.schema_name ?? null,
+    physicalName: payload.physicalName,
+    schemaName: payload.schemaName ?? null,
     description: payload.description ?? null,
-    tableType: payload.table_type ?? null,
+    tableType: payload.tableType ?? null,
     status: payload.status,
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt
 });
 export const mapField = (payload) => ({
     id: payload.id,
-    tableId: payload.table_id,
+    tableId: payload.tableId,
     name: payload.name,
     description: payload.description ?? null,
-    applicationUsage: payload.application_usage ?? null,
-    businessDefinition: payload.business_definition ?? null,
-    enterpriseAttribute: payload.enterprise_attribute ?? null,
-    fieldType: payload.field_type,
-    fieldLength: payload.field_length ?? null,
-    decimalPlaces: payload.decimal_places ?? null,
-    systemRequired: payload.system_required,
-    businessProcessRequired: payload.business_process_required,
-    suppressedField: payload.suppressed_field,
+    applicationUsage: payload.applicationUsage ?? null,
+    businessDefinition: payload.businessDefinition ?? null,
+    enterpriseAttribute: payload.enterpriseAttribute ?? null,
+    fieldType: payload.fieldType,
+    fieldLength: payload.fieldLength ?? null,
+    decimalPlaces: payload.decimalPlaces ?? null,
+    systemRequired: payload.systemRequired,
+    businessProcessRequired: payload.businessProcessRequired,
+    suppressedField: payload.suppressedField,
     active: payload.active,
-    legalRegulatoryImplications: payload.legal_regulatory_implications ?? null,
-    securityClassification: payload.security_classification ?? null,
-    dataValidation: payload.data_validation ?? null,
-    referenceTable: payload.reference_table ?? null,
-    groupingTab: payload.grouping_tab ?? null,
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at
+    legalRegulatoryImplications: payload.legalRegulatoryImplications ?? null,
+    securityClassification: payload.securityClassification ?? null,
+    dataValidation: payload.dataValidation ?? null,
+    referenceTable: payload.referenceTable ?? null,
+    groupingTab: payload.groupingTab ?? null,
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt
 });
 export const fetchTables = async () => {
     const response = await client.get('/tables');
@@ -139,4 +139,12 @@ export const updateField = async (id, input) => {
         payload.grouping_tab = input.groupingTab;
     const response = await client.put(`/fields/${id}`, payload);
     return mapField(response.data);
+};
+export const fetchTablePreview = async (tableId, limit = 100) => {
+    const response = await client.get(`/tables/${tableId}/preview`, {
+        params: {
+            limit
+        }
+    });
+    return response.data;
 };

@@ -1,7 +1,8 @@
 from datetime import datetime
 from http import HTTPStatus
+from uuid import UUID, uuid4
 
-from app.models import User
+from app.models import ConstructedTable, User
 
 
 def test_dashboard_summary(client):
@@ -1127,6 +1128,195 @@ def _create_user(db_session, name: str, email: str) -> str:
     db_session.add(user)
     db_session.commit()
     return str(user.id)
+
+
+def _setup_construction_domain(client):
+    suffix = uuid4().hex[:8]
+
+    process_area_id = client.post(
+        "/process-areas",
+        json={"name": f"Construction Area {suffix}", "description": "", "status": "draft"},
+    ).json()["id"]
+
+    system_id = client.post(
+        "/systems",
+        json={
+            "name": f"Construction System {suffix}",
+            "physical_name": f"CON_SYS_{suffix}",
+            "description": "",
+            "system_type": "source",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:mssql://localhost:1433/construction",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": f"Construction Object {suffix}",
+            "description": "",
+            "status": "active",
+            "system_ids": [system_id],
+        },
+    ).json()["id"]
+
+    table_id = client.post(
+        "/tables",
+        json={
+            "system_id": system_id,
+            "name": f"Construction Table {suffix}",
+            "physical_name": f"CON_TABLE_{suffix}",
+            "schema_name": "dbo",
+            "description": "",
+            "table_type": "table",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    field_one_name = f"ConstructFieldA{suffix}"
+    field_two_name = f"ConstructFieldB{suffix}"
+
+    field_one_id = client.post(
+        "/fields",
+        json={
+            "table_id": table_id,
+            "name": field_one_name,
+            "description": "",
+            "field_type": "VARCHAR",
+            "field_length": 255,
+            "system_required": True,
+            "business_process_required": False,
+        },
+    ).json()["id"]
+
+    field_two_id = client.post(
+        "/fields",
+        json={
+            "table_id": table_id,
+            "name": field_two_name,
+            "description": "",
+            "field_type": "INTEGER",
+            "system_required": False,
+            "business_process_required": False,
+        },
+    ).json()["id"]
+
+    return {
+        "process_area_id": process_area_id,
+        "system_id": system_id,
+        "data_object_id": data_object_id,
+        "table_id": table_id,
+        "field_one_id": field_one_id,
+        "field_two_id": field_two_id,
+        "field_one_name": field_one_name,
+        "field_two_name": field_two_name,
+    }
+
+
+def test_data_definition_construction_sync_creates_constructed_table(client, db_session):
+    setup = _setup_construction_domain(client)
+
+    payload = {
+        "data_object_id": setup["data_object_id"],
+        "system_id": setup["system_id"],
+        "description": "Construction definition",
+        "tables": [
+            {
+                "table_id": setup["table_id"],
+                "alias": "Constructed Table",
+                "is_construction": True,
+                "fields": [
+                    {"field_id": setup["field_one_id"]},
+                    {"field_id": setup["field_two_id"]},
+                ],
+            }
+        ],
+    }
+
+    response = client.post("/data-definitions", json=payload)
+    assert response.status_code == HTTPStatus.CREATED
+    definition = response.json()
+    assert definition["tables"], "Expected constructed tables in response"
+    table_entry = definition["tables"][0]
+    assert table_entry["constructedTableId"], "Constructed table id should be returned"
+    definition_table_id = UUID(table_entry["id"])
+    definition_id = UUID(definition["id"])
+
+    constructed_table = (
+        db_session.query(ConstructedTable)
+        .filter(ConstructedTable.data_definition_table_id == definition_table_id)
+        .one()
+    )
+
+    assert constructed_table.status == "approved"
+    assert constructed_table.data_definition_id == definition_id
+    assert {field.name for field in constructed_table.fields} == {
+        setup["field_one_name"],
+        setup["field_two_name"],
+    }
+
+
+def test_data_definition_construction_sync_removes_constructed_table(client, db_session):
+    setup = _setup_construction_domain(client)
+
+    create_payload = {
+        "data_object_id": setup["data_object_id"],
+        "system_id": setup["system_id"],
+        "description": "Construction definition",
+        "tables": [
+            {
+                "table_id": setup["table_id"],
+                "alias": "Constructed Table",
+                "is_construction": True,
+                "fields": [
+                    {"field_id": setup["field_one_id"]},
+                    {"field_id": setup["field_two_id"]},
+                ],
+            }
+        ],
+    }
+
+    create_response = client.post("/data-definitions", json=create_payload)
+    assert create_response.status_code == HTTPStatus.CREATED
+    definition = create_response.json()
+
+    update_payload = {
+        "tables": [
+            {
+                "table_id": setup["table_id"],
+                "alias": "Constructed Table",
+                "is_construction": False,
+                "fields": [
+                    {"field_id": setup["field_one_id"]},
+                    {"field_id": setup["field_two_id"]},
+                ],
+            }
+        ]
+    }
+
+    update_response = client.put(f"/data-definitions/{definition['id']}", json=update_payload)
+    assert update_response.status_code == HTTPStatus.OK
+
+    definition_id = UUID(definition["id"])
+
+    remaining = (
+        db_session.query(ConstructedTable)
+        .filter(ConstructedTable.data_definition_id == definition_id)
+        .all()
+    )
+    assert remaining == []
 
 
 def test_mapping_set_business_rules(client):

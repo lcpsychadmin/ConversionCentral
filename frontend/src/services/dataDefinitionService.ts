@@ -13,104 +13,115 @@ import { FieldResponse, mapField, mapTable, TableResponse } from './tableService
 
 export interface DataDefinitionFieldResponse {
   id: string;
-  definition_table_id: string;
-  field_id: string;
+  definitionTableId: string;
+  fieldId: string;
   notes?: string | null;
   field: FieldResponse;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface DataDefinitionTableResponse {
   id: string;
-  data_definition_id: string;
-  table_id: string;
+  dataDefinitionId: string;
+  tableId: string;
   alias?: string | null;
   description?: string | null;
-  load_order?: number | null;
+  loadOrder?: number | null;
+  isConstruction?: boolean | null;
   table: TableResponse;
   fields: DataDefinitionFieldResponse[];
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DataDefinitionRelationshipResponse {
   id: string;
-  data_definition_id: string;
-  primary_table_id: string;
-  primary_field_id: string;
-  foreign_table_id: string;
-  foreign_field_id: string;
-  relationship_type: DataDefinitionRelationshipType;
+  dataDefinitionId: string;
+  primaryTableId: string;
+  primaryFieldId: string;
+  foreignTableId: string;
+  foreignFieldId: string;
+  relationshipType: DataDefinitionRelationshipType;
   notes?: string | null;
-  primary_field: DataDefinitionFieldResponse;
-  foreign_field: DataDefinitionFieldResponse;
-  created_at?: string;
-  updated_at?: string;
+  primaryField?: DataDefinitionFieldResponse | null;
+  foreignField?: DataDefinitionFieldResponse | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface DataDefinitionResponse {
   id: string;
-  data_object_id: string;
-  system_id: string;
+  dataObjectId: string;
+  systemId: string;
   description?: string | null;
   system?: SystemResponse | null;
   tables: DataDefinitionTableResponse[];
   relationships?: DataDefinitionRelationshipResponse[];
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const mapDataDefinitionField = (
   payload: DataDefinitionFieldResponse
 ): DataDefinitionField => ({
   id: payload.id,
-  definitionTableId: payload.definition_table_id,
-  fieldId: payload.field_id,
+  definitionTableId: payload.definitionTableId,
+  fieldId: payload.fieldId,
   notes: payload.notes ?? null,
   field: mapField(payload.field),
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
+
+const mapNullableDataDefinitionField = (
+  payload?: DataDefinitionFieldResponse | null
+): DataDefinitionField | null => {
+  if (!payload) {
+    return null;
+  }
+  return mapDataDefinitionField(payload);
+};
 
 export const mapDataDefinitionRelationship = (
   payload: DataDefinitionRelationshipResponse
 ): DataDefinitionRelationship => ({
   id: payload.id,
-  dataDefinitionId: payload.data_definition_id,
-  primaryTableId: payload.primary_table_id,
-  primaryFieldId: payload.primary_field_id,
-  foreignTableId: payload.foreign_table_id,
-  foreignFieldId: payload.foreign_field_id,
-  relationshipType: payload.relationship_type,
+  dataDefinitionId: payload.dataDefinitionId,
+  primaryTableId: payload.primaryTableId,
+  primaryFieldId: payload.primaryFieldId,
+  foreignTableId: payload.foreignTableId,
+  foreignFieldId: payload.foreignFieldId,
+  relationshipType: payload.relationshipType,
   notes: payload.notes ?? null,
-  primaryField: mapDataDefinitionField(payload.primary_field),
-  foreignField: mapDataDefinitionField(payload.foreign_field),
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  primaryField: mapNullableDataDefinitionField(payload.primaryField),
+  foreignField: mapNullableDataDefinitionField(payload.foreignField),
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 const mapDataDefinition = (payload: DataDefinitionResponse): DataDefinition => ({
   id: payload.id,
-  dataObjectId: payload.data_object_id,
-  systemId: payload.system_id,
+  dataObjectId: payload.dataObjectId,
+  systemId: payload.systemId,
   description: payload.description ?? null,
   system: payload.system ? mapSystem(payload.system) : null,
   tables: (payload.tables ?? []).map((table) => ({
     id: table.id,
-    dataDefinitionId: table.data_definition_id,
-    tableId: table.table_id,
+    dataDefinitionId: table.dataDefinitionId,
+    tableId: table.tableId,
     alias: table.alias ?? null,
     description: table.description ?? null,
-    loadOrder: table.load_order ?? null,
+    loadOrder: table.loadOrder ?? null,
+    isConstruction: table.isConstruction ?? false,
     table: mapTable(table.table),
     fields: (table.fields ?? []).map(mapDataDefinitionField),
-    createdAt: table.created_at,
-    updatedAt: table.updated_at
+    createdAt: table.createdAt,
+    updatedAt: table.updatedAt
   })),
   relationships: (payload.relationships ?? []).map(mapDataDefinitionRelationship),
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 const normalizeTableInput = (table: DataDefinitionTableInput) => ({
@@ -118,6 +129,7 @@ const normalizeTableInput = (table: DataDefinitionTableInput) => ({
   alias: table.alias ?? null,
   description: table.description ?? null,
   load_order: table.loadOrder ?? null,
+  is_construction: table.isConstruction ?? false,
   fields: table.fields.map((field) => ({
     field_id: field.fieldId,
     notes: field.notes ?? null

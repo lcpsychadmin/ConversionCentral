@@ -3,6 +3,8 @@ import { DataGrid, GridActionsCellItem } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
+import { getDataGridStyles } from '../../utils/tableStyles';
 const formatStatusLabel = (status) => status
     .split('_')
     .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
@@ -39,12 +41,13 @@ const columns = (canManage, onEdit, onDelete) => {
     ];
 };
 const ProcessAreaTable = ({ data, loading, selectedId, canManage, onSelect, onEdit, onDelete }) => {
+    const theme = useTheme();
     const columnConfig = useMemo(() => columns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
     const handleSelectionChange = (selection) => {
         const id = selection[0] ?? null;
         const selectedProcessArea = data.find((item) => item.id === id) ?? null;
         onSelect?.(selectedProcessArea);
     };
-    return (_jsx("div", { style: { height: 520, width: '100%' }, children: _jsx(DataGrid, { rows: data, columns: columnConfig, loading: loading, rowSelectionModel: selectedId ? [selectedId] : [], onRowSelectionModelChange: handleSelectionChange, onRowClick: (params) => onSelect?.(params.row), getRowId: (row) => row.id, disableRowSelectionOnClick: false }) }));
+    return (_jsx("div", { style: { height: 520, width: '100%' }, children: _jsx(DataGrid, { rows: data, columns: columnConfig, loading: loading, rowSelectionModel: selectedId ? [selectedId] : [], onRowSelectionModelChange: handleSelectionChange, onRowClick: (params) => onSelect?.(params.row), getRowId: (row) => row.id, disableRowSelectionOnClick: false, sx: getDataGridStyles(theme) }) }));
 };
 export default ProcessAreaTable;

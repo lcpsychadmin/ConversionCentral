@@ -7,9 +7,9 @@ interface DataObjectResponse {
   name: string;
   description?: string | null;
   status: string;
-  process_area_id: string | null;
-  created_at?: string;
-  updated_at?: string;
+  processAreaId: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   systems?: SystemResponse[];
 }
 
@@ -18,10 +18,10 @@ const mapDataObject = (payload: DataObjectResponse): DataObject => ({
   name: payload.name,
   description: payload.description ?? null,
   status: payload.status,
-  processAreaId: payload.process_area_id,
+  processAreaId: payload.processAreaId,
   systems: (payload.systems ?? []).map(mapSystem),
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchDataObjects = async (): Promise<DataObject[]> => {

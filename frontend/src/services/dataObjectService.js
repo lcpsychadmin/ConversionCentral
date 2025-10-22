@@ -5,10 +5,10 @@ const mapDataObject = (payload) => ({
     name: payload.name,
     description: payload.description ?? null,
     status: payload.status,
-    processAreaId: payload.process_area_id,
+    processAreaId: payload.processAreaId,
     systems: (payload.systems ?? []).map(mapSystem),
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt
 });
 export const fetchDataObjects = async () => {
     const response = await client.get('/data-objects');

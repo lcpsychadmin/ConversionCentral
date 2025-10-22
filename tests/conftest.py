@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 TEST_DATABASE_URL = "sqlite://"
 os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("INGESTION_DATABASE_URL", TEST_DATABASE_URL)
+os.environ.setdefault("ENABLE_SQL_SERVER_SYNC", "false")
 
 from app.database import Base, get_db
 from app.main import app

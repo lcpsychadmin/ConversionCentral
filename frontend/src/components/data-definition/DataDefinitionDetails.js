@@ -11,8 +11,12 @@ import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import LibraryAddCheckOutlinedIcon from '@mui/icons-material/LibraryAddCheckOutlined';
 import PostAddOutlinedIcon from '@mui/icons-material/PostAddOutlined';
 import SearchIcon from '@mui/icons-material/Search';
+import PreviewIcon from '@mui/icons-material/Preview';
 import { DataGrid, useGridApiContext } from '@mui/x-data-grid';
 import DataDefinitionRelationshipBuilder from './DataDefinitionRelationshipBuilder';
+import ConnectionDataPreviewDialog from '../system-connection/ConnectionDataPreviewDialog';
+import { fetchTablePreview } from '../../services/tableService';
+import { useToast } from '../../hooks/useToast';
 const FIELD_COLUMNS = [
     { key: 'name', label: 'Name', kind: 'text', minWidth: 200 },
     { key: 'description', label: 'Description', kind: 'text', multiline: true, minWidth: 260 },
@@ -67,7 +71,9 @@ const mapDraftsFromDefinition = (definition) => {
     const drafts = {};
     definition.tables.forEach((table) => {
         table.fields.forEach((definitionField) => {
-            drafts[definitionField.field.id] = buildDraft(definitionField.field);
+            if (definitionField.field) {
+                drafts[definitionField.field.id] = buildDraft(definitionField.field);
+            }
         });
     });
     return drafts;
@@ -212,6 +218,7 @@ const GridTextarea = styled(TextareaAutosize)(({ theme }) => ({
     }
 }));
 const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState, onInlineFieldSubmit, onEditField, onAddExistingFieldInline, onCreateFieldInline, availableFieldsByTable, tableSavingState, fieldActionsDisabled = false, onBulkPasteResult, onCreateRelationship, onUpdateRelationship, onDeleteRelationship, relationshipBusy = false }) => {
+    const toast = useToast();
     const [expandedTables, setExpandedTables] = useState(() => {
         const initial = {};
         definition.tables.forEach((table) => {
@@ -219,6 +226,13 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
         });
         return initial;
     });
+    const tablesById = useMemo(() => {
+        const map = new Map();
+        definition.tables.forEach((table) => {
+            map.set(table.id, table);
+        });
+        return map;
+    }, [definition.tables]);
     const initialDrafts = useMemo(() => mapDraftsFromDefinition(definition), [definition]);
     const [drafts, setDrafts] = useState(initialDrafts);
     const [committed, setCommitted] = useState(initialDrafts);
@@ -230,6 +244,13 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
     const [dragSource, setDragSource] = useState(null);
     const [dropTargetTableId, setDropTargetTableId] = useState(null);
     const [intendedRelationship, setIntendedRelationship] = useState(null);
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [previewTableId, setPreviewTableId] = useState(null);
+    const [previewTableName, setPreviewTableName] = useState('');
+    const [previewSchemaName, setPreviewSchemaName] = useState(null);
+    const [previewData, setPreviewData] = useState(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewError, setPreviewError] = useState(null);
     const theme = useTheme();
     const chipBaseSx = useMemo(() => ({
         height: 24,
@@ -316,7 +337,7 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
         const left = a.loadOrder ?? Number.MAX_SAFE_INTEGER;
         const right = b.loadOrder ?? Number.MAX_SAFE_INTEGER;
         if (left === right) {
-            return a.table.name.localeCompare(b.table.name);
+            return (a.table?.name ?? '').localeCompare(b.table?.name ?? '');
         }
         return left - right;
     }), [definition.tables]);
@@ -689,7 +710,9 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
     }, [canEdit, fieldActionsDisabled, inlineRows, onBulkPasteResult, onCreateFieldInline, tableSavingState]);
     const exportTableToCsv = useCallback((table, tableName) => {
         const headers = [...FIELD_COLUMNS.map((column) => column.label), 'Notes'];
-        const body = table.fields.map((definitionField) => {
+        const body = table.fields
+            .filter((definitionField) => definitionField.field != null)
+            .map((definitionField) => {
             const field = definitionField.field;
             const values = FIELD_COLUMNS.map((column) => {
                 switch (column.kind) {
@@ -720,12 +743,59 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     }, []);
+    const handleOpenPreview = useCallback((table) => {
+        setPreviewTableId(table.table.id);
+        setPreviewTableName(table.table.name);
+        setPreviewSchemaName(table.table.schemaName ?? null);
+        setPreviewData(null);
+        setPreviewError(null);
+        setPreviewLoading(true);
+        setPreviewOpen(true);
+        const loadPreview = async () => {
+            try {
+                const data = await fetchTablePreview(table.table.id, 100);
+                setPreviewData(data);
+            }
+            catch (error) {
+                setPreviewError(error instanceof Error ? error.message : 'Failed to load preview');
+            }
+            finally {
+                setPreviewLoading(false);
+            }
+        };
+        loadPreview();
+    }, []);
+    const handleClosePreview = useCallback(() => {
+        setPreviewOpen(false);
+        setPreviewTableId(null);
+        setPreviewTableName('');
+        setPreviewSchemaName(null);
+        setPreviewData(null);
+        setPreviewError(null);
+        setPreviewLoading(false);
+    }, []);
+    const handleRefreshPreview = useCallback(async () => {
+        if (!previewTableId)
+            return;
+        setPreviewLoading(true);
+        setPreviewError(null);
+        try {
+            const data = await fetchTablePreview(previewTableId, 100);
+            setPreviewData(data);
+        }
+        catch (error) {
+            setPreviewError(error instanceof Error ? error.message : 'Failed to load preview');
+        }
+        finally {
+            setPreviewLoading(false);
+        }
+    }, [previewTableId]);
     return (_jsxs(Stack, { spacing: 3, sx: { p: 2 }, children: [definition.description && (_jsxs(Paper, { variant: "outlined", sx: {
                     p: 2,
                     bgcolor: alpha(theme.palette.info.main, 0.04),
                     borderColor: alpha(theme.palette.info.main, 0.25),
                     borderWidth: 1.5
-                }, children: [_jsx(Typography, { variant: "subtitle2", color: "info.dark", sx: { fontWeight: 600, mb: 1 }, children: "Description" }), _jsx(Typography, { variant: "body1", children: definition.description })] })), _jsx(DataDefinitionRelationshipBuilder, { tables: definition.tables, relationships: definition.relationships, canEdit: Boolean(canEdit), onCreateRelationship: onCreateRelationship, onUpdateRelationship: onUpdateRelationship, onDeleteRelationship: onDeleteRelationship, busy: relationshipBusy, initialPrimaryFieldId: intendedRelationship?.primaryFieldId, initialForeignFieldId: intendedRelationship?.foreignFieldId }), sortedTables.map((table) => {
+                }, children: [_jsx(Typography, { variant: "subtitle2", color: "info.dark", sx: { fontWeight: 600, mb: 1 }, children: "Description" }), _jsx(Typography, { variant: "body1", children: definition.description })] })), _jsx(DataDefinitionRelationshipBuilder, { tables: definition.tables, relationships: definition.relationships, canEdit: Boolean(canEdit), onCreateRelationship: onCreateRelationship, onUpdateRelationship: onUpdateRelationship, onDeleteRelationship: onDeleteRelationship, busy: relationshipBusy, initialPrimaryFieldId: intendedRelationship?.primaryFieldId, initialForeignFieldId: intendedRelationship?.foreignFieldId, onInitialRelationshipConsumed: () => setIntendedRelationship(null) }), sortedTables.map((table) => {
                 const isExpanded = expandedTables[table.id] ?? false;
                 const isGridView = gridViewByTable[table.id] ?? false;
                 const tableName = table.alias || table.table.name;
@@ -763,7 +833,9 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                 })();
                 const isNewMenuOpen = newMenu?.tableId === table.id;
                 const menuAnchor = isNewMenuOpen ? newMenu.anchor : undefined;
-                const rows = table.fields.map((definitionField) => ({
+                const rows = table.fields
+                    .filter((definitionField) => definitionField.field != null)
+                    .map((definitionField) => ({
                     id: definitionField.id,
                     notes: definitionField.notes ?? '',
                     __definitionField: definitionField,
@@ -881,10 +953,11 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                             if (!isGridView && column.key === 'name' && canEdit) {
                                 const displayValue = renderText(value);
                                 return (_jsxs(Stack, { direction: "row", spacing: 1, alignItems: "center", draggable: true, onDragStart: (e) => {
-                                        setDragSource({ tableId: table.id, fieldId: definitionField.field.id });
+                                        setDragSource({ tableId: table.id, fieldId: definitionField.id });
                                         e.dataTransfer.effectAllowed = 'copy';
                                         e.dataTransfer.setData('application/json', JSON.stringify({
                                             tableId: table.id,
+                                            definitionFieldId: definitionField.id,
                                             fieldId: definitionField.field.id,
                                             fieldName: definitionField.field.name
                                         }));
@@ -893,7 +966,7 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                                     }, sx: {
                                         cursor: 'grab',
                                         '&:active': { cursor: 'grabbing' },
-                                        opacity: dragSource?.fieldId === definitionField.field.id ? 0.7 : 1,
+                                        opacity: dragSource?.fieldId === definitionField.id ? 0.7 : 1,
                                         transition: 'opacity 0.2s'
                                     }, children: [saving && _jsx(CircularProgress, { size: 16 }), _jsx(Link, { component: "button", variant: "body2", underline: "hover", onClick: () => onEditField?.(table.tableId, tableName, definitionField.field), sx: { fontWeight: 600 }, children: displayValue })] }));
                             }
@@ -994,19 +1067,38 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                         setDropTargetTableId(null);
                         try {
                             const data = JSON.parse(e.dataTransfer.getData('application/json'));
-                            const { tableId: sourceTableId, fieldId: sourceFieldId } = data;
-                            // Prevent dropping on the same table
-                            if (sourceTableId !== table.id && dragSource) {
+                            const { tableId: sourceTableId, definitionFieldId, fieldId: legacyFieldId } = data;
+                            const sourceFieldCandidateId = definitionFieldId ?? legacyFieldId;
+                            if (!sourceFieldCandidateId) {
+                                toast.showError('Unable to determine the selected source field. Please try again.');
                                 setDragSource(null);
-                                // Set the intended relationship with source and first field of target table
-                                const targetField = table.fields[0];
-                                if (targetField) {
-                                    setIntendedRelationship({
-                                        primaryFieldId: sourceFieldId,
-                                        foreignFieldId: targetField.fieldId
-                                    });
-                                }
+                                return;
                             }
+                            // Prevent dropping on the same table
+                            if (sourceTableId === table.id) {
+                                toast.showError('Select fields from different tables to create a relationship.');
+                                setDragSource(null);
+                                return;
+                            }
+                            const sourceTable = sourceTableId ? tablesById.get(sourceTableId) : undefined;
+                            const sourceField = sourceTable?.fields.find((field) => (field.id === sourceFieldCandidateId || field.fieldId === sourceFieldCandidateId) &&
+                                Boolean(field.field));
+                            if (!sourceField) {
+                                toast.showError('Unable to locate the selected source field in this definition.');
+                                setDragSource(null);
+                                return;
+                            }
+                            const targetField = table.fields.find((field) => Boolean(field?.id && field.field));
+                            if (!targetField) {
+                                toast.showError('The target table does not have any fields available for relationships.');
+                                setDragSource(null);
+                                return;
+                            }
+                            setDragSource(null);
+                            setIntendedRelationship({
+                                primaryFieldId: sourceField.id,
+                                foreignFieldId: targetField.id
+                            });
                         }
                         catch (error) {
                             console.error('Error processing drop:', error);
@@ -1023,7 +1115,7 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                                                     : table.table.physicalName })] }), _jsxs(Stack, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", children: [typeof table.loadOrder === 'number' && (_jsx(Chip, { label: `Load Order: ${table.loadOrder}`, size: "small", color: "primary", variant: "outlined" })), table.table.tableType && _jsx(Chip, { label: table.table.tableType, size: "small" }), table.table.status && (_jsx(Chip, { label: table.table.status, size: "small", color: table.table.status === 'active' ? 'success' : 'default' })), _jsx(IconButton, { onClick: () => handleToggle(table.id), "aria-label": isExpanded ? 'Collapse fields' : 'Expand fields', size: "small", children: isExpanded ? _jsx(ExpandLessIcon, {}) : _jsx(ExpandMoreIcon, {}) })] })] }), table.description && (_jsx(Typography, { variant: "body2", color: "text.secondary", children: table.description })), _jsxs(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1, justifyContent: "flex-end", alignItems: { xs: 'stretch', sm: 'center' }, children: [_jsx(Button, { variant: "contained", size: "small", startIcon: _jsx(AddCircleOutlineIcon, {}), onClick: (event) => setNewMenu({ tableId: table.id, anchor: event.currentTarget }), disabled: !canEdit || fieldActionsDisabled || tableSaving, children: "New" }), _jsx(Button, { variant: isGridView ? 'contained' : 'outlined', size: "small", startIcon: _jsx(EditNoteIcon, {}), onClick: () => setGridViewByTable((prev) => ({
                                             ...prev,
                                             [table.id]: !isGridView
-                                        })), disabled: disableGridToggle, children: isGridView ? 'Exit grid view' : 'Edit in grid' }), _jsx(Button, { variant: "outlined", size: "small", startIcon: _jsx(FileDownloadOutlinedIcon, {}), onClick: () => exportTableToCsv(table, tableName), children: "Export to Excel" })] }), _jsxs(Menu, { anchorEl: menuAnchor, open: isNewMenuOpen, onClose: () => setNewMenu(null), keepMounted: true, children: [_jsxs(MenuItem, { onClick: () => {
+                                        })), disabled: disableGridToggle, children: isGridView ? 'Exit grid view' : 'Edit in grid' }), _jsx(Button, { variant: "outlined", size: "small", startIcon: _jsx(PreviewIcon, {}), onClick: () => handleOpenPreview(table), disabled: tableSaving, children: "Preview" }), _jsx(Button, { variant: "outlined", size: "small", startIcon: _jsx(FileDownloadOutlinedIcon, {}), onClick: () => exportTableToCsv(table, tableName), children: "Export to Excel" })] }), _jsxs(Menu, { anchorEl: menuAnchor, open: isNewMenuOpen, onClose: () => setNewMenu(null), keepMounted: true, children: [_jsxs(MenuItem, { onClick: () => {
                                             handleStartCreateNew(table);
                                             setNewMenu(null);
                                         }, disabled: disableCreate || !canEdit, children: [_jsx(ListItemIcon, { children: _jsx(PostAddOutlinedIcon, { fontSize: "small" }) }), _jsx(ListItemText, { primary: "Create field", secondary: disableCreate ? createTooltip : undefined })] }), _jsxs(MenuItem, { onClick: () => {
@@ -1152,7 +1244,7 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
                                     clearInlineRow(table.id);
                                 }, fullWidth: true, maxWidth: inlineType === 'create-new' ? 'md' : 'sm', "aria-labelledby": dialogTitleId, disableEscapeKeyDown: tableSaving, children: [inlineType === 'add-existing' && inlineState?.type === 'add-existing' && (_jsxs(_Fragment, { children: [_jsx(DialogTitle, { id: dialogTitleId, children: "Add existing field" }), _jsx(DialogContent, { dividers: true, children: _jsxs(Stack, { spacing: 2, children: [_jsx(Autocomplete, { options: selectableFields, value: inlineState.fieldId
                                                                 ? selectableFields.find((field) => field.id === inlineState.fieldId) ?? null
-                                                                : null, onChange: (_, value) => handleExistingFieldSelect(table.id, value), getOptionLabel: (option) => `${option.name} (${option.fieldType})`, isOptionEqualToValue: (option, value) => option.id === value.id, renderInput: (params) => (_jsx(TextField, { ...params, label: "Field", error: Boolean(inlineState.error), helperText: inlineState.error, size: "small" })), disabled: fieldActionsDisabled || tableSaving, fullWidth: true }), _jsx(TextField, { label: "Notes", value: inlineState.notes, onChange: (event) => handleInlineNotesChange(table.id, event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 })] }) }), _jsxs(DialogActions, { sx: { px: 3, py: 2, gap: 1 }, children: [tableSaving && _jsx(CircularProgress, { size: 18 }), _jsx(Button, { onClick: () => clearInlineRow(table.id), disabled: tableSaving, children: "Cancel" }), _jsx(Button, { variant: "contained", onClick: () => handleInlineSave(table, tableName, inlineState, tableSaving), disabled: fieldActionsDisabled || tableSaving || !inlineState.fieldId, children: "Add field" })] })] })), inlineType === 'create-new' && inlineState?.type === 'create-new' && (_jsxs(_Fragment, { children: [_jsx(DialogTitle, { id: dialogTitleId, children: "Create new field" }), _jsx(DialogContent, { dividers: true, children: _jsxs(Stack, { spacing: 2, children: [_jsx(TextField, { label: "Name", value: inlineState.draft.name, onChange: (event) => handleCreateDraftTextChange(table.id, 'name', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", error: Boolean(inlineState.errors.name), helperText: inlineState.errors.name }), _jsx(TextField, { label: "Description", value: inlineState.draft.description, onChange: (event) => handleCreateDraftTextChange(table.id, 'description', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 }), _jsx(TextField, { label: "Application Usage", value: inlineState.draft.applicationUsage, onChange: (event) => handleCreateDraftTextChange(table.id, 'applicationUsage', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Business Definition", value: inlineState.draft.businessDefinition, onChange: (event) => handleCreateDraftTextChange(table.id, 'businessDefinition', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Enterprise Attribute", value: inlineState.draft.enterpriseAttribute, onChange: (event) => handleCreateDraftTextChange(table.id, 'enterpriseAttribute', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Field Type", value: inlineState.draft.fieldType, onChange: (event) => handleCreateDraftTextChange(table.id, 'fieldType', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", error: Boolean(inlineState.errors.fieldType), helperText: inlineState.errors.fieldType }), _jsxs(Grid, { container: true, spacing: 2, children: [_jsx(Grid, { item: true, xs: 6, children: _jsx(TextField, { label: "Length", value: inlineState.draft.fieldLength, onChange: (event) => handleCreateDraftTextChange(table.id, 'fieldLength', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", type: "number" }) }), _jsx(Grid, { item: true, xs: 6, children: _jsx(TextField, { label: "Decimal Places", value: inlineState.draft.decimalPlaces, onChange: (event) => handleCreateDraftTextChange(table.id, 'decimalPlaces', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", type: "number" }) })] }), _jsxs(Stack, { spacing: 1, children: [_jsx(Typography, { variant: "subtitle2", color: "text.secondary", children: "Legal / Regulatory Implications" }), _jsx(TextField, { value: inlineState.draft.legalRegulatoryImplications, onChange: (event) => handleCreateDraftTextChange(table.id, 'legalRegulatoryImplications', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 })] }), _jsxs(Stack, { spacing: 1, children: [_jsx(Typography, { variant: "subtitle2", color: "text.secondary", children: "Security Classification" }), _jsx(TextField, { value: inlineState.draft.securityClassification, onChange: (event) => handleCreateDraftTextChange(table.id, 'securityClassification', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" })] }), _jsx(TextField, { label: "Data Validation", value: inlineState.draft.dataValidation, onChange: (event) => handleCreateDraftTextChange(table.id, 'dataValidation', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Reference Table", value: inlineState.draft.referenceTable, onChange: (event) => handleCreateDraftTextChange(table.id, 'referenceTable', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Grouping Tab", value: inlineState.draft.groupingTab, onChange: (event) => handleCreateDraftTextChange(table.id, 'groupingTab', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Notes", value: inlineState.notes, onChange: (event) => handleInlineNotesChange(table.id, event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.systemRequired, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'systemRequired', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "System Required" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.businessProcessRequired, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'businessProcessRequired', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Business Process Required" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.suppressedField, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'suppressedField', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Suppressed" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.active, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'active', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Active" })] }) }), _jsxs(DialogActions, { sx: { px: 3, py: 2, gap: 1 }, children: [tableSaving && _jsx(CircularProgress, { size: 18 }), _jsx(Button, { onClick: () => clearInlineRow(table.id), disabled: tableSaving, children: "Cancel" }), _jsx(Button, { variant: "contained", onClick: () => handleInlineSave(table, tableName, inlineState, tableSaving), disabled: fieldActionsDisabled || tableSaving || !inlineState.draft.name.trim() || !inlineState.draft.fieldType.trim(), children: "Create field" })] })] }))] })] }) }, table.id));
-            })] }));
+                                                                : null, onChange: (_, value) => handleExistingFieldSelect(table.id, value), getOptionLabel: (option) => `${option.name} (${option.fieldType})`, isOptionEqualToValue: (option, value) => option.id === value?.id, renderInput: (params) => (_jsx(TextField, { ...params, label: "Field", error: Boolean(inlineState.error), helperText: inlineState.error, size: "small" })), disabled: fieldActionsDisabled || tableSaving, fullWidth: true }), _jsx(TextField, { label: "Notes", value: inlineState.notes, onChange: (event) => handleInlineNotesChange(table.id, event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 })] }) }), _jsxs(DialogActions, { sx: { px: 3, py: 2, gap: 1 }, children: [tableSaving && _jsx(CircularProgress, { size: 18 }), _jsx(Button, { onClick: () => clearInlineRow(table.id), disabled: tableSaving, children: "Cancel" }), _jsx(Button, { variant: "contained", onClick: () => handleInlineSave(table, tableName, inlineState, tableSaving), disabled: fieldActionsDisabled || tableSaving || !inlineState.fieldId, children: "Add field" })] })] })), inlineType === 'create-new' && inlineState?.type === 'create-new' && (_jsxs(_Fragment, { children: [_jsx(DialogTitle, { id: dialogTitleId, children: "Create new field" }), _jsx(DialogContent, { dividers: true, children: _jsxs(Stack, { spacing: 2, children: [_jsx(TextField, { label: "Name", value: inlineState.draft.name, onChange: (event) => handleCreateDraftTextChange(table.id, 'name', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", error: Boolean(inlineState.errors.name), helperText: inlineState.errors.name }), _jsx(TextField, { label: "Description", value: inlineState.draft.description, onChange: (event) => handleCreateDraftTextChange(table.id, 'description', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 }), _jsx(TextField, { label: "Application Usage", value: inlineState.draft.applicationUsage, onChange: (event) => handleCreateDraftTextChange(table.id, 'applicationUsage', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Business Definition", value: inlineState.draft.businessDefinition, onChange: (event) => handleCreateDraftTextChange(table.id, 'businessDefinition', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Enterprise Attribute", value: inlineState.draft.enterpriseAttribute, onChange: (event) => handleCreateDraftTextChange(table.id, 'enterpriseAttribute', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Field Type", value: inlineState.draft.fieldType, onChange: (event) => handleCreateDraftTextChange(table.id, 'fieldType', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", error: Boolean(inlineState.errors.fieldType), helperText: inlineState.errors.fieldType }), _jsxs(Grid, { container: true, spacing: 2, children: [_jsx(Grid, { item: true, xs: 6, children: _jsx(TextField, { label: "Length", value: inlineState.draft.fieldLength, onChange: (event) => handleCreateDraftTextChange(table.id, 'fieldLength', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", type: "number" }) }), _jsx(Grid, { item: true, xs: 6, children: _jsx(TextField, { label: "Decimal Places", value: inlineState.draft.decimalPlaces, onChange: (event) => handleCreateDraftTextChange(table.id, 'decimalPlaces', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", type: "number" }) })] }), _jsxs(Stack, { spacing: 1, children: [_jsx(Typography, { variant: "subtitle2", color: "text.secondary", children: "Legal / Regulatory Implications" }), _jsx(TextField, { value: inlineState.draft.legalRegulatoryImplications, onChange: (event) => handleCreateDraftTextChange(table.id, 'legalRegulatoryImplications', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 })] }), _jsxs(Stack, { spacing: 1, children: [_jsx(Typography, { variant: "subtitle2", color: "text.secondary", children: "Security Classification" }), _jsx(TextField, { value: inlineState.draft.securityClassification, onChange: (event) => handleCreateDraftTextChange(table.id, 'securityClassification', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" })] }), _jsx(TextField, { label: "Data Validation", value: inlineState.draft.dataValidation, onChange: (event) => handleCreateDraftTextChange(table.id, 'dataValidation', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 2 }), _jsx(TextField, { label: "Reference Table", value: inlineState.draft.referenceTable, onChange: (event) => handleCreateDraftTextChange(table.id, 'referenceTable', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Grouping Tab", value: inlineState.draft.groupingTab, onChange: (event) => handleCreateDraftTextChange(table.id, 'groupingTab', event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small" }), _jsx(TextField, { label: "Notes", value: inlineState.notes, onChange: (event) => handleInlineNotesChange(table.id, event.target.value), disabled: fieldActionsDisabled || tableSaving, fullWidth: true, size: "small", multiline: true, minRows: 3 }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.systemRequired, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'systemRequired', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "System Required" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.businessProcessRequired, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'businessProcessRequired', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Business Process Required" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.suppressedField, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'suppressedField', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Suppressed" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: inlineState.draft.active, onChange: (event) => handleCreateDraftBooleanChange(table.id, 'active', event.target.checked), disabled: fieldActionsDisabled || tableSaving }), label: "Active" })] }) }), _jsxs(DialogActions, { sx: { px: 3, py: 2, gap: 1 }, children: [tableSaving && _jsx(CircularProgress, { size: 18 }), _jsx(Button, { onClick: () => clearInlineRow(table.id), disabled: tableSaving, children: "Cancel" }), _jsx(Button, { variant: "contained", onClick: () => handleInlineSave(table, tableName, inlineState, tableSaving), disabled: fieldActionsDisabled || tableSaving || !inlineState.draft.name.trim() || !inlineState.draft.fieldType.trim(), children: "Create field" })] })] }))] })] }) }, table.id));
+            }), _jsx(ConnectionDataPreviewDialog, { open: previewOpen, schemaName: previewSchemaName, tableName: previewTableName, loading: previewLoading, error: previewError, preview: previewData, onClose: handleClosePreview, onRefresh: handleRefreshPreview })] }));
 };
 export default DataDefinitionDetails;

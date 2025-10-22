@@ -2,13 +2,13 @@ import client from './api/client';
 export const mapSystem = (payload) => ({
     id: payload.id,
     name: payload.name,
-    physicalName: payload.physical_name,
+    physicalName: payload.physicalName,
     description: payload.description ?? null,
-    systemType: payload.system_type ?? null,
+    systemType: payload.systemType ?? null,
     status: payload.status,
-    securityClassification: payload.security_classification ?? null,
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at
+    securityClassification: payload.securityClassification ?? null,
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt
 });
 export const fetchSystems = async () => {
     const response = await client.get('/systems');

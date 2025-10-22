@@ -105,7 +105,9 @@ const SystemConnectionsPage = () => {
         if (systemA !== systemB) {
           return systemA.localeCompare(systemB);
         }
-        return a.connectionString.localeCompare(b.connectionString);
+        const connStringA = a.connectionString ?? '';
+        const connStringB = b.connectionString ?? '';
+        return connStringA.localeCompare(connStringB);
       });
   }, [connections, systemLookup]);
 

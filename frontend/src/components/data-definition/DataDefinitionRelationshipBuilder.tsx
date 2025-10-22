@@ -38,6 +38,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import LinkIcon from '@mui/icons-material/Link';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 import ConfirmDialog from '../common/ConfirmDialog';
 import { useToast } from '../../hooks/useToast';
@@ -63,6 +66,7 @@ interface DataDefinitionRelationshipBuilderProps {
   onDeleteRelationship?: (relationshipId: string) => Promise<boolean>;
   initialPrimaryFieldId?: string;
   initialForeignFieldId?: string;
+  onInitialRelationshipConsumed?: () => void;
 }
 
 const relationshipTypeOptions: { value: DataDefinitionRelationshipType; label: string }[] = [
@@ -105,6 +109,11 @@ interface FieldRef {
   width?: number;
 }
 
+interface FieldLookupEntry {
+  definitionField: DataDefinitionField | null;
+  table: DataDefinitionTable | null;
+}
+
 // Table card component for two-column layout
 const TableCard = ({
   table,
@@ -130,22 +139,27 @@ const TableCard = ({
   onFieldRefChange?: (fieldId: string, ref: FieldRef) => void;
 }) => {
   const theme = useTheme();
-  const tableName = table.alias || table.table.name;
-  const physicalName = table.table.schemaName
+  const tableName = table.alias || table.table?.name || 'Unknown table';
+  const physicalName = table.table?.schemaName
     ? `${table.table.schemaName}.${table.table.physicalName}`
-    : table.table.physicalName;
+    : table.table?.physicalName || 'Unknown physical name';
 
   // Use only blue header color
   const headerColor = '#3b82f6';
   const headerGradient = 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)';
 
   // Group fields by groupingTab
+  const displayFields = useMemo(
+    () => table.fields.filter((field) => Boolean(field?.id && field?.field)),
+    [table.fields]
+  );
+
   const groupedFields = useMemo(() => {
     const groups = new Map<string, DataDefinitionField[]>();
     const ungroupedFields: DataDefinitionField[] = [];
 
-    table.fields.forEach((field) => {
-      const groupKey = field.field.groupingTab || '__ungrouped__';
+    displayFields.forEach((field) => {
+      const groupKey = field.field?.groupingTab || '__ungrouped__';
       if (!groups.has(groupKey)) {
         groups.set(groupKey, []);
       }
@@ -159,7 +173,7 @@ const TableCard = ({
     }
 
     return { groups: Array.from(groups.entries()), ungroupedFields };
-  }, [table.fields]);
+  }, [displayFields]);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(groupedFields.groups.map(([key]) => key))
@@ -178,6 +192,10 @@ const TableCard = ({
   }, []);
 
   const renderFieldBox = (definitionField: DataDefinitionField) => {
+    if (!definitionField?.id || !definitionField?.field) {
+      return null;
+    }
+
     const isSelected = selectedFieldId === definitionField.id;
     const boxRef: React.Ref<HTMLDivElement> = (el) => {
       if (el && onFieldRefChange) {
@@ -192,6 +210,15 @@ const TableCard = ({
             const relativeX = fieldRect.right - canvasRect.left;
             const relativeY = fieldRect.top - canvasRect.top + fieldRect.height / 2;
             const width = fieldRect.width;
+            
+            console.debug(`Field ref calculated for ${definitionField.id}:`, {
+              fieldName: definitionField.field?.name || 'unknown',
+              relativeX,
+              relativeY,
+              width,
+              fieldRect: { top: fieldRect.top, right: fieldRect.right, bottom: fieldRect.bottom, left: fieldRect.left },
+              canvasRect: { top: canvasRect.top, left: canvasRect.left }
+            });
             
             onFieldRefChange(definitionField.id, {
               tableId: table.id,
@@ -260,7 +287,7 @@ const TableCard = ({
             fontSize: '0.875rem'
           }}
         >
-          {definitionField.field.name}
+          {definitionField.field?.name || 'Unknown field'}
         </Typography>
       </Box>
     );
@@ -315,7 +342,7 @@ const TableCard = ({
         </Typography>
 
         <Stack spacing={0.75}>
-          {table.fields.length === 0 ? (
+          {displayFields.length === 0 ? (
             <Typography variant="caption" color="text.secondary">
               No fields
             </Typography>
@@ -391,7 +418,8 @@ const DataDefinitionRelationshipBuilder = ({
   onUpdateRelationship,
   onDeleteRelationship,
   initialPrimaryFieldId,
-  initialForeignFieldId
+  initialForeignFieldId,
+  onInitialRelationshipConsumed
 }: DataDefinitionRelationshipBuilderProps) => {
   const toast = useToast();
   const theme = useTheme();
@@ -417,43 +445,161 @@ const DataDefinitionRelationshipBuilder = ({
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [fieldRefs, setFieldRefs] = useState<Map<string, FieldRef>>(new Map());
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const tableLookup = useMemo(() => {
+    const byDefinitionId = new Map<string, DataDefinitionTable>();
+    const byPhysicalId = new Map<string, DataDefinitionTable>();
+
+    tables.forEach((table) => {
+      byDefinitionId.set(table.id, table);
+      if (table.tableId) {
+        byPhysicalId.set(table.tableId, table);
+      }
+    });
+
+    return {
+      byDefinitionId,
+      byPhysicalId
+    };
+  }, [tables]);
 
   const fieldLookup = useMemo(() => {
-    const map = new Map<string, { definitionField: DataDefinitionField; table: DataDefinitionTable }>();
+    const map = new Map<string, FieldLookupEntry>();
+
+    const addEntry = (
+      key: string | null | undefined,
+      definitionField: DataDefinitionField | null,
+      tableHint?: DataDefinitionTable | null
+    ) => {
+      if (!key) {
+        return;
+      }
+
+      const existing = map.get(key);
+      const nextDefinitionField = definitionField ?? existing?.definitionField ?? null;
+
+      let resolvedTable = tableHint ?? existing?.table ?? null;
+      if (!resolvedTable && nextDefinitionField?.definitionTableId) {
+        resolvedTable =
+          tableLookup.byDefinitionId.get(nextDefinitionField.definitionTableId) ?? null;
+      }
+      if (!resolvedTable && nextDefinitionField?.field?.tableId) {
+        resolvedTable = tableLookup.byPhysicalId.get(nextDefinitionField.field.tableId) ?? null;
+      }
+
+      map.set(key, {
+        definitionField: nextDefinitionField,
+        table: resolvedTable ?? null
+      });
+    };
+
     tables.forEach((table) => {
       table.fields.forEach((definitionField) => {
-        map.set(definitionField.id, { definitionField, table });
+        if (!definitionField?.id) {
+          return;
+        }
+        addEntry(definitionField.id, definitionField, table);
+        addEntry(definitionField.fieldId, definitionField, table);
       });
     });
+
+    relationships.forEach((relationship) => {
+      addEntry(
+        relationship.primaryFieldId,
+        relationship.primaryField,
+        tableLookup.byDefinitionId.get(relationship.primaryTableId) ?? null
+      );
+
+      addEntry(
+        relationship.foreignFieldId,
+        relationship.foreignField,
+        tableLookup.byDefinitionId.get(relationship.foreignTableId) ?? null
+      );
+    });
+
     return map;
-  }, [tables]);
+  }, [relationships, tableLookup, tables]);
+
+  const relationshipExists = useCallback(
+    (primaryFieldId: string, foreignFieldId: string) =>
+      relationships.some(
+        (relationship) =>
+          relationship.primaryFieldId === primaryFieldId &&
+          relationship.foreignFieldId === foreignFieldId
+      ),
+    [relationships]
+  );
 
   const handleLabel = useCallback(
     (fieldId: string) => {
       const entry = fieldLookup.get(fieldId);
-      if (!entry) {
-        return 'Unknown field';
+      if (entry) {
+        const { definitionField } = entry;
+        const resolvedTable =
+          entry.table ??
+          (definitionField?.definitionTableId
+            ? tableLookup.byDefinitionId.get(definitionField.definitionTableId) ?? null
+            : null) ??
+          (definitionField?.field?.tableId
+            ? tableLookup.byPhysicalId.get(definitionField.field.tableId) ?? null
+            : null);
+
+        const tableName = resolvedTable?.alias || resolvedTable?.table?.name || 'Unknown table';
+        const fieldName =
+          definitionField?.field?.name || definitionField?.field?.id || definitionField?.fieldId || 'Unknown field';
+        return `${tableName}.${fieldName}`;
       }
-      const { definitionField, table } = entry;
-      const tableName = table.alias || table.table.name;
-      return `${tableName}.${definitionField.field.name}`;
+
+      const relationship = relationships.find(
+        (rel) => rel.primaryFieldId === fieldId || rel.foreignFieldId === fieldId
+      );
+      if (relationship) {
+        const isPrimary = relationship.primaryFieldId === fieldId;
+        const definitionField = isPrimary ? relationship.primaryField : relationship.foreignField;
+        const table =
+          tableLookup.byDefinitionId.get(
+            isPrimary ? relationship.primaryTableId : relationship.foreignTableId
+          ) ?? null;
+        const tableName = table?.alias || table?.table?.name || 'Unknown table';
+        const fieldName =
+          definitionField?.field?.name || definitionField?.field?.id || definitionField?.fieldId || 'Unknown field';
+        return `${tableName}.${fieldName}`;
+      }
+
+      return 'Unknown field';
     },
-    [fieldLookup]
+    [fieldLookup, relationships, tableLookup]
   );
 
   // Initialize dialog with provided field IDs
   useEffect(() => {
-    if (initialPrimaryFieldId && initialForeignFieldId) {
-      setExpanded(true);
-      setDialogState({
-        mode: 'create',
-        primaryFieldId: initialPrimaryFieldId,
-        foreignFieldId: initialForeignFieldId,
-        relationshipType: 'one_to_one',
-        notes: ''
-      });
+    if (!initialPrimaryFieldId || !initialForeignFieldId) {
+      return;
     }
-  }, [initialPrimaryFieldId, initialForeignFieldId]);
+
+    const primaryEntry = fieldLookup.get(initialPrimaryFieldId);
+    const foreignEntry = fieldLookup.get(initialForeignFieldId);
+
+    if (!primaryEntry || !foreignEntry) {
+      toast.showError('Unable to locate the selected fields for relationship creation.');
+      onInitialRelationshipConsumed?.();
+      return;
+    }
+
+    setExpanded(true);
+    setDialogState({
+      mode: 'create',
+      primaryFieldId: initialPrimaryFieldId,
+      foreignFieldId: initialForeignFieldId,
+      relationshipType: 'one_to_one',
+      notes: ''
+    });
+    onInitialRelationshipConsumed?.();
+  }, [fieldLookup, initialPrimaryFieldId, initialForeignFieldId, onInitialRelationshipConsumed, toast]);
 
   const openCreateDialog = useCallback(
     (primaryFieldId: string, foreignFieldId: string) => {
@@ -507,9 +653,21 @@ const DataDefinitionRelationshipBuilder = ({
       return;
     }
 
+    if (!draggedEntry.table || !targetEntry.table) {
+      toast.showError('Unable to resolve table metadata for the selected fields.');
+      return;
+    }
+
     // Check if they're from different tables
     if (draggedEntry.table.id === targetEntry.table.id) {
       toast.showError('Select fields from different tables');
+      return;
+    }
+
+    if (relationshipExists(draggedFieldId, targetFieldId)) {
+      toast.showError('A relationship between these fields already exists.');
+      setDraggedFieldId(null);
+      setDragOverFieldId(null);
       return;
     }
 
@@ -517,7 +675,7 @@ const DataDefinitionRelationshipBuilder = ({
     openCreateDialog(draggedFieldId, targetFieldId);
     setDraggedFieldId(null);
     setDragOverFieldId(null);
-  }, [draggedFieldId, fieldLookup, openCreateDialog, toast]);
+  }, [draggedFieldId, fieldLookup, openCreateDialog, relationshipExists, toast]);
 
   const handleTableMouseDown = useCallback(
     (tableId: string, e: React.MouseEvent) => {
@@ -580,6 +738,14 @@ const DataDefinitionRelationshipBuilder = ({
       return;
     }
 
+    if (
+      dialogState.mode === 'create' &&
+      relationshipExists(dialogState.primaryFieldId, dialogState.foreignFieldId)
+    ) {
+      toast.showError('A relationship between these fields already exists.');
+      return;
+    }
+
     setDialogSubmitting(true);
     try {
       if (dialogState.mode === 'create') {
@@ -610,7 +776,7 @@ const DataDefinitionRelationshipBuilder = ({
     } finally {
       setDialogSubmitting(false);
     }
-  }, [dialogState, onCreateRelationship, onUpdateRelationship]);
+  }, [dialogState, onCreateRelationship, onUpdateRelationship, relationshipExists, toast]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget || !onDeleteRelationship || busy) {
@@ -646,6 +812,58 @@ const DataDefinitionRelationshipBuilder = ({
 
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => !prev);
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(prev + 0.2, 3));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(prev - 0.2, 0.5));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom((prev) => Math.max(0.5, Math.min(prev + delta, 3)));
+  }, []);
+
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if ((e.button === 2 || e.ctrlKey) && !draggingTableId) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  }, [pan, draggingTableId]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanning && !draggingTableId) {
+      setPan({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y
+      });
+    }
+  }, [isPanning, panStart, draggingTableId]);
+
+  const handleCanvasMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const handleRelationshipLineDoubleClick = useCallback((relationship: DataDefinitionRelationship) => {
+    setDialogState({
+      mode: 'edit',
+      primaryFieldId: relationship.primaryFieldId,
+      foreignFieldId: relationship.foreignFieldId,
+      relationshipId: relationship.id,
+      relationshipType: relationship.relationshipType,
+      notes: relationship.notes ?? ''
+    });
   }, []);
 
   const renderRelationshipDialog = () => {
@@ -811,12 +1029,39 @@ const DataDefinitionRelationshipBuilder = ({
                 color: '#666'
               }}
             >
-              Drag fields between tables to create relationships. Drag table headers to reposition.
+              Drag fields between tables to create relationships. Drag table headers to reposition. Double-click connection lines to edit. Use Ctrl+Scroll or zoom buttons to zoom.
             </Typography>
+
+            {/* Zoom Controls */}
+            <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+              <Tooltip title="Zoom In (Ctrl+Scroll)">
+                <IconButton size="small" onClick={handleZoomIn} disabled={zoom >= 3}>
+                  <ZoomInIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Zoom Out (Ctrl+Scroll)">
+                <IconButton size="small" onClick={handleZoomOut} disabled={zoom <= 0.5}>
+                  <ZoomOutIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Reset Zoom">
+                <IconButton size="small" onClick={handleZoomReset}>
+                  <RestartAltIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Typography variant="caption" sx={{ ml: 1, display: 'flex', alignItems: 'center' }}>
+                {Math.round(zoom * 100)}%
+              </Typography>
+            </Stack>
 
             {/* Canvas-based free-form layout */}
             <Box
               data-canvas
+              onWheel={handleCanvasWheel}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
               sx={{
                 position: 'relative',
                 minHeight: 600,
@@ -824,99 +1069,168 @@ const DataDefinitionRelationshipBuilder = ({
                 borderRadius: '8px',
                 background: 'linear-gradient(135deg, rgba(249, 250, 251, 0.5) 0%, rgba(240, 249, 255, 0.5) 100%)',
                 border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
-                overflow: 'hidden'
+                overflow: 'auto',
+                cursor: isPanning ? 'grabbing' : 'default'
               }}
             >
-              {/* SVG layer for connecting lines */}
-              <svg
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
+              {/* Transform wrapper for zoom and pan */}
+              <Box
+                sx={{
+                  position: 'relative',
                   width: '100%',
-                  height: '100%',
-                  pointerEvents: 'none',
-                  zIndex: 1
+                  minHeight: 600,
+                  transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                  transformOrigin: '0 0',
+                  transition: isPanning ? 'none' : 'transform 0.1s ease-out'
                 }}
               >
-                <defs>
-                  <marker
-                    id="arrowhead"
-                    markerWidth="10"
-                    markerHeight="10"
-                    refX="9"
-                    refY="3"
-                    orient="auto"
-                  >
-                    <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
-                  </marker>
-                </defs>
-                {relationships.map((rel) => {
-                  const primaryRef = fieldRefs.get(rel.primaryFieldId);
-                  const foreignRef = fieldRefs.get(rel.foreignFieldId);
-
-                  if (!primaryRef || !foreignRef) return null;
-
-                  // Connection points on the right edge of primary field and left edge of foreign field
-                  const x1 = primaryRef.x;
-                  const y1 = primaryRef.y;
-                  const x2 = foreignRef.x - (foreignRef.width || 0);
-                  const y2 = foreignRef.y;
-                  const midX = (x1 + x2) / 2;
-
-                  return (
-                    <g key={`line-${rel.id}`}>
-                      <path
-                        d={`M ${x1} ${y1} Q ${midX} ${y1}, ${midX} ${(y1 + y2) / 2} T ${x2} ${y2}`}
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        fill="none"
-                        opacity="0.6"
-                      />
-                    </g>
-                  );
-                })}
-              </svg>
-
-              {/* Tables positioned on canvas */}
-              <Box sx={{ position: 'relative', zIndex: 2 }}>
-                {tables.map((table) => {
-                  const position = tablePositions.get(table.id);
-                  if (!position) return null;
-
-                  return (
-                    <Box
-                      key={table.id}
-                      onMouseDown={(e) => handleTableMouseDown(table.id, e)}
-                      sx={{
-                        position: 'absolute',
-                        left: `${position.x}px`,
-                        top: `${position.y}px`,
-                        width: '320px',
-                        cursor: draggingTableId === table.id ? 'grabbing' : 'grab',
-                        userSelect: 'none'
-                      }}
+                {/* SVG layer for connecting lines */}
+                <svg
+                  width="100%"
+                  height="100%"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                    overflow: 'visible'
+                  }}
+                >
+                  <defs>
+                    <marker
+                      id="arrowhead"
+                      markerWidth="10"
+                      markerHeight="10"
+                      refX="9"
+                      refY="3"
+                      orient="auto"
                     >
-                      <TableCard
-                        table={table}
-                        side="left"
-                        isSource={true}
-                        selectedFieldId={draggedFieldId}
-                        onFieldDragStart={handleFieldDragStart}
-                        onFieldDragEnd={handleFieldDragEnd}
-                        onFieldDragOver={handleFieldDragOver}
-                        onFieldDrop={handleFieldDrop}
-                        onFieldRefChange={(fieldId, ref) => {
-                          setFieldRefs((prev) => {
-                            const next = new Map(prev);
-                            next.set(fieldId, ref);
-                            return next;
-                          });
+                      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+                    </marker>
+                  </defs>
+                  {relationships.map((rel) => {
+                    const primaryRef = fieldRefs.get(rel.primaryFieldId);
+                    const foreignRef = fieldRefs.get(rel.foreignFieldId);
+
+                    if (!primaryRef || !foreignRef) {
+                      console.debug(`Missing refs for relationship ${rel.id}:`, {
+                        primaryFieldId: rel.primaryFieldId,
+                        foreignFieldId: rel.foreignFieldId,
+                        primaryRef: primaryRef ? 'exists' : 'MISSING',
+                        foreignRef: foreignRef ? 'exists' : 'MISSING',
+                        totalRefs: fieldRefs.size,
+                        allRefIds: Array.from(fieldRefs.keys())
+                      });
+                      return null;
+                    }
+                    
+                    console.debug(`Rendering path for relationship ${rel.id}:`, { primaryRef, foreignRef });
+
+                    // Connection points on the right edge of primary field and left edge of foreign field
+                    const x1 = primaryRef.x;
+                    const y1 = primaryRef.y;
+                    const x2 = foreignRef.x - (foreignRef.width || 0);
+                    const y2 = foreignRef.y;
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+
+                    return (
+                      <g key={`line-${rel.id}`}>
+                        <path
+                          d={`M ${x1} ${y1} Q ${midX} ${y1}, ${midX} ${midY} T ${x2} ${y2}`}
+                          stroke="#3b82f6"
+                          strokeWidth="2"
+                          fill="none"
+                          opacity="0.6"
+                          style={{
+                            cursor: 'pointer',
+                            pointerEvents: 'auto'
+                          }}
+                          onDoubleClick={() => handleRelationshipLineDoubleClick(rel)}
+                        />
+                        {/* Invisible wider path for easier clicking */}
+                        <path
+                          d={`M ${x1} ${y1} Q ${midX} ${y1}, ${midX} ${midY} T ${x2} ${y2}`}
+                          stroke="transparent"
+                          strokeWidth="10"
+                          fill="none"
+                          style={{
+                            cursor: 'pointer',
+                            pointerEvents: 'auto'
+                          }}
+                          onDoubleClick={() => handleRelationshipLineDoubleClick(rel)}
+                        />
+                        {/* Relationship type label */}
+                        <rect
+                          x={midX - 35}
+                          y={midY - 12}
+                          width="70"
+                          height="24"
+                          fill="white"
+                          stroke="#3b82f6"
+                          strokeWidth="1"
+                          rx="4"
+                        />
+                        <text
+                          x={midX}
+                          y={midY + 4}
+                          textAnchor="middle"
+                          fontSize="11"
+                          fill="#3b82f6"
+                          fontWeight="600"
+                          style={{
+                            pointerEvents: 'none',
+                            userSelect: 'none'
+                          }}
+                        >
+                          {relationshipTypeLabel(rel.relationshipType).substring(0, 8)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+
+                {/* Tables positioned on canvas */}
+                <Box sx={{ position: 'relative', zIndex: 2 }}>
+                  {tables.map((table) => {
+                    const position = tablePositions.get(table.id);
+                    if (!position) return null;
+
+                    return (
+                      <Box
+                        key={table.id}
+                        onMouseDown={(e) => handleTableMouseDown(table.id, e)}
+                        sx={{
+                          position: 'absolute',
+                          left: `${position.x}px`,
+                          top: `${position.y}px`,
+                          width: '320px',
+                          cursor: draggingTableId === table.id ? 'grabbing' : 'grab',
+                          userSelect: 'none'
                         }}
-                      />
-                    </Box>
-                  );
-                })}
+                      >
+                        <TableCard
+                          table={table}
+                          side="left"
+                          isSource={true}
+                          selectedFieldId={draggedFieldId}
+                          onFieldDragStart={handleFieldDragStart}
+                          onFieldDragEnd={handleFieldDragEnd}
+                          onFieldDragOver={handleFieldDragOver}
+                          onFieldDrop={handleFieldDrop}
+                          onFieldRefChange={(fieldId, ref) => {
+                            setFieldRefs((prev) => {
+                              const next = new Map(prev);
+                              next.set(fieldId, ref);
+                              return next;
+                            });
+                          }}
+                        />
+                      </Box>
+                    );
+                  })}
+                </Box>
               </Box>
             </Box>
 

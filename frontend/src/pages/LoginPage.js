@@ -15,7 +15,7 @@ const LoginPage = () => {
             return ['viewer'];
         }
         const roles = ['viewer'];
-    const adminEmails = new Set(['admin@conversioncentral.com']);
+        const adminEmails = new Set(['admin@conversioncentral.com']);
         if (adminEmails.has(normalized)) {
             roles.push('admin');
         }

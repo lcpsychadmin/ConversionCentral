@@ -44,7 +44,7 @@ const AddExistingFieldDialog = ({
     setError(null);
   }, [open, fields]);
 
-  const fieldOptions = useMemo(() => fields.slice().sort((a, b) => a.name.localeCompare(b.name)), [fields]);
+  const fieldOptions = useMemo(() => fields.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')), [fields]);
 
   const handleClose = () => {
     if (loading) {
@@ -79,7 +79,7 @@ const AddExistingFieldDialog = ({
               setError(null);
             }}
             getOptionLabel={(option) => `${option.name} (${option.fieldType})`}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
+            isOptionEqualToValue={(option, value) => option.id === value?.id}
             renderInput={(params) => (
               <TextField
                 {...params}

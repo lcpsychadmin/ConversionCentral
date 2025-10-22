@@ -6,8 +6,8 @@ interface ProjectResponse {
   name: string;
   description?: string | null;
   status: string;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const mapProject = (payload: ProjectResponse): Project => ({
@@ -15,8 +15,8 @@ const mapProject = (payload: ProjectResponse): Project => ({
   name: payload.name,
   description: payload.description ?? null,
   status: payload.status,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchProjects = async (): Promise<Project[]> => {

@@ -10,8 +10,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   IconButton,
   Stack,
+  Switch,
   TextField,
   Typography
 } from '@mui/material';
@@ -55,6 +57,7 @@ type TableRow = {
   alias: string;
   description: string;
   loadOrder: string;
+  isConstruction: boolean;
   fields: FieldRow[];
 };
 
@@ -74,6 +77,7 @@ type Snapshot = {
     alias: string;
     description: string;
     loadOrder: string;
+    isConstruction: boolean;
     fields: Array<{ fieldId: string; notes: string }>;
   }>;
 };
@@ -111,6 +115,7 @@ const snapshotFromDefinition = (definition?: DataDefinition | null): Snapshot =>
       alias: table.alias ?? '',
       description: table.description ?? '',
       loadOrder: (table.loadOrder ?? index + 1).toString(),
+      isConstruction: table.isConstruction ?? false,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
         notes: field.notes ?? ''
@@ -125,6 +130,7 @@ const normalizeSnapshot = (snapshot: Snapshot) => ({
     alias: table.alias.trim(),
     description: table.description.trim(),
     loadOrder: table.loadOrder.trim(),
+    isConstruction: table.isConstruction,
     fields: table.fields.map((field) => ({
       fieldId: field.fieldId,
       notes: field.notes.trim()
@@ -139,6 +145,7 @@ const buildRows = (tables: Snapshot['tables']): TableRow[] =>
     alias: table.alias,
     description: table.description,
     loadOrder: table.loadOrder,
+    isConstruction: table.isConstruction,
     fields: table.fields.map((field) => ({
       id: generateId(),
       fieldId: field.fieldId,
@@ -213,6 +220,7 @@ const DataDefinitionForm = ({
         alias: table.alias,
         description: table.description,
         loadOrder: table.loadOrder,
+          isConstruction: table.isConstruction,
         fields: table.fields.map((field) => ({
           fieldId: field.fieldId,
           notes: field.notes
@@ -265,6 +273,7 @@ const DataDefinitionForm = ({
           alias: existingTable.name,
           description: existingTable.description ?? fallbackDescription,
           loadOrder: getNextLoadOrderValue(prev),
+          isConstruction: false,
           fields: []
         }
       ];
@@ -296,6 +305,7 @@ const DataDefinitionForm = ({
           alias: '',
           description: '',
           loadOrder: nextLoadOrder,
+          isConstruction: false,
           fields: []
         }
       ];
@@ -468,6 +478,7 @@ const DataDefinitionForm = ({
           alias,
           description: `Source: ${alias}`,
           loadOrder: nextLoadOrder,
+          isConstruction: false,
           fields: createdFields
         }
       ];
@@ -629,6 +640,7 @@ const DataDefinitionForm = ({
             alias: newTable.name,
             description: newTable.description ?? sanitized.description ?? '',
             loadOrder: getNextLoadOrderValue(prev),
+            isConstruction: false,
             fields: []
           }
         ];
@@ -706,6 +718,7 @@ const DataDefinitionForm = ({
       alias: table.alias.trim() || null,
       description: table.description.trim() || null,
       loadOrder: Number(table.loadOrder.trim()),
+      isConstruction: table.isConstruction,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
         notes: field.notes.trim() || null
@@ -757,7 +770,7 @@ const DataDefinitionForm = ({
                           disabled={!tablesAvailable}
                           onChange={(_, value) => handleTableChange(row.id, value)}
                           getOptionLabel={(option) => option.name}
-                          isOptionEqualToValue={(option, value) => option.id === value.id}
+                          isOptionEqualToValue={(option, value) => option.id === value?.id}
                           renderInput={(params) => <TextField {...params} label="Table" placeholder="Select table" required />}
                         />
                         <Stack direction="row" spacing={1} alignItems="center">
@@ -832,6 +845,25 @@ const DataDefinitionForm = ({
                           sx={{ width: { xs: '100%', md: 160 } }}
                         />
                       </Stack>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={row.isConstruction}
+                            onChange={(event) =>
+                              setTableRows((prev) =>
+                                prev.map((table) =>
+                                  table.id === row.id
+                                    ? { ...table, isConstruction: event.target.checked }
+                                    : table
+                                )
+                              )
+                            }
+                            disabled={!row.tableId}
+                          />
+                        }
+                        label="Construction table"
+                        sx={{ pl: 1 }}
+                      />
 
                       <Box>
                         <Typography variant="subtitle1" gutterBottom>

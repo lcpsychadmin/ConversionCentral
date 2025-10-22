@@ -12,22 +12,22 @@ import {
 
 export interface SystemConnectionResponse {
   id: string;
-  system_id: string;
-  connection_type: SystemConnectionType;
-  connection_string: string;
-  auth_method: SystemConnectionAuthMethod;
+  systemId: string;
+  connectionType: SystemConnectionType;
+  connectionString: string;
+  authMethod: SystemConnectionAuthMethod;
   active: boolean;
-  ingestion_enabled: boolean;
+  ingestionEnabled: boolean;
   notes?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SystemConnectionTestResponse {
   success: boolean;
   message: string;
-  duration_ms?: number | null;
-  connection_summary?: string | null;
+  durationMs?: number | null;
+  connectionSummary?: string | null;
 }
 
 export interface SystemConnectionTestPayload {
@@ -43,13 +43,19 @@ export interface SystemConnectionTestResult {
 }
 
 interface ConnectionCatalogTableResponse {
-  schema_name: string;
-  table_name: string;
+  schemaName?: string | null;
+  schema_name?: string | null;
+  tableName?: string | null;
+  table_name?: string | null;
+  tableType?: string | null;
   table_type?: string | null;
+  columnCount?: number | null;
   column_count?: number | null;
+  estimatedRows?: number | null;
   estimated_rows?: number | null;
   selected: boolean;
   available: boolean;
+  selectionId?: string | null;
   selection_id?: string | null;
 }
 
@@ -61,27 +67,27 @@ interface ConnectionTablePreviewResponse {
 const mapConnectionCatalogTable = (
   payload: ConnectionCatalogTableResponse
 ): ConnectionCatalogTable => ({
-  schemaName: payload.schema_name,
-  tableName: payload.table_name,
-  tableType: payload.table_type ?? null,
-  columnCount: payload.column_count ?? null,
-  estimatedRows: payload.estimated_rows ?? null,
+  schemaName: payload.schemaName ?? payload.schema_name ?? '',
+  tableName: payload.tableName ?? payload.table_name ?? '',
+  tableType: payload.tableType ?? payload.table_type ?? null,
+  columnCount: payload.columnCount ?? payload.column_count ?? null,
+  estimatedRows: payload.estimatedRows ?? payload.estimated_rows ?? null,
   selected: payload.selected,
   available: payload.available,
-  selectionId: payload.selection_id ?? null
+  selectionId: payload.selectionId ?? payload.selection_id ?? null
 });
 
 export const mapSystemConnection = (payload: SystemConnectionResponse): SystemConnection => ({
   id: payload.id,
-  systemId: payload.system_id,
-  connectionType: payload.connection_type,
-  connectionString: payload.connection_string,
-  authMethod: payload.auth_method,
+  systemId: payload.systemId,
+  connectionType: payload.connectionType,
+  connectionString: payload.connectionString,
+  authMethod: payload.authMethod,
   active: payload.active,
-  ingestionEnabled: payload.ingestion_enabled,
+  ingestionEnabled: payload.ingestionEnabled,
   notes: payload.notes ?? null,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchSystemConnections = async (): Promise<SystemConnection[]> => {
@@ -138,15 +144,15 @@ export const testSystemConnection = async (
   if (!response.data.success) {
     const error = new Error(response.data.message || 'Connection test failed.');
     (error as Error & { connectionSummary?: string }).connectionSummary =
-      response.data.connection_summary ?? undefined;
+      response.data.connectionSummary ?? undefined;
     throw error;
   }
 
   return {
     success: response.data.success,
     message: response.data.message,
-    durationMs: response.data.duration_ms ?? undefined,
-    connectionSummary: response.data.connection_summary ?? undefined
+    durationMs: response.data.durationMs ?? undefined,
+    connectionSummary: response.data.connectionSummary ?? undefined
   };
 };
 
@@ -192,8 +198,28 @@ export const fetchConnectionTablePreview = async (
   );
 
   const { columns, rows } = response.data;
+  const remapKey = (key: string): string => key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+  const normalizedRows = (rows ?? []).map((row) => {
+    const source = row as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const column of columns) {
+      if (Object.prototype.hasOwnProperty.call(source, column)) {
+        normalized[column] = source[column];
+        continue;
+      }
+
+      const camelKey = remapKey(column);
+      if (Object.prototype.hasOwnProperty.call(source, camelKey)) {
+        normalized[column] = source[camelKey];
+        continue;
+      }
+
+      normalized[column] = undefined;
+    }
+    return normalized;
+  });
   return {
     columns,
-    rows: rows ?? []
+    rows: normalizedRows
   };
 };

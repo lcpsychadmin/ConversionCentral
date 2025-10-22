@@ -3,6 +3,8 @@ import { DataGrid, GridActionsCellItem } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
+import { getDataGridStyles } from '../../utils/tableStyles';
 const buildColumns = (canManage, onEdit, onDelete) => {
     const baseColumns = [
         { field: 'name', headerName: 'Name', flex: 1 },
@@ -31,12 +33,13 @@ const buildColumns = (canManage, onEdit, onDelete) => {
     ];
 };
 const SystemTable = ({ data, loading, selectedId, canManage, onSelect, onEdit, onDelete }) => {
+    const theme = useTheme();
     const columns = useMemo(() => buildColumns(canManage, onEdit, onDelete), [canManage, onEdit, onDelete]);
     const handleSelectionChange = (selection) => {
         const id = selection[0] ?? null;
         const selected = data.find((item) => item.id === id) ?? null;
         onSelect?.(selected);
     };
-    return (_jsx("div", { style: { height: 520, width: '100%' }, children: _jsx(DataGrid, { rows: data, columns: columns, loading: loading, rowSelectionModel: selectedId ? [selectedId] : [], onRowSelectionModelChange: handleSelectionChange, onRowClick: (params) => onSelect?.(params.row), getRowId: (row) => row.id, disableRowSelectionOnClick: false }) }));
+    return (_jsx("div", { style: { height: 520, width: '100%' }, children: _jsx(DataGrid, { rows: data, columns: columns, loading: loading, rowSelectionModel: selectedId ? [selectedId] : [], onRowSelectionModelChange: handleSelectionChange, onRowClick: (params) => onSelect?.(params.row), getRowId: (row) => row.id, disableRowSelectionOnClick: false, sx: getDataGridStyles(theme) }) }));
 };
 export default SystemTable;

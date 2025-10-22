@@ -14,7 +14,7 @@ const AddExistingFieldDialog = ({ open, tableName, fields, loading = false, onCl
         setNotes('');
         setError(null);
     }, [open, fields]);
-    const fieldOptions = useMemo(() => fields.slice().sort((a, b) => a.name.localeCompare(b.name)), [fields]);
+    const fieldOptions = useMemo(() => fields.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')), [fields]);
     const handleClose = () => {
         if (loading) {
             return;
@@ -32,6 +32,6 @@ const AddExistingFieldDialog = ({ open, tableName, fields, loading = false, onCl
     return (_jsxs(Dialog, { open: open, onClose: handleClose, maxWidth: "sm", fullWidth: true, children: [_jsx(DialogTitle, { children: "Add Field to Definition" }), _jsx(DialogContent, { dividers: true, children: _jsxs(Stack, { spacing: 2, mt: 1, children: [_jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Table: ", tableName] }), _jsx(Autocomplete, { options: fieldOptions, value: selectedField, onChange: (_, value) => {
                                 setSelectedField(value);
                                 setError(null);
-                            }, getOptionLabel: (option) => `${option.name} (${option.fieldType})`, isOptionEqualToValue: (option, value) => option.id === value.id, renderInput: (params) => (_jsx(TextField, { ...params, label: "Field", placeholder: fields.length ? 'Select field' : 'No fields available', required: true, error: Boolean(error), helperText: error })), disabled: loading || !fields.length }), _jsx(TextField, { label: "Notes", value: notes, onChange: (event) => setNotes(event.target.value), multiline: true, minRows: 2, fullWidth: true, disabled: loading })] }) }), _jsxs(DialogActions, { children: [_jsx(Button, { onClick: handleClose, disabled: loading, children: "Cancel" }), _jsx(LoadingButton, { onClick: handleSubmit, variant: "contained", loading: loading, disabled: loading || !fields.length, children: "Add Field" })] })] }));
+                            }, getOptionLabel: (option) => `${option.name} (${option.fieldType})`, isOptionEqualToValue: (option, value) => option.id === value?.id, renderInput: (params) => (_jsx(TextField, { ...params, label: "Field", placeholder: fields.length ? 'Select field' : 'No fields available', required: true, error: Boolean(error), helperText: error })), disabled: loading || !fields.length }), _jsx(TextField, { label: "Notes", value: notes, onChange: (event) => setNotes(event.target.value), multiline: true, minRows: 2, fullWidth: true, disabled: loading })] }) }), _jsxs(DialogActions, { children: [_jsx(Button, { onClick: handleClose, disabled: loading, children: "Cancel" }), _jsx(LoadingButton, { onClick: handleSubmit, variant: "contained", loading: loading, disabled: loading || !fields.length, children: "Add Field" })] })] }));
 };
 export default AddExistingFieldDialog;

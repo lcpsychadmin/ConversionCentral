@@ -37,7 +37,7 @@ interface CreateTableDialogProps {
 }
 
 const STATUS_OPTIONS = ['active', 'draft', 'deprecated'];
-const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE'];
+const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE', 'CONSTRUCTION'];
 
 type TableFormValues = {
   name: string;

@@ -40,7 +40,8 @@ const navItems = [
         icon: _jsx(DataObjectIcon, {}),
         children: [
             { label: 'Inventory', path: '/data-objects' },
-            { label: 'Data Definitions', path: '/data-definitions' }
+            { label: 'Data Definitions', path: '/data-definitions' },
+            { label: 'Data Construction', path: '/data-construction' }
         ]
     }
 ];
@@ -117,35 +118,65 @@ const MainLayout = () => {
                                             } })] })) }), hasChildren && (isCollapsible ? (_jsx(Collapse, { in: isOpen, timeout: "auto", unmountOnExit: true, children: renderChildItems(item.children) })) : (renderChildItems(item.children)))] }, item.label));
                 }) })] }));
     return (_jsxs(Box, { sx: { display: 'flex' }, children: [_jsx(AppBar, { position: "fixed", sx: {
-                    width: { sm: `calc(100% - ${drawerWidth}px)` },
-                    ml: { sm: `${drawerWidth}px` },
-                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.main, 0.95)} 100%)`,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
                     boxShadow: `0 4px 20px ${alpha(theme.palette.primary.main, 0.3)}`,
-                    borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`
-                }, children: _jsxs(Toolbar, { sx: { py: 1.5 }, children: [_jsx(IconButton, { color: "inherit", "aria-label": "open drawer", edge: "start", onClick: handleDrawerToggle, sx: { mr: 2, display: { sm: 'none' } }, children: _jsx(MenuIcon, {}) }), _jsx(Typography, { variant: "h6", noWrap: true, component: "div", sx: {
+                    borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`,
+                    color: theme.palette.primary.contrastText
+                }, children: _jsxs(Toolbar, { sx: { py: 1.5 }, children: [_jsx(IconButton, { color: "inherit", "aria-label": "open drawer", edge: "start", onClick: handleDrawerToggle, sx: {
+                                mr: 2,
+                                [theme.breakpoints.up('lg')]: {
+                                    display: 'none'
+                                }
+                            }, children: _jsx(MenuIcon, {}) }), _jsx(Typography, { variant: "h6", noWrap: true, component: "div", sx: {
                                 flexGrow: 1,
                                 fontWeight: 800,
                                 fontSize: '1.4rem',
                                 letterSpacing: 0.5,
+                                color: theme.palette.common.white,
                                 textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.2)}`
-                            }, children: "Conversion Central" }), user && (_jsx(IconButton, { color: "inherit", onClick: logout, sx: { ml: 1 }, children: _jsx(LogoutIcon, {}) }))] }) }), _jsxs(Box, { component: "nav", sx: { width: { sm: drawerWidth }, flexShrink: { sm: 0 } }, "aria-label": "navigation", children: [_jsx(Drawer, { variant: "temporary", open: mobileOpen, onClose: handleDrawerToggle, ModalProps: { keepMounted: true }, sx: {
-                            display: { xs: 'block', sm: 'none' },
+                            }, children: "Conversion Central" }), user && (_jsx(IconButton, { color: "inherit", onClick: logout, sx: { ml: 1 }, children: _jsx(LogoutIcon, {}) }))] }) }), _jsxs(Box, { component: "nav", sx: { flexShrink: 0 }, "aria-label": "navigation", children: [_jsx(Drawer, { variant: "temporary", open: mobileOpen, onClose: handleDrawerToggle, ModalProps: {
+                            keepMounted: true,
+                            BackdropProps: {
+                                sx: {
+                                    backdropFilter: 'blur(4px)',
+                                    backgroundColor: alpha(theme.palette.common.black, 0.75)
+                                }
+                            }
+                        }, sx: {
+                            display: 'block',
+                            [theme.breakpoints.up('lg')]: {
+                                display: 'none'
+                            },
                             '& .MuiDrawer-paper': {
                                 boxSizing: 'border-box',
                                 width: drawerWidth,
-                                backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                                backgroundColor: alpha(theme.palette.background.default, 0.96),
                                 borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
                                 boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`
                             }
                         }, children: drawer }), _jsx(Drawer, { variant: "permanent", sx: {
-                            display: { xs: 'none', sm: 'block' },
+                            display: 'none',
+                            [theme.breakpoints.up('lg')]: {
+                                display: 'block'
+                            },
+                            width: drawerWidth,
+                            flexShrink: 0,
                             '& .MuiDrawer-paper': {
                                 boxSizing: 'border-box',
                                 width: drawerWidth,
-                                backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                                backgroundColor: alpha(theme.palette.background.default, 0.96),
                                 borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
-                                boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`
+                                boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
+                                position: 'fixed',
+                                height: '100vh',
+                                top: 0,
+                                left: 0
                             }
-                        }, open: true, children: drawer })] }), _jsxs(Box, { component: "main", sx: { flexGrow: 1, p: 3, width: { sm: `calc(100% - ${drawerWidth}px)` } }, children: [_jsx(Toolbar, {}), _jsx(Outlet, {})] })] }));
+                        }, children: drawer })] }), _jsxs(Box, { component: "main", sx: {
+                    flexGrow: 1,
+                    p: 3,
+                    width: '100%',
+                    minWidth: 0
+                }, children: [_jsx(Toolbar, {}), _jsx(Outlet, {})] })] }));
 };
 export default MainLayout;

@@ -1,12 +1,12 @@
 import client from './api/client';
 const mapRelease = (payload) => ({
     id: payload.id,
-    projectId: payload.project_id,
+    projectId: payload.projectId,
     name: payload.name,
     description: payload.description ?? null,
     status: payload.status,
-    createdAt: payload.created_at,
-    updatedAt: payload.updated_at,
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt,
     projectName: payload.project?.name ?? null
 });
 export const fetchReleases = async () => {

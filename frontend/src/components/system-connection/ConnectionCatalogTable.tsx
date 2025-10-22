@@ -96,7 +96,7 @@ const ConnectionCatalogTable = ({
     return Object.keys(groups)
       .sort()
       .reduce((acc, schema) => {
-        acc[schema] = groups[schema].sort((a, b) => a.table.localeCompare(b.table));
+        acc[schema] = groups[schema].sort((a, b) => (a.table ?? '').localeCompare(b.table ?? ''));
         return acc;
       }, {} as { [schema: string]: GridRow[] });
   }, [gridRows]);

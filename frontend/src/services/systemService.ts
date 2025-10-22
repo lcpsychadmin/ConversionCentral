@@ -4,25 +4,25 @@ import { System } from '../types/data';
 export interface SystemResponse {
   id: string;
   name: string;
-  physical_name: string;
+  physicalName: string;
   description?: string | null;
-  system_type?: string | null;
+  systemType?: string | null;
   status: string;
-  security_classification?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  securityClassification?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const mapSystem = (payload: SystemResponse): System => ({
   id: payload.id,
   name: payload.name,
-  physicalName: payload.physical_name,
+  physicalName: payload.physicalName,
   description: payload.description ?? null,
-  systemType: payload.system_type ?? null,
+  systemType: payload.systemType ?? null,
   status: payload.status,
-  securityClassification: payload.security_classification ?? null,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  securityClassification: payload.securityClassification ?? null,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export interface SystemInput {

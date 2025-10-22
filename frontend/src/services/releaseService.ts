@@ -3,12 +3,12 @@ import { Release, ReleaseInput } from '../types/data';
 
 interface ReleaseResponse {
   id: string;
-  project_id: string;
+  projectId: string;
   name: string;
   description?: string | null;
   status: string;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
   project?: {
     id: string;
     name: string;
@@ -17,12 +17,12 @@ interface ReleaseResponse {
 
 const mapRelease = (payload: ReleaseResponse): Release => ({
   id: payload.id,
-  projectId: payload.project_id,
+  projectId: payload.projectId,
   name: payload.name,
   description: payload.description ?? null,
   status: payload.status,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt,
   projectName: payload.project?.name ?? null
 });
 

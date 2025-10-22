@@ -52,7 +52,8 @@ const navItems: NavItem[] = [
     icon: <DataObjectIcon />,
     children: [
       { label: 'Inventory', path: '/data-objects' },
-      { label: 'Data Definitions', path: '/data-definitions' }
+      { label: 'Data Definitions', path: '/data-definitions' },
+      { label: 'Data Construction', path: '/data-construction' }
     ]
   }
 ];
@@ -234,9 +235,10 @@ const MainLayout = () => {
       <AppBar
         position="fixed"
         sx={{
-          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.main, 0.95)} 100%)`,
+          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
           boxShadow: `0 4px 20px ${alpha(theme.palette.primary.main, 0.3)}`,
-          borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`
+          borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`,
+          color: theme.palette.primary.contrastText
         }}
       >
         <Toolbar sx={{ py: 1.5 }}>
@@ -263,6 +265,7 @@ const MainLayout = () => {
               fontWeight: 800,
               fontSize: '1.4rem',
               letterSpacing: 0.5,
+              color: theme.palette.common.white,
               textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.2)}`
             }}
           >

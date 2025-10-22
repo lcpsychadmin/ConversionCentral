@@ -35,17 +35,22 @@ import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import LibraryAddCheckOutlinedIcon from '@mui/icons-material/LibraryAddCheckOutlined';
 import PostAddOutlinedIcon from '@mui/icons-material/PostAddOutlined';
 import SearchIcon from '@mui/icons-material/Search';
+import PreviewIcon from '@mui/icons-material/Preview';
 import { DataGrid, GridColDef, GridRowClassNameParams, useGridApiContext } from '@mui/x-data-grid';
 
 import DataDefinitionRelationshipBuilder from './DataDefinitionRelationshipBuilder';
+import ConnectionDataPreviewDialog from '../system-connection/ConnectionDataPreviewDialog';
 import {
 	DataDefinition,
 	DataDefinitionField,
 	DataDefinitionRelationshipInput,
 	DataDefinitionRelationshipUpdateInput,
 	DataDefinitionTable,
-	Field
+	Field,
+	ConnectionTablePreview
 } from '../../types/data';
+import { fetchTablePreview } from '../../services/tableService';
+import { useToast } from '../../hooks/useToast';
 
 type FieldDraft = {
 	name: string;
@@ -134,7 +139,9 @@ const mapDraftsFromDefinition = (definition: DataDefinition) => {
 	const drafts: Record<string, FieldDraft> = {};
 	definition.tables.forEach((table) => {
 		table.fields.forEach((definitionField) => {
-			drafts[definitionField.field.id] = buildDraft(definitionField.field);
+			if (definitionField.field) {
+				drafts[definitionField.field.id] = buildDraft(definitionField.field);
+			}
 		});
 	});
 	return drafts;
@@ -386,6 +393,7 @@ const DataDefinitionDetails = ({
 	onDeleteRelationship,
 	relationshipBusy = false
 }: DataDefinitionDetailsProps) => {
+	const toast = useToast();
 	const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>(() => {
 		const initial: Record<string, boolean> = {};
 		definition.tables.forEach((table) => {
@@ -393,6 +401,14 @@ const DataDefinitionDetails = ({
 		});
 		return initial;
 	});
+
+	const tablesById = useMemo(() => {
+		const map = new Map<string, DataDefinitionTable>();
+		definition.tables.forEach((table) => {
+			map.set(table.id, table);
+		});
+		return map;
+	}, [definition.tables]);
 
 	const initialDrafts = useMemo(() => mapDraftsFromDefinition(definition), [definition]);
 	const [drafts, setDrafts] = useState<Record<string, FieldDraft>>(initialDrafts);
@@ -405,6 +421,13 @@ const DataDefinitionDetails = ({
 	const [dragSource, setDragSource] = useState<{ tableId: string; fieldId: string } | null>(null);
 	const [dropTargetTableId, setDropTargetTableId] = useState<string | null>(null);
 	const [intendedRelationship, setIntendedRelationship] = useState<{ primaryFieldId: string; foreignFieldId: string } | null>(null);
+	const [previewOpen, setPreviewOpen] = useState(false);
+	const [previewTableId, setPreviewTableId] = useState<string | null>(null);
+	const [previewTableName, setPreviewTableName] = useState<string>('');
+	const [previewSchemaName, setPreviewSchemaName] = useState<string | null>(null);
+	const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
+	const [previewLoading, setPreviewLoading] = useState(false);
+	const [previewError, setPreviewError] = useState<string | null>(null);
 	const theme = useTheme();
 
 	const chipBaseSx = useMemo(
@@ -531,7 +554,7 @@ const DataDefinitionDetails = ({
 					const left = a.loadOrder ?? Number.MAX_SAFE_INTEGER;
 					const right = b.loadOrder ?? Number.MAX_SAFE_INTEGER;
 					if (left === right) {
-						return a.table.name.localeCompare(b.table.name);
+						return (a.table?.name ?? '').localeCompare(b.table?.name ?? '');
 					}
 					return left - right;
 				}),
@@ -997,21 +1020,23 @@ const DataDefinitionDetails = ({
 
 	const exportTableToCsv = useCallback((table: DataDefinitionTable, tableName: string) => {
 		const headers = [...FIELD_COLUMNS.map((column) => column.label), 'Notes'];
-		const body = table.fields.map((definitionField) => {
-			const field = definitionField.field;
-			const values = FIELD_COLUMNS.map((column) => {
-				switch (column.kind) {
-					case 'boolean':
-						return toCsvString(field[column.key]);
-					case 'number':
-						return toCsvString(field[column.key] ?? '');
-					default:
-						return toCsvString(field[column.key] ?? '');
-				}
+		const body = table.fields
+			.filter((definitionField) => definitionField.field != null)
+			.map((definitionField) => {
+				const field = definitionField.field!;
+				const values = FIELD_COLUMNS.map((column) => {
+					switch (column.kind) {
+						case 'boolean':
+							return toCsvString(field[column.key]);
+						case 'number':
+							return toCsvString(field[column.key] ?? '');
+						default:
+							return toCsvString(field[column.key] ?? '');
+					}
+				});
+				values.push(toCsvString(definitionField.notes ?? ''));
+				return values.join(',');
 			});
-			values.push(toCsvString(definitionField.notes ?? ''));
-			return values.join(',');
-		});
 
 		const csv = [headers.map((header) => toCsvString(header)).join(','), ...body].join('\n');
 		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1029,6 +1054,54 @@ const DataDefinitionDetails = ({
 		document.body.removeChild(link);
 		URL.revokeObjectURL(url);
 	}, []);
+
+	const handleOpenPreview = useCallback((table: DataDefinitionTable) => {
+		setPreviewTableId(table.table.id);
+		setPreviewTableName(table.table.name);
+		setPreviewSchemaName(table.table.schemaName ?? null);
+		setPreviewData(null);
+		setPreviewError(null);
+		setPreviewLoading(true);
+		setPreviewOpen(true);
+
+		const loadPreview = async () => {
+			try {
+				const data = await fetchTablePreview(table.table.id, 100);
+				setPreviewData(data);
+			} catch (error) {
+				setPreviewError(error instanceof Error ? error.message : 'Failed to load preview');
+			} finally {
+				setPreviewLoading(false);
+			}
+		};
+
+		loadPreview();
+	}, []);
+
+	const handleClosePreview = useCallback(() => {
+		setPreviewOpen(false);
+		setPreviewTableId(null);
+		setPreviewTableName('');
+		setPreviewSchemaName(null);
+		setPreviewData(null);
+		setPreviewError(null);
+		setPreviewLoading(false);
+	}, []);
+
+	const handleRefreshPreview = useCallback(async () => {
+		if (!previewTableId) return;
+
+		setPreviewLoading(true);
+		setPreviewError(null);
+		try {
+			const data = await fetchTablePreview(previewTableId, 100);
+			setPreviewData(data);
+		} catch (error) {
+			setPreviewError(error instanceof Error ? error.message : 'Failed to load preview');
+		} finally {
+			setPreviewLoading(false);
+		}
+	}, [previewTableId]);
 
 	return (
 		<Stack spacing={3} sx={{ p: 2 }}>
@@ -1059,6 +1132,7 @@ const DataDefinitionDetails = ({
 				busy={relationshipBusy}
 				initialPrimaryFieldId={intendedRelationship?.primaryFieldId}
 				initialForeignFieldId={intendedRelationship?.foreignFieldId}
+				onInitialRelationshipConsumed={() => setIntendedRelationship(null)}
 			/>
 
 			{sortedTables.map((table) => {
@@ -1102,12 +1176,14 @@ const DataDefinitionDetails = ({
 				const isNewMenuOpen = newMenu?.tableId === table.id;
 				const menuAnchor = isNewMenuOpen ? newMenu.anchor : undefined;
 
-				const rows: FieldRow[] = table.fields.map((definitionField) => ({
-					id: definitionField.id,
-					notes: definitionField.notes ?? '',
-					__definitionField: definitionField,
-					...getDraftForField(definitionField.field)
-				}));
+				const rows: FieldRow[] = table.fields
+					.filter((definitionField) => definitionField.field != null)
+					.map((definitionField) => ({
+						id: definitionField.id,
+						notes: definitionField.notes ?? '',
+						__definitionField: definitionField,
+						...getDraftForField(definitionField.field!)
+					}));
 				if (isGridView) {
 					rows.push({
 						id: `__placeholder__-${table.id}`,
@@ -1287,10 +1363,11 @@ const DataDefinitionDetails = ({
 										alignItems="center"
 										draggable
 										onDragStart={(e) => {
-											setDragSource({ tableId: table.id, fieldId: definitionField.field.id });
+											setDragSource({ tableId: table.id, fieldId: definitionField.id });
 											e.dataTransfer.effectAllowed = 'copy';
 											e.dataTransfer.setData('application/json', JSON.stringify({
 												tableId: table.id,
+												definitionFieldId: definitionField.id,
 												fieldId: definitionField.field.id,
 												fieldName: definitionField.field.name
 											}));
@@ -1301,7 +1378,7 @@ const DataDefinitionDetails = ({
 										sx={{
 											cursor: 'grab',
 											'&:active': { cursor: 'grabbing' },
-											opacity: dragSource?.fieldId === definitionField.field.id ? 0.7 : 1,
+											opacity: dragSource?.fieldId === definitionField.id ? 0.7 : 1,
 											transition: 'opacity 0.2s'
 										}}
 									>
@@ -1448,20 +1525,45 @@ const DataDefinitionDetails = ({
 							
 							try {
 								const data = JSON.parse(e.dataTransfer.getData('application/json'));
-								const { tableId: sourceTableId, fieldId: sourceFieldId } = data;
-								
-								// Prevent dropping on the same table
-								if (sourceTableId !== table.id && dragSource) {
+								const { tableId: sourceTableId, definitionFieldId, fieldId: legacyFieldId } = data;
+								const sourceFieldCandidateId: string | undefined = definitionFieldId ?? legacyFieldId;
+								if (!sourceFieldCandidateId) {
+									toast.showError('Unable to determine the selected source field. Please try again.');
 									setDragSource(null);
-									// Set the intended relationship with source and first field of target table
-									const targetField = table.fields[0];
-									if (targetField) {
-										setIntendedRelationship({
-											primaryFieldId: sourceFieldId,
-											foreignFieldId: targetField.fieldId
-										});
-									}
+									return;
 								}
+
+								// Prevent dropping on the same table
+								if (sourceTableId === table.id) {
+									toast.showError('Select fields from different tables to create a relationship.');
+									setDragSource(null);
+									return;
+								}
+
+								const sourceTable = sourceTableId ? tablesById.get(sourceTableId) : undefined;
+								const sourceField = sourceTable?.fields.find(
+									(field) =>
+										(field.id === sourceFieldCandidateId || field.fieldId === sourceFieldCandidateId) &&
+										Boolean(field.field)
+								);
+								if (!sourceField) {
+									toast.showError('Unable to locate the selected source field in this definition.');
+									setDragSource(null);
+									return;
+								}
+
+								const targetField = table.fields.find((field) => Boolean(field?.id && field.field));
+								if (!targetField) {
+									toast.showError('The target table does not have any fields available for relationships.');
+									setDragSource(null);
+									return;
+								}
+
+								setDragSource(null);
+								setIntendedRelationship({
+									primaryFieldId: sourceField.id,
+									foreignFieldId: targetField.id
+								});
 							} catch (error) {
 								console.error('Error processing drop:', error);
 							}
@@ -1553,6 +1655,15 @@ const DataDefinitionDetails = ({
 									disabled={disableGridToggle}
 								>
 									{isGridView ? 'Exit grid view' : 'Edit in grid'}
+								</Button>
+								<Button
+									variant="outlined"
+									size="small"
+									startIcon={<PreviewIcon />}
+									onClick={() => handleOpenPreview(table)}
+									disabled={tableSaving}
+								>
+									Preview
 								</Button>
 								<Button
 									variant="outlined"
@@ -1771,7 +1882,7 @@ const DataDefinitionDetails = ({
 													}
 													onChange={(_, value) => handleExistingFieldSelect(table.id, value)}
 													getOptionLabel={(option) => `${option.name} (${option.fieldType})`}
-													isOptionEqualToValue={(option, value) => option.id === value.id}
+													isOptionEqualToValue={(option, value) => option.id === value?.id}
 													renderInput={(params) => (
 														<TextField
 															{...params}
@@ -2022,6 +2133,16 @@ const DataDefinitionDetails = ({
 					</Paper>
 				);
 			})}
+			<ConnectionDataPreviewDialog
+				open={previewOpen}
+				schemaName={previewSchemaName}
+				tableName={previewTableName}
+				loading={previewLoading}
+				error={previewError}
+				preview={previewData}
+				onClose={handleClosePreview}
+				onRefresh={handleRefreshPreview}
+			/>
 		</Stack>
 	);
 };

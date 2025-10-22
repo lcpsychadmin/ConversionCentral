@@ -321,7 +321,9 @@ class ConstructedTableStatus(str, Enum):
 
 
 class ConstructedTableBase(BaseModel):
-    execution_context_id: UUID
+    execution_context_id: Optional[UUID] = None
+    data_definition_id: Optional[UUID] = None
+    data_definition_table_id: Optional[UUID] = None
     name: str = Field(..., max_length=200)
     description: Optional[str] = None
     purpose: Optional[str] = None
@@ -329,11 +331,13 @@ class ConstructedTableBase(BaseModel):
 
 
 class ConstructedTableCreate(ConstructedTableBase):
-    pass
+    execution_context_id: UUID
 
 
 class ConstructedTableUpdate(BaseModel):
     execution_context_id: Optional[UUID] = None
+    data_definition_id: Optional[UUID] = None
+    data_definition_table_id: Optional[UUID] = None
     name: Optional[str] = Field(None, max_length=200)
     description: Optional[str] = None
     purpose: Optional[str] = None
@@ -390,6 +394,27 @@ class ConstructedDataRead(ConstructedDataBase, TimestampSchema):
     id: UUID
 
 
+class ValidationErrorDetail(BaseModel):
+    """Details of a single validation error."""
+    rowIndex: int
+    fieldName: Optional[str] = None
+    message: str
+    ruleId: UUID
+
+
+class ConstructedDataBatchSaveRequest(BaseModel):
+    """Request to save multiple rows of constructed data with validation."""
+    rows: list[dict[str, Any]]
+    validateOnly: bool = False  # If true, validate but don't save
+
+
+class ConstructedDataBatchSaveResponse(BaseModel):
+    """Response from batch save operation."""
+    success: bool
+    rowsSaved: int
+    errors: list[ValidationErrorDetail]
+
+
 class ConstructedTableApprovalRole(str, Enum):
     DATA_STEWARD = "data_steward"
     BUSINESS_OWNER = "business_owner"
@@ -425,6 +450,46 @@ class ConstructedTableApprovalUpdate(BaseModel):
 class ConstructedTableApprovalRead(ConstructedTableApprovalBase, TimestampSchema):
     id: UUID
     approved_at: datetime
+
+
+class ValidationRuleType(str, Enum):
+    REQUIRED = "required"
+    UNIQUE = "unique"
+    RANGE = "range"
+    PATTERN = "pattern"
+    CUSTOM = "custom"
+    CROSS_FIELD = "cross_field"
+
+
+class ConstructedDataValidationRuleBase(BaseModel):
+    constructed_table_id: UUID
+    name: str = Field(..., max_length=200)
+    description: Optional[str] = None
+    rule_type: ValidationRuleType
+    field_id: Optional[UUID] = None
+    configuration: dict = Field(default_factory=dict)
+    error_message: str = "Validation failed"
+    is_active: bool = True
+    applies_to_new_only: bool = False
+
+
+class ConstructedDataValidationRuleCreate(ConstructedDataValidationRuleBase):
+    pass
+
+
+class ConstructedDataValidationRuleUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    rule_type: Optional[ValidationRuleType] = None
+    field_id: Optional[UUID] = None
+    configuration: Optional[dict] = None
+    error_message: Optional[str] = None
+    is_active: Optional[bool] = None
+    applies_to_new_only: Optional[bool] = None
+
+
+class ConstructedDataValidationRuleRead(ConstructedDataValidationRuleBase, TimestampSchema):
+    id: UUID
 
 
 class ProcessAreaBase(BaseModel):
@@ -493,6 +558,7 @@ class DataObjectUpdate(BaseModel):
 class DataObjectRead(DataObjectBase, TimestampSchema):
     id: UUID
     systems: list["SystemRead"] = []
+    process_area: Optional["ProcessAreaRead"] = None
 
 
 class SystemBase(BaseModel):
@@ -636,6 +702,7 @@ class DataDefinitionTableInput(BaseModel):
     alias: Optional[str] = Field(None, max_length=200)
     description: Optional[str] = None
     load_order: Optional[int] = Field(None, ge=1)
+    is_construction: bool = False
     fields: list[DataDefinitionFieldInput] = []
 
 
@@ -666,8 +733,25 @@ class DataDefinitionTableRead(TimestampSchema):
     alias: Optional[str] = None
     description: Optional[str] = None
     load_order: Optional[int] = None
+    is_construction: bool
     table: TableRead
     fields: list[DataDefinitionFieldRead] = []
+    constructed_table_id: Optional[UUID] = Field(
+        None,
+        alias="constructedTableId",
+    )
+    constructed_table_name: Optional[str] = Field(
+        None,
+        alias="constructedTableName",
+    )
+    constructed_table_status: Optional[str] = Field(
+        None,
+        alias="constructedTableStatus",
+    )
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
 
 
 class DataDefinitionRelationshipType(str, Enum):
@@ -730,6 +814,7 @@ class DataDefinitionRead(TimestampSchema):
     system_id: UUID
     description: Optional[str] = None
     system: Optional[SystemRead] = None
+    data_object: Optional[DataObjectRead] = None
     tables: list[DataDefinitionTableRead] = []
     relationships: list[DataDefinitionRelationshipRead] = []
 

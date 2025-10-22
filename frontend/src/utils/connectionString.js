@@ -32,7 +32,7 @@ export const buildJdbcConnectionString = (values) => {
     return `jdbc:${databaseType}://${credentials}${sanitizedHost}${portSegment}/${sanitizedDatabase}${query}`;
 };
 export const parseJdbcConnectionString = (connectionString) => {
-    if (!connectionString.startsWith('jdbc:')) {
+    if (!connectionString || !connectionString.startsWith('jdbc:')) {
         return null;
     }
     try {
@@ -65,7 +65,7 @@ export const parseJdbcConnectionString = (connectionString) => {
 export const formatConnectionSummary = (connectionString) => {
     const parsed = parseJdbcConnectionString(connectionString);
     if (!parsed) {
-        return connectionString;
+        return connectionString ?? '—';
     }
     const { databaseType, username, host, port, database } = parsed;
     const credentials = username ? `${username}@` : '';

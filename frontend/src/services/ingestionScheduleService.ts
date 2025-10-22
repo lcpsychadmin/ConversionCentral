@@ -9,84 +9,84 @@ import {
 
 interface IngestionScheduleResponse {
   id: string;
-  connection_table_selection_id: string;
-  schedule_expression: string;
+  connectionTableSelectionId: string;
+  scheduleExpression: string;
   timezone?: string | null;
-  load_strategy: IngestionLoadStrategy;
-  watermark_column?: string | null;
-  primary_key_column?: string | null;
-  target_schema?: string | null;
-  target_table_name?: string | null;
-  batch_size: number;
-  is_active: boolean;
-  last_watermark_timestamp?: string | null;
-  last_watermark_id?: number | null;
-  last_run_started_at?: string | null;
-  last_run_completed_at?: string | null;
-  last_run_status?: string | null;
-  last_run_error?: string | null;
-  total_runs: number;
-  total_rows_loaded: number;
-  created_at?: string;
-  updated_at?: string;
+  loadStrategy: IngestionLoadStrategy;
+  watermarkColumn?: string | null;
+  primaryKeyColumn?: string | null;
+  targetSchema?: string | null;
+  targetTableName?: string | null;
+  batchSize: number;
+  isActive: boolean;
+  lastWatermarkTimestamp?: string | null;
+  lastWatermarkId?: number | null;
+  lastRunStartedAt?: string | null;
+  lastRunCompletedAt?: string | null;
+  lastRunStatus?: string | null;
+  lastRunError?: string | null;
+  totalRuns: number;
+  totalRowsLoaded: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface IngestionRunResponse {
   id: string;
-  ingestion_schedule_id: string;
+  ingestionScheduleId: string;
   status: 'scheduled' | 'running' | 'completed' | 'failed';
-  started_at?: string | null;
-  completed_at?: string | null;
-  rows_loaded?: number | null;
-  watermark_timestamp_before?: string | null;
-  watermark_timestamp_after?: string | null;
-  watermark_id_before?: number | null;
-  watermark_id_after?: number | null;
-  query_text?: string | null;
-  error_message?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  rowsLoaded?: number | null;
+  watermarkTimestampBefore?: string | null;
+  watermarkTimestampAfter?: string | null;
+  watermarkIdBefore?: number | null;
+  watermarkIdAfter?: number | null;
+  queryText?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const mapIngestionSchedule = (payload: IngestionScheduleResponse): IngestionSchedule => ({
   id: payload.id,
-  connectionTableSelectionId: payload.connection_table_selection_id,
-  scheduleExpression: payload.schedule_expression,
+  connectionTableSelectionId: payload.connectionTableSelectionId,
+  scheduleExpression: payload.scheduleExpression,
   timezone: payload.timezone ?? null,
-  loadStrategy: payload.load_strategy,
-  watermarkColumn: payload.watermark_column ?? null,
-  primaryKeyColumn: payload.primary_key_column ?? null,
-  targetSchema: payload.target_schema ?? null,
-  targetTableName: payload.target_table_name ?? null,
-  batchSize: payload.batch_size,
-  isActive: payload.is_active,
-  lastWatermarkTimestamp: payload.last_watermark_timestamp ?? null,
-  lastWatermarkId: payload.last_watermark_id ?? null,
-  lastRunStartedAt: payload.last_run_started_at ?? null,
-  lastRunCompletedAt: payload.last_run_completed_at ?? null,
-  lastRunStatus: payload.last_run_status ?? null,
-  lastRunError: payload.last_run_error ?? null,
-  totalRuns: payload.total_runs,
-  totalRowsLoaded: payload.total_rows_loaded,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  loadStrategy: payload.loadStrategy,
+  watermarkColumn: payload.watermarkColumn ?? null,
+  primaryKeyColumn: payload.primaryKeyColumn ?? null,
+  targetSchema: payload.targetSchema ?? null,
+  targetTableName: payload.targetTableName ?? null,
+  batchSize: payload.batchSize,
+  isActive: payload.isActive,
+  lastWatermarkTimestamp: payload.lastWatermarkTimestamp ?? null,
+  lastWatermarkId: payload.lastWatermarkId ?? null,
+  lastRunStartedAt: payload.lastRunStartedAt ?? null,
+  lastRunCompletedAt: payload.lastRunCompletedAt ?? null,
+  lastRunStatus: payload.lastRunStatus ?? null,
+  lastRunError: payload.lastRunError ?? null,
+  totalRuns: payload.totalRuns,
+  totalRowsLoaded: payload.totalRowsLoaded,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 const mapIngestionRun = (payload: IngestionRunResponse): IngestionRun => ({
   id: payload.id,
-  ingestionScheduleId: payload.ingestion_schedule_id,
+  ingestionScheduleId: payload.ingestionScheduleId,
   status: payload.status,
-  startedAt: payload.started_at ?? null,
-  completedAt: payload.completed_at ?? null,
-  rowsLoaded: payload.rows_loaded ?? null,
-  watermarkTimestampBefore: payload.watermark_timestamp_before ?? null,
-  watermarkTimestampAfter: payload.watermark_timestamp_after ?? null,
-  watermarkIdBefore: payload.watermark_id_before ?? null,
-  watermarkIdAfter: payload.watermark_id_after ?? null,
-  queryText: payload.query_text ?? null,
-  errorMessage: payload.error_message ?? null,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  startedAt: payload.startedAt ?? null,
+  completedAt: payload.completedAt ?? null,
+  rowsLoaded: payload.rowsLoaded ?? null,
+  watermarkTimestampBefore: payload.watermarkTimestampBefore ?? null,
+  watermarkTimestampAfter: payload.watermarkTimestampAfter ?? null,
+  watermarkIdBefore: payload.watermarkIdBefore ?? null,
+  watermarkIdAfter: payload.watermarkIdAfter ?? null,
+  queryText: payload.queryText ?? null,
+  errorMessage: payload.errorMessage ?? null,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchIngestionSchedules = async (): Promise<IngestionSchedule[]> => {

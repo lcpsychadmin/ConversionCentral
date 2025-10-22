@@ -19,6 +19,7 @@ class Settings(BaseSettings):
             "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
         ),
     )
+    enable_sql_server_sync: bool = Field(True, env="ENABLE_SQL_SERVER_SYNC")
     frontend_origins: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

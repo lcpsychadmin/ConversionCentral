@@ -11,6 +11,7 @@ from app.routers import (
 	constructed_field,
 	constructed_data,
 	constructed_table_approval,
+	constructed_data_validation_rule,
 	role,
 	user,
 	field,
@@ -52,6 +53,7 @@ api_router.include_router(constructed_table.router)
 api_router.include_router(constructed_field.router)
 api_router.include_router(constructed_data.router)
 api_router.include_router(constructed_table_approval.router)
+api_router.include_router(constructed_data_validation_rule.router)
 api_router.include_router(role.router)
 api_router.include_router(user.router)
 api_router.include_router(process_area.router)

@@ -845,7 +845,7 @@ const DataDefinitionsPage = () => {
               setSelectedProcessAreaId(value?.id ?? null);
             }}
             getOptionLabel={(option) => option.name}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
+            isOptionEqualToValue={(option, value) => option.id === value?.id}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -888,7 +888,7 @@ const DataDefinitionsPage = () => {
               setSelectedDataObjectId(value?.id ?? null);
             }}
             getOptionLabel={(option) => option.name}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
+            isOptionEqualToValue={(option, value) => option.id === value?.id}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -929,7 +929,7 @@ const DataDefinitionsPage = () => {
             loading={dataObjectsLoading}
             onChange={(_, value) => setSelectedSystemId(value?.id ?? null)}
             getOptionLabel={(option) => option.name}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
+            isOptionEqualToValue={(option, value) => option.id === value?.id}
             renderInput={(params) => (
               <TextField
                 {...params}
