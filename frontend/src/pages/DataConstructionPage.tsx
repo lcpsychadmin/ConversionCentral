@@ -579,13 +579,14 @@ const DataConstructionPage = () => {
       {/* Table Details Modal */}
       <Dialog
         open={detailDialogOpen}
-        onClose={handleCloseTableDetails}
+        onClose={() => {
+          // Do nothing - only allow close button to close this modal
+        }}
         maxWidth={false}
         fullWidth={true}
         disableEscapeKeyDown={true}
-        onBackdropClick={(event) => {
-          // Prevent accidental closure by clicking outside the dialog
-          event.preventDefault();
+        BackdropProps={{
+          sx: { pointerEvents: 'none' },
         }}
         PaperProps={{
           sx: {
@@ -639,7 +640,7 @@ const DataConstructionPage = () => {
                 <MuiTab label="Validation Rules" id="table-details-tab-1" />
               </MuiTabs>
 
-              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'auto', px: 3 }}>
+              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'auto', p: 4 }}>
                 {isLoadingDetails ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <Typography color="textSecondary">Loading...</Typography>
@@ -658,7 +659,7 @@ const DataConstructionPage = () => {
                 )}
               </TabPanel>
 
-              <TabPanel value={detailTabValue} index={1} sx={{ flex: 1, overflow: 'auto', px: 3 }}>
+              <TabPanel value={detailTabValue} index={1} sx={{ flex: 1, overflow: 'auto', p: 4 }}>
                 {isLoadingDetails ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <Typography color="textSecondary">Loading...</Typography>

@@ -224,41 +224,92 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({ constructedTableId, fields
         sx={{
           flex: 1,
           width: '100%',
-          minHeight: 400,
+          minHeight: 500,
           '& .ag-root': {
             fontFamily: theme.typography.fontFamily,
             fontSize: '0.875rem',
+            '--ag-background-color': theme.palette.background.paper,
+            '--ag-foreground-color': theme.palette.text.primary,
+            '--ag-border-color': alpha(theme.palette.divider, 0.4),
+            '--ag-header-background-color': alpha(theme.palette.primary.main, 0.06),
+            '--ag-header-foreground-color': theme.palette.text.primary,
+            '--ag-row-hover-color': alpha(theme.palette.action.hover, 0.6),
+            '--ag-selected-row-background-color': alpha(theme.palette.primary.main, 0.08),
+            '--ag-header-cell-text-color': theme.palette.text.primary,
+            '--ag-odd-row-background-color': theme.palette.background.paper,
           },
           '& .ag-header': {
-            backgroundColor: alpha(theme.palette.primary.main, 0.08),
-            borderBottom: `2px solid ${alpha(theme.palette.divider, 0.6)}`,
+            borderBottom: `2px solid ${alpha(theme.palette.divider, 0.5)}`,
           },
           '& .ag-header-cell': {
             color: theme.palette.text.primary,
             fontWeight: 600,
-            padding: '8px 12px',
+            padding: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            backgroundColor: alpha(theme.palette.primary.main, 0.06),
+            borderRight: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+            '&:hover': {
+              backgroundColor: alpha(theme.palette.primary.main, 0.12),
+            },
+          },
+          '& .ag-header-cell-sortable': {
+            cursor: 'pointer',
           },
           '& .ag-row': {
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
             '&:hover': {
-              backgroundColor: alpha(theme.palette.action.hover, 0.5),
+              backgroundColor: alpha(theme.palette.action.hover, 0.6),
             },
             '&.ag-row-selected': {
-              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+              backgroundColor: alpha(theme.palette.primary.main, 0.08),
+              '& .ag-cell': {
+                backgroundColor: alpha(theme.palette.primary.main, 0.08),
+              },
             },
           },
           '& .ag-cell': {
-            padding: '8px 12px',
+            padding: '10px 12px',
             display: 'flex',
             alignItems: 'center',
+            borderRight: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
           },
           '& .ag-cell-focus': {
-            outline: `2px solid ${theme.palette.primary.main}`,
-            outlineOffset: '-1px',
+            outline: 'none',
+          },
+          '& .ag-cell-value': {
+            color: theme.palette.text.primary,
           },
           '& .ag-input-field-input': {
-            padding: '4px 8px',
+            padding: '6px 8px',
             fontSize: '0.875rem',
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+            borderRadius: '4px',
+            fontFamily: theme.typography.fontFamily,
+            '&:focus': {
+              outline: 'none',
+              borderColor: theme.palette.primary.main,
+              boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.1)}`,
+            },
+          },
+          '& .ag-cell-inline-editing': {
+            padding: '0',
+            '& .ag-input-field-input': {
+              height: '100%',
+              margin: 0,
+            },
+          },
+          '& .ag-checkbox-input-wrapper input': {
+            accentColor: theme.palette.primary.main,
+          },
+          '& .ag-paging-panel': {
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+            backgroundColor: alpha(theme.palette.primary.main, 0.02),
+            padding: '8px 12px',
+          },
+          '& .ag-status-bar': {
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+            backgroundColor: alpha(theme.palette.primary.main, 0.02),
           },
         }}
       >
@@ -267,23 +318,38 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({ constructedTableId, fields
           rowData={gridRows}
           onGridReady={onGridReady}
           onCellEditingStopped={onCellEditingStopped}
-          domLayout="fill"
+          domLayout="normal"
           editType="fullRow"
-          stopEditingWhenGridLosesFocus={true}
+          stopEditingWhenCellsLoseFocus={true}
           undoRedoCellEditing={true}
           undoRedoCellEditingLimit={20}
           rowSelection="multiple"
           animateRows={true}
-          suppressAnimationFrame={false}
+          suppressColumnVirtualisation={false}
+          suppressRowVirtualisation={false}
+          columnHoverHighlight={true}
+          rowHoverHighlight={true}
+          enableRangeSelection={true}
+          enableCellTextSelection={true}
+          allowContextMenuWithControlKey={true}
+          statusBar={{
+            statusPanels: [
+              { statusPanel: 'agTotalRowCountComponent', align: 'left' },
+              { statusPanel: 'agFilteredRowCountComponent' },
+            ]
+          }}
           defaultColDef={{
             resizable: true,
             sortable: true,
-            filter: true,
+            filter: 'agTextColumnFilter',
+            floatingFilter: true,
           }}
-          suppressColumnVirtualisation={false}
-          suppressRowVirtualisation={false}
           headerHeight={40}
           rowHeight={36}
+          suppressMovableColumns={false}
+          suppressDragLeaveHidesColumns={false}
+          rowBuffer={10}
+          paginationPageSize={50}
         />
       </Box>
 
