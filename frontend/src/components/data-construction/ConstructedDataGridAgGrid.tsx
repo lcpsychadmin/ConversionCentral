@@ -63,7 +63,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({ constructedTableId, fields
       {
         field: 'actions',
         headerName: 'Actions',
-        width: 80,
+        width: 50,
         sortable: false,
         filter: false,
         resizable: false,
@@ -225,6 +225,10 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({ constructedTableId, fields
           flex: 1,
           width: '100%',
           minHeight: 500,
+          mb: 2,
+          border: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+          borderRadius: '4px',
+          overflow: 'hidden',
           '& .ag-root': {
             fontFamily: theme.typography.fontFamily,
             fontSize: '0.875rem',

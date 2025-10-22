@@ -634,13 +634,13 @@ const DataConstructionPage = () => {
               <MuiTabs
                 value={detailTabValue}
                 onChange={handleDetailTabChange}
-                sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}
+                sx={{ borderBottom: 1, borderColor: 'divider', px: 4, pt: 2 }}
               >
                 <MuiTab label="Data Entry" id="table-details-tab-0" />
                 <MuiTab label="Validation Rules" id="table-details-tab-1" />
               </MuiTabs>
 
-              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'auto', p: 4 }}>
+              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'auto', p: 4, pt: 3 }}>
                 {isLoadingDetails ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <Typography color="textSecondary">Loading...</Typography>
@@ -659,7 +659,7 @@ const DataConstructionPage = () => {
                 )}
               </TabPanel>
 
-              <TabPanel value={detailTabValue} index={1} sx={{ flex: 1, overflow: 'auto', p: 4 }}>
+              <TabPanel value={detailTabValue} index={1} sx={{ flex: 1, overflow: 'auto', p: 4, pt: 3 }}>
                 {isLoadingDetails ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <Typography color="textSecondary">Loading...</Typography>
