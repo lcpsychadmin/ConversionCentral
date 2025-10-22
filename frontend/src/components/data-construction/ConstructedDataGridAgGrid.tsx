@@ -328,7 +328,6 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({ constructedTableId, fields
           suppressColumnVirtualisation={false}
           suppressRowVirtualisation={false}
           columnHoverHighlight={true}
-          rowHoverHighlight={true}
           enableRangeSelection={true}
           enableCellTextSelection={true}
           allowContextMenuWithControlKey={true}
