@@ -1,3 +1,4 @@
+// Force rebuild - new version with grid fixes
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { CssBaseline, ThemeProvider } from '@mui/material';
@@ -21,3 +22,4 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
+// force rebuild 2025-10-22 10:26:27
