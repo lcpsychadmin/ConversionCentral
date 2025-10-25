@@ -1,16 +1,14 @@
 import { useCallback, useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
+  FormControlLabel,
   Grid,
   IconButton,
   Stack,
@@ -22,13 +20,10 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Typography,
-  FormControlLabel,
-  Alert
+  Typography
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 
 import { ConstructedField, ConstructedDataValidationRule, createValidationRule, updateValidationRule, deleteValidationRule } from '../../services/constructedDataService';
@@ -41,18 +36,31 @@ interface Props {
   onRulesChange: () => void;
 }
 
+type RuleType = ConstructedDataValidationRule['ruleType'];
+
+interface RuleConfiguration extends Record<string, unknown> {
+  fieldName?: string;
+  min?: number;
+  max?: number;
+  pattern?: string;
+  expression?: string;
+  fields?: string[];
+  rule?: string;
+}
+
 interface RuleFormData {
   name: string;
   description: string;
-  ruleType: 'required' | 'unique' | 'range' | 'pattern' | 'custom' | 'cross_field';
+  ruleType: RuleType;
   fieldId?: string | null;
-  configuration: Record<string, any>;
+  configuration: RuleConfiguration;
   errorMessage: string;
   isActive: boolean;
+  appliesTo_NewOnly: boolean;
 }
 
-const getRuleTypeLabel = (ruleType: string) => {
-  const labels: Record<string, string> = {
+const getRuleTypeLabel = (ruleType: RuleType) => {
+  const labels: Record<RuleType, string> = {
     required: 'Required',
     unique: 'Unique',
     range: 'Range',
@@ -60,8 +68,66 @@ const getRuleTypeLabel = (ruleType: string) => {
     custom: 'Custom Expression',
     cross_field: 'Cross-Field'
   };
-  return labels[ruleType] || ruleType;
+  return labels[ruleType];
 };
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return fallback;
+};
+
+const createInitialFormState = (): RuleFormData => ({
+  name: '',
+  description: '',
+  ruleType: 'required',
+  fieldId: null,
+  configuration: {},
+  errorMessage: 'Validation failed',
+  isActive: true,
+  appliesTo_NewOnly: false
+});
+
+const sanitizeConfiguration = (configuration: RuleConfiguration): Record<string, unknown> => {
+  return Object.entries(configuration).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    if (value === undefined) {
+      return acc;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) {
+        return acc;
+      }
+      acc[key] = trimmed;
+      return acc;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 0) {
+        acc[key] = value;
+      }
+      return acc;
+    }
+    acc[key] = value;
+    return acc;
+  }, {});
+};
+
+type RuleApiBasePayload = Omit<ConstructedDataValidationRule, 'id' | 'createdAt' | 'updatedAt' | 'constructedTableId'>;
+
+const buildRulePayload = (data: RuleFormData): RuleApiBasePayload => ({
+  name: data.name.trim(),
+  description: data.description.trim() || null,
+  ruleType: data.ruleType,
+  fieldId: data.fieldId ?? null,
+  configuration: sanitizeConfiguration(data.configuration),
+  errorMessage: data.errorMessage.trim() || 'Validation failed',
+  isActive: data.isActive,
+  appliesTo_NewOnly: data.appliesTo_NewOnly
+});
 
 const ValidationRulesManager: React.FC<Props> = ({
   constructedTableId,
@@ -78,27 +144,11 @@ const ValidationRulesManager: React.FC<Props> = ({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [formData, setFormData] = useState<RuleFormData>({
-    name: '',
-    description: '',
-    ruleType: 'required',
-    fieldId: null,
-    configuration: {},
-    errorMessage: 'Validation failed',
-    isActive: true
-  });
+  const [formData, setFormData] = useState<RuleFormData>(() => createInitialFormState());
 
   // Handlers
   const handleOpenDialog = useCallback(() => {
-    setFormData({
-      name: '',
-      description: '',
-      ruleType: 'required',
-      fieldId: null,
-      configuration: {},
-      errorMessage: 'Validation failed',
-      isActive: true
-    });
+    setFormData(createInitialFormState());
     setEditingRuleId(null);
     setDialogOpen(true);
   }, []);
@@ -115,22 +165,18 @@ const ValidationRulesManager: React.FC<Props> = ({
 
     setIsSaving(true);
     try {
+      const basePayload = buildRulePayload(formData);
       if (editingRuleId) {
-        // Update existing rule
-        await updateValidationRule(editingRuleId, formData);
+        await updateValidationRule(editingRuleId, basePayload);
         toast.showSuccess('Rule updated successfully');
       } else {
-        // Create new rule
-        await createValidationRule({
-          ...formData,
-          constructedTableId
-        } as any);
+        await createValidationRule({ ...basePayload, constructedTableId });
         toast.showSuccess('Rule created successfully');
       }
       setDialogOpen(false);
       onRulesChange();
-    } catch (error: any) {
-      toast.showError(error.message || 'Failed to save rule');
+    } catch (error: unknown) {
+      toast.showError(getErrorMessage(error, 'Failed to save rule'));
     } finally {
       setIsSaving(false);
     }
@@ -148,8 +194,8 @@ const ValidationRulesManager: React.FC<Props> = ({
       await deleteValidationRule(deleteRuleId);
       toast.showSuccess('Rule deleted successfully');
       onRulesChange();
-    } catch (error: any) {
-      toast.showError(error.message || 'Failed to delete rule');
+    } catch (error: unknown) {
+      toast.showError(getErrorMessage(error, 'Failed to delete rule'));
     } finally {
       setDeleteConfirmOpen(false);
       setDeleteRuleId(null);
@@ -163,8 +209,8 @@ const ValidationRulesManager: React.FC<Props> = ({
       });
       toast.showSuccess(rule.isActive ? 'Rule disabled' : 'Rule enabled');
       onRulesChange();
-    } catch (error: any) {
-      toast.showError(error.message || 'Failed to toggle rule');
+    } catch (error: unknown) {
+      toast.showError(getErrorMessage(error, 'Failed to toggle rule'));
     }
   };
 
@@ -178,7 +224,11 @@ const ValidationRulesManager: React.FC<Props> = ({
             select
             value={formData.fieldId || ''}
             onChange={(e) =>
-              setFormData({ ...formData, configuration: { fieldName: e.target.value } })
+              setFormData({
+                ...formData,
+                fieldId: e.target.value || null,
+                configuration: { fieldName: e.target.value || undefined }
+              })
             }
             SelectProps={{
               native: true
@@ -201,7 +251,11 @@ const ValidationRulesManager: React.FC<Props> = ({
             select
             value={formData.fieldId || ''}
             onChange={(e) =>
-              setFormData({ ...formData, configuration: { fieldName: e.target.value } })
+              setFormData({
+                ...formData,
+                fieldId: e.target.value || null,
+                configuration: { fieldName: e.target.value || undefined }
+              })
             }
             SelectProps={{
               native: true
@@ -228,7 +282,11 @@ const ValidationRulesManager: React.FC<Props> = ({
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    configuration: { ...formData.configuration, fieldName: e.target.value }
+                    fieldId: e.target.value || null,
+                    configuration: {
+                      ...formData.configuration,
+                      fieldName: e.target.value || undefined
+                    }
                   })
                 }
                 SelectProps={{
@@ -248,13 +306,14 @@ const ValidationRulesManager: React.FC<Props> = ({
                 fullWidth
                 label="Minimum"
                 type="number"
-                value={formData.configuration.min || ''}
-                onChange={(e) =>
+                value={formData.configuration.min ?? ''}
+                onChange={(e) => {
+                  const nextValue = e.target.value === '' ? undefined : Number(e.target.value);
                   setFormData({
                     ...formData,
-                    configuration: { ...formData.configuration, min: Number(e.target.value) }
-                  })
-                }
+                    configuration: { ...formData.configuration, min: nextValue }
+                  });
+                }}
               />
             </Grid>
             <Grid item xs={6}>
@@ -262,13 +321,14 @@ const ValidationRulesManager: React.FC<Props> = ({
                 fullWidth
                 label="Maximum"
                 type="number"
-                value={formData.configuration.max || ''}
-                onChange={(e) =>
+                value={formData.configuration.max ?? ''}
+                onChange={(e) => {
+                  const nextValue = e.target.value === '' ? undefined : Number(e.target.value);
                   setFormData({
                     ...formData,
-                    configuration: { ...formData.configuration, max: Number(e.target.value) }
-                  })
-                }
+                    configuration: { ...formData.configuration, max: nextValue }
+                  });
+                }}
               />
             </Grid>
           </Grid>
@@ -286,7 +346,11 @@ const ValidationRulesManager: React.FC<Props> = ({
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    configuration: { ...formData.configuration, fieldName: e.target.value }
+                    fieldId: e.target.value || null,
+                    configuration: {
+                      ...formData.configuration,
+                      fieldName: e.target.value || undefined
+                    }
                   })
                 }
                 SelectProps={{
@@ -352,7 +416,10 @@ const ValidationRulesManager: React.FC<Props> = ({
                     ...formData,
                     configuration: {
                       ...formData.configuration,
-                      fields: e.target.value.split(',').map((f) => f.trim())
+                      fields: e.target.value
+                        .split(',')
+                        .map((f) => f.trim())
+                        .filter((value) => value.length > 0)
                     }
                   })
                 }
@@ -398,7 +465,7 @@ const ValidationRulesManager: React.FC<Props> = ({
 
         {validationRules.length === 0 ? (
           <Alert severity="info">
-            No validation rules defined yet. Click "Create Rule" to add validation rules.
+            No validation rules defined yet. Select Create Rule to add validation rules.
           </Alert>
         ) : (
           <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
@@ -495,7 +562,7 @@ const ValidationRulesManager: React.FC<Props> = ({
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  ruleType: e.target.value as any,
+                  ruleType: e.target.value as RuleType,
                   configuration: {},
                   fieldId: null
                 })

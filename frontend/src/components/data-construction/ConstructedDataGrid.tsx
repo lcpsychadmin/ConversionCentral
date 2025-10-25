@@ -16,14 +16,15 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import {
   DataGrid,
+  GridCellEditStopParams,
+  GridCellEditStopReasons,
   GridColDef,
   GridRenderCellParams,
   GridRowClassNameParams,
-  GridCellEditStopReasons,
   useGridApiRef
 } from '@mui/x-data-grid';
 
-import { ConstructedField, ConstructedData, batchSaveConstructedData, ValidationError, deleteConstructedData, createConstructedData, updateConstructedData } from '../../services/constructedDataService';
+import { ConstructedField, ConstructedData, batchSaveConstructedData, ValidationError, deleteConstructedData, createConstructedData, updateConstructedData, ConstructedRowPayload } from '../../services/constructedDataService';
 import { useToast } from '../../hooks/useToast';
 
 interface Props {
@@ -33,9 +34,7 @@ interface Props {
   onDataChange: () => void;
 }
 
-interface RowData {
-  [key: string]: any;
-}
+type RowData = ConstructedRowPayload;
 
 interface RowState {
   rowId: string;
@@ -59,17 +58,21 @@ const ConstructedDataGrid: React.FC<Props> = ({
   // State
   const [rowStates, setRowStates] = useState<Map<string, RowState>>(
     new Map(
-      rows.map((row) => [
-        row.id,
-        {
-          rowId: row.id,
-          isDirty: false,
-          isNew: false,
-          data: row.payload,
-          errors: [],
-          originalData: row.payload
-        }
-      ])
+      rows.map((row) => {
+        const payloadCopy: RowData = { ...row.payload };
+        const originalPayloadCopy: RowData = { ...row.payload };
+        return [
+          row.id,
+          {
+            rowId: row.id,
+            isDirty: false,
+            isNew: false,
+            data: payloadCopy,
+            errors: [],
+            originalData: originalPayloadCopy
+          }
+        ];
+      })
     )
   );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -126,18 +129,19 @@ const ConstructedDataGrid: React.FC<Props> = ({
   // Handle cell value changes (inline editing)
   // Handle cell edit stop (when user leaves cell)
   const handleCellEditStop = useCallback(
-    async (params: any) => {
-      const { id: rowId, field: fieldName, value, reason } = params;
-      const state = rowStates.get(rowId as string);
+    async (params: GridCellEditStopParams) => {
+      const { id, field: fieldName, value, reason } = params;
+      const rowId = String(id);
+      const state = rowStates.get(rowId);
 
       if (!state) return;
 
       // Update the cell value
       setRowStates((prev) => {
         const newMap = new Map(prev);
-        const updatedState = newMap.get(rowId as string);
+        const updatedState = newMap.get(rowId);
         if (updatedState) {
-          updatedState.data[fieldName] = value;
+          updatedState.data[fieldName] = value as unknown;
           updatedState.isDirty = true;
           // Clear errors for this field
           updatedState.errors = updatedState.errors.filter((e) => e.fieldName !== fieldName);
@@ -147,13 +151,13 @@ const ConstructedDataGrid: React.FC<Props> = ({
 
       // Only auto-save on blur, not on escape
       if (reason === GridCellEditStopReasons.cellFocusOut) {
-        const currentState = rowStates.get(rowId as string);
+        const currentState = rowStates.get(rowId);
         if (!currentState) return;
 
         // Update data with new value
-        const updatedData = { ...currentState.data, [fieldName]: value };
+        const updatedData: ConstructedRowPayload = { ...currentState.data, [fieldName]: value };
 
-        pendingSaveRef.current.add(rowId as string);
+        pendingSaveRef.current.add(rowId);
         setIsSaving(true);
 
         try {
@@ -166,7 +170,7 @@ const ConstructedDataGrid: React.FC<Props> = ({
           if (!response.success) {
             setRowStates((prev) => {
               const newMap = new Map(prev);
-              const updatedState = newMap.get(rowId as string);
+              const updatedState = newMap.get(rowId);
               if (updatedState) {
                 updatedState.errors = response.errors;
               }
@@ -184,7 +188,7 @@ const ConstructedDataGrid: React.FC<Props> = ({
             });
             setRowStates((prev) => {
               const newMap = new Map(prev);
-              newMap.delete(rowId as string);
+              newMap.delete(rowId);
               newMap.set(createdRow.id, {
                 rowId: createdRow.id,
                 isDirty: false,
@@ -198,10 +202,10 @@ const ConstructedDataGrid: React.FC<Props> = ({
             toast.showSuccess('Row created successfully');
           } else {
             // Update existing row
-            await updateConstructedData(rowId as string, { payload: updatedData });
+            await updateConstructedData(rowId, { payload: updatedData });
             setRowStates((prev) => {
               const newMap = new Map(prev);
-              const updatedState = newMap.get(rowId as string);
+              const updatedState = newMap.get(rowId);
               if (updatedState) {
                 updatedState.isDirty = false;
                 updatedState.errors = [];
@@ -214,10 +218,11 @@ const ConstructedDataGrid: React.FC<Props> = ({
           }
 
           onDataChange();
-        } catch (error: any) {
-          toast.showError(error.message || 'Failed to save row');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to save row';
+          toast.showError(message);
         } finally {
-          pendingSaveRef.current.delete(rowId as string);
+          pendingSaveRef.current.delete(rowId);
           setIsSaving(false);
         }
       }
@@ -242,8 +247,9 @@ const ConstructedDataGrid: React.FC<Props> = ({
       });
       toast.showSuccess('Row deleted successfully');
       onDataChange();
-    } catch (error: any) {
-      toast.showError(error.message || 'Failed to delete row');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete row';
+      toast.showError(message);
     } finally {
       setDeleteConfirmOpen(false);
       setDeleteRowId(null);
@@ -262,7 +268,7 @@ const ConstructedDataGrid: React.FC<Props> = ({
         disableColumnMenu: true,
         editable: false,
         renderCell: (params: GridRenderCellParams) => {
-          const rowId = params.id as string;
+          const rowId = String(params.id);
           const state = rowStates.get(rowId);
           const rowErrors = (state?.errors || []).length > 0;
 
@@ -288,9 +294,11 @@ const ConstructedDataGrid: React.FC<Props> = ({
         sortable: true,
         filterable: true,
         renderCell: (params: GridRenderCellParams) => {
-          const rowId = params.id as string;
+          const rowId = String(params.id);
           const state = rowStates.get(rowId);
           const fieldErrors = (state?.errors || []).filter((e) => e.fieldName === field.name);
+          const rawValue = params.value;
+          const displayValue = rawValue === null || rawValue === undefined ? '' : String(rawValue);
 
           return (
             <Box sx={{ width: '100%', py: 0.5 }}>
@@ -307,7 +315,7 @@ const ConstructedDataGrid: React.FC<Props> = ({
                     color: fieldErrors.length > 0 ? theme.palette.error.main : 'inherit'
                   }}
                 >
-                  {params.value || ''}
+                  {displayValue}
                 </Typography>
                 {fieldErrors.length > 0 && (
                   <Typography

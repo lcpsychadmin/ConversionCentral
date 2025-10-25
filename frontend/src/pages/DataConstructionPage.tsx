@@ -1,13 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { ReactNode, SyntheticEvent, useCallback, useMemo, useState } from 'react';
 import { AxiosError } from 'axios';
 import { useQuery, useQueryClient } from 'react-query';
 import {
-  Alert,
   Autocomplete,
   Box,
-  Button,
-  Card,
-  CardContent,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -15,14 +11,12 @@ import {
   Grid,
   Paper,
   Stack,
-  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  TablePagination,
   Tab as MuiTab,
   Tabs as MuiTabs,
   TextField,
@@ -32,35 +26,25 @@ import {
   LinearProgress,
   Tooltip
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
-import EditIcon from '@mui/icons-material/Edit';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
+import { SxProps, Theme, alpha, useTheme } from '@mui/material/styles';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
 
-import { useAuth } from '../context/AuthContext';
 import { useToast } from '../hooks/useToast';
 import {
   fetchProcessAreas,
   fetchDataObjects,
   fetchSystems,
-  fetchConstructionDefinitions,
   fetchAllConstructionDefinitions,
   fetchConstructedData,
   fetchConstructedFields,
   fetchValidationRules,
-  batchSaveConstructedData,
   ProcessArea,
   DataObject,
   System,
-  DataDefinition,
-  DataDefinitionTable,
-  ConstructedData,
-  ConstructedField,
-  ConstructedDataValidationRule
+  DataDefinitionTable
 } from '../services/constructedDataService';
 import ConstructedDataGrid from '../components/data-construction/ConstructedDataGridAgGrid';
 import ValidationRulesManager from '../components/data-construction/ValidationRulesManager';
@@ -76,38 +60,46 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 };
 
 interface TabPanelProps {
-  children?: React.ReactNode;
+  children?: ReactNode;
   index: number;
   value: number;
-  sx?: any;
+  sx?: SxProps<Theme>;
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, sx, ...other } = props;
+function TabPanel({ children, value, index, sx, ...other }: TabPanelProps) {
   return (
-    <div
+    <Box
       role="tabpanel"
       hidden={value !== index}
       id={`table-details-tabpanel-${index}`}
       aria-labelledby={`table-details-tab-${index}`}
+      sx={[
+        {
+          display: value === index ? 'flex' : 'none',
+          flexDirection: 'column',
+          flex: 1,
+          overflow: 'auto'
+        },
+        ...(Array.isArray(sx) ? sx : sx ? [sx] : [])
+      ]}
       {...other}
-      style={{
-        display: value === index ? 'flex' : 'none',
-        flexDirection: 'column',
-        flex: 1,
-        overflow: 'auto',
-        ...((sx as any) || {})
-      }}
     >
       {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
-    </div>
+    </Box>
   );
 }
 
+type ConstructionTableRow = DataDefinitionTable & {
+  dataObjectId: string;
+  processAreaId?: string | null;
+  systemId: string;
+  dataObjectName?: string | null;
+  processAreaName?: string | null;
+  systemName?: string | null;
+};
+
 const DataConstructionPage = () => {
   const theme = useTheme();
-  const { hasRole } = useAuth();
-  const canManage = hasRole('admin') || hasRole('viewer');
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -121,8 +113,6 @@ const DataConstructionPage = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [detailTabValue, setDetailTabValue] = useState(0);
-  const [tablePaginationPage, setTablePaginationPage] = useState(0);
-  const [tablePaginationRowsPerPage, setTablePaginationRowsPerPage] = useState(10);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Queries
@@ -170,22 +160,6 @@ const DataConstructionPage = () => {
       }
     }
   );
-
-  // Fetch filtered definitions (only when filters are selected)
-  const { data: definitions = [], isLoading: isLoadingDefinitions } = useQuery(
-    ['constructionDefinitions', selectedDataObjectId, selectedSystemId],
-    () => {
-      if (!selectedDataObjectId || !selectedSystemId) return Promise.resolve([]);
-      return fetchConstructionDefinitions(selectedDataObjectId, selectedSystemId);
-    },
-    {
-      enabled: !!selectedDataObjectId && !!selectedSystemId,
-      onError: (error) => {
-        toast.showError(getErrorMessage(error, 'Failed to load construction tables'));
-      }
-    }
-  );
-
   // Get all construction tables with metadata
   const processAreaLookup = useMemo(() => {
     const map = new Map<string, string>();
@@ -193,21 +167,21 @@ const DataConstructionPage = () => {
     return map;
   }, [processAreas]);
 
-  const allConstructionTables = useMemo(() => {
-    return allDefinitions.flatMap((def: any) =>
-      (def.tables || []).map((table: any) => ({
+  const allConstructionTables = useMemo<ConstructionTableRow[]>(() => {
+    return allDefinitions.flatMap((def) =>
+      (def.tables ?? []).map<ConstructionTableRow>((table) => ({
         ...table,
         dataDefinitionId: def.id,
         dataObjectId: def.dataObjectId,
-        processAreaId: def.dataObject?.processAreaId,
+        processAreaId: def.dataObject?.processAreaId ?? null,
         systemId: def.systemId,
-        dataObjectName: def.dataObject?.name,
+        dataObjectName: def.dataObject?.name ?? null,
         processAreaName:
           def.dataObject?.processArea?.name ??
           (def.dataObject?.processAreaId
-            ? processAreaLookup.get(def.dataObject.processAreaId)
-            : undefined),
-        systemName: def.system?.name
+            ? processAreaLookup.get(def.dataObject.processAreaId) ?? null
+            : null),
+        systemName: def.system?.name ?? null
       }))
     );
   }, [allDefinitions, processAreaLookup]);
@@ -250,9 +224,9 @@ const DataConstructionPage = () => {
   }, [allConstructionTables, selectedProcessAreaId, selectedDataObjectId, selectedSystemId, searchText]);
 
   // Selected table details (for detail modal)
-  const selectedTableData = useMemo(() => {
+  const selectedTableData = useMemo<ConstructionTableRow | null>(() => {
     if (!selectedTableId) return null;
-    return allConstructionTables.find(t => t.id === selectedTableId);
+    return allConstructionTables.find((table) => table.id === selectedTableId) ?? null;
   }, [allConstructionTables, selectedTableId]);
 
   // Queries for detailed table view
@@ -315,30 +289,19 @@ const DataConstructionPage = () => {
   );
 
   // Handlers
-  const handleOpenTableDetails = useCallback((table: DataDefinitionTable) => {
+  const handleOpenTableDetails = useCallback((table: ConstructionTableRow) => {
     setSelectedTableId(table.id);
     setDetailTabValue(0);
-    setTablePaginationPage(0);
     setDetailDialogOpen(true);
   }, []);
 
   const handleCloseTableDetails = useCallback(() => {
     setDetailDialogOpen(false);
     setSelectedTableId(null);
-    setTablePaginationRowsPerPage(10);
   }, []);
 
-  const handleDetailTabChange = (_: React.SyntheticEvent, newValue: number) => {
+  const handleDetailTabChange = (_event: SyntheticEvent, newValue: number) => {
     setDetailTabValue(newValue);
-  };
-
-  const handleTablePaginationChange = (event: unknown, newPage: number) => {
-    setTablePaginationPage(newPage);
-  };
-
-  const handleRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setTablePaginationRowsPerPage(parseInt(event.target.value, 10));
-    setTablePaginationPage(0);
   };
 
   const handleRefresh = useCallback(async () => {
@@ -351,7 +314,7 @@ const DataConstructionPage = () => {
     }
   }, [refetchRows, toast]);
 
-  const handleProcessAreaChange = useCallback((_: any, value: ProcessArea | null) => {
+  const handleProcessAreaChange = useCallback((_event: SyntheticEvent, value: ProcessArea | null) => {
     // Only update Process Area - don't reset other filters
     setSelectedProcessAreaId(value?.id ?? null);
     // Close modal and clear search when changing filters
@@ -359,7 +322,7 @@ const DataConstructionPage = () => {
     setDetailDialogOpen(false);
   }, []);
 
-  const handleDataObjectChange = useCallback((_: any, value: DataObject | null) => {
+  const handleDataObjectChange = useCallback((_event: SyntheticEvent, value: DataObject | null) => {
     // Only update Data Object - don't reset other filters
     setSelectedDataObjectId(value?.id ?? null);
     // Close modal and clear search when changing filters
@@ -367,7 +330,7 @@ const DataConstructionPage = () => {
     setDetailDialogOpen(false);
   }, []);
 
-  const handleSystemChange = useCallback((_: any, value: System | null) => {
+  const handleSystemChange = useCallback((_event: SyntheticEvent, value: System | null) => {
     // Only update System - don't reset other filters
     setSelectedSystemId(value?.id ?? null);
     // Close modal and clear search when changing filters
@@ -375,7 +338,6 @@ const DataConstructionPage = () => {
     setDetailDialogOpen(false);
   }, []);
 
-  const isLoadingTables = isLoadingAllDefinitions;
   const isLoadingDetails = isLoadingFields || isLoadingRows || isLoadingRules;
 
   return (
@@ -585,9 +547,6 @@ const DataConstructionPage = () => {
         maxWidth={false}
         fullWidth={true}
         disableEscapeKeyDown={true}
-        BackdropProps={{
-          sx: { pointerEvents: 'none' },
-        }}
         PaperProps={{
           sx: {
             width: '95vw',
@@ -634,7 +593,7 @@ const DataConstructionPage = () => {
               <MuiTabs
                 value={detailTabValue}
                 onChange={handleDetailTabChange}
-                sx={{ borderBottom: 1, borderColor: 'divider', px: 4, pt: 2 }}
+                sx={{ borderBottom: 1, borderColor: 'divider', px: 4, pt: 2, position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'background.paper' }}
               >
                 <MuiTab label="Data Entry" id="table-details-tab-0" />
                 <MuiTab label="Validation Rules" id="table-details-tab-1" />
@@ -646,7 +605,7 @@ const DataConstructionPage = () => {
                     <Typography color="textSecondary">Loading...</Typography>
                   </Box>
                 ) : (
-                  <>
+                  <Box sx={{ flex: 1, p: 2.5, pt: 1, pb: 3 }}>
                     {selectedTableData.constructedTableId && (
                       <ConstructedDataGrid
                         constructedTableId={selectedTableData.constructedTableId}
@@ -655,7 +614,7 @@ const DataConstructionPage = () => {
                         onDataChange={handleRefresh}
                       />
                     )}
-                  </>
+                  </Box>
                 )}
               </TabPanel>
 
