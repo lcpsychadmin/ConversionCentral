@@ -2,18 +2,16 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useCallback, useMemo, useState } from 'react';
 import { AxiosError } from 'axios';
 import { useQuery, useQueryClient } from 'react-query';
-import { Autocomplete, Box, Button, Dialog, DialogContent, DialogTitle, Divider, Grid, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tab as MuiTab, Tabs as MuiTabs, TextField, Typography, IconButton, Chip, LinearProgress, Tooltip } from '@mui/material';
+import { Autocomplete, Box, Dialog, DialogContent, DialogTitle, Divider, Grid, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tab as MuiTab, Tabs as MuiTabs, TextField, Typography, IconButton, Chip, LinearProgress, Tooltip } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import AddIcon from '@mui/icons-material/Add';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
-import { useAuth } from '../context/AuthContext';
+import CloseIcon from '@mui/icons-material/Close';
 import { useToast } from '../hooks/useToast';
-import { fetchProcessAreas, fetchDataObjects, fetchSystems, fetchConstructionDefinitions, fetchAllConstructionDefinitions, fetchConstructedData, fetchConstructedFields, fetchValidationRules, batchSaveConstructedData } from '../services/constructedDataService';
-import ConstructedDataGrid from '../components/data-construction/ConstructedDataGrid';
+import { fetchProcessAreas, fetchDataObjects, fetchSystems, fetchAllConstructionDefinitions, fetchConstructedData, fetchConstructedFields, fetchValidationRules } from '../services/constructedDataService';
+import ConstructedDataGrid from '../components/data-construction/ConstructedDataGridAgGrid';
 import ValidationRulesManager from '../components/data-construction/ValidationRulesManager';
-import AddRowDialog from '../components/data-construction/AddRowDialog';
 const getErrorMessage = (error, fallback) => {
     if (error instanceof AxiosError) {
         return error.response?.data?.detail ?? error.message;
@@ -23,14 +21,19 @@ const getErrorMessage = (error, fallback) => {
     }
     return fallback;
 };
-function TabPanel(props) {
-    const { children, value, index, ...other } = props;
-    return (_jsx("div", { role: "tabpanel", hidden: value !== index, id: `table-details-tabpanel-${index}`, "aria-labelledby": `table-details-tab-${index}`, ...other, children: value === index && _jsx(Box, { sx: { pt: 3 }, children: children }) }));
+function TabPanel({ children, value, index, sx, ...other }) {
+    return (_jsx(Box, { role: "tabpanel", hidden: value !== index, id: `table-details-tabpanel-${index}`, "aria-labelledby": `table-details-tab-${index}`, sx: [
+            {
+                display: value === index ? 'flex' : 'none',
+                flexDirection: 'column',
+                flex: 1,
+                overflow: 'auto'
+            },
+            ...(Array.isArray(sx) ? sx : sx ? [sx] : [])
+        ], ...other, children: value === index && _jsx(Box, { sx: { pt: 3 }, children: children }) }));
 }
 const DataConstructionPage = () => {
     const theme = useTheme();
-    const { hasRole } = useAuth();
-    const canManage = hasRole('admin') || hasRole('viewer');
     const toast = useToast();
     const queryClient = useQueryClient();
     // Filter State
@@ -42,9 +45,6 @@ const DataConstructionPage = () => {
     const [detailDialogOpen, setDetailDialogOpen] = useState(false);
     const [selectedTableId, setSelectedTableId] = useState(null);
     const [detailTabValue, setDetailTabValue] = useState(0);
-    const [tablePaginationPage, setTablePaginationPage] = useState(0);
-    const [tablePaginationRowsPerPage, setTablePaginationRowsPerPage] = useState(10);
-    const [addRowDialogOpen, setAddRowDialogOpen] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     // Queries
     const { data: processAreas = [], isLoading: isLoadingProcessAreas } = useQuery(['processAreas'], fetchProcessAreas, {
@@ -73,17 +73,6 @@ const DataConstructionPage = () => {
             toast.showError(getErrorMessage(error, 'Failed to load construction tables'));
         }
     });
-    // Fetch filtered definitions (only when filters are selected)
-    const { data: definitions = [], isLoading: isLoadingDefinitions } = useQuery(['constructionDefinitions', selectedDataObjectId, selectedSystemId], () => {
-        if (!selectedDataObjectId || !selectedSystemId)
-            return Promise.resolve([]);
-        return fetchConstructionDefinitions(selectedDataObjectId, selectedSystemId);
-    }, {
-        enabled: !!selectedDataObjectId && !!selectedSystemId,
-        onError: (error) => {
-            toast.showError(getErrorMessage(error, 'Failed to load construction tables'));
-        }
-    });
     // Get all construction tables with metadata
     const processAreaLookup = useMemo(() => {
         const map = new Map();
@@ -91,18 +80,18 @@ const DataConstructionPage = () => {
         return map;
     }, [processAreas]);
     const allConstructionTables = useMemo(() => {
-        return allDefinitions.flatMap((def) => (def.tables || []).map((table) => ({
+        return allDefinitions.flatMap((def) => (def.tables ?? []).map((table) => ({
             ...table,
             dataDefinitionId: def.id,
             dataObjectId: def.dataObjectId,
-            processAreaId: def.dataObject?.processAreaId,
+            processAreaId: def.dataObject?.processAreaId ?? null,
             systemId: def.systemId,
-            dataObjectName: def.dataObject?.name,
+            dataObjectName: def.dataObject?.name ?? null,
             processAreaName: def.dataObject?.processArea?.name ??
                 (def.dataObject?.processAreaId
-                    ? processAreaLookup.get(def.dataObject.processAreaId)
-                    : undefined),
-            systemName: def.system?.name
+                    ? processAreaLookup.get(def.dataObject.processAreaId) ?? null
+                    : null),
+            systemName: def.system?.name ?? null
         })));
     }, [allDefinitions, processAreaLookup]);
     // Filter tables by all selected criteria
@@ -132,7 +121,7 @@ const DataConstructionPage = () => {
     const selectedTableData = useMemo(() => {
         if (!selectedTableId)
             return null;
-        return allConstructionTables.find(t => t.id === selectedTableId);
+        return allConstructionTables.find((table) => table.id === selectedTableId) ?? null;
     }, [allConstructionTables, selectedTableId]);
     // Queries for detailed table view
     const { data: fields = [], isLoading: isLoadingFields } = useQuery(['constructedFields', selectedTableData?.constructedTableId], () => {
@@ -173,27 +162,15 @@ const DataConstructionPage = () => {
     const handleOpenTableDetails = useCallback((table) => {
         setSelectedTableId(table.id);
         setDetailTabValue(0);
-        setTablePaginationPage(0);
         setDetailDialogOpen(true);
     }, []);
     const handleCloseTableDetails = useCallback(() => {
         setDetailDialogOpen(false);
         setSelectedTableId(null);
-        setTablePaginationRowsPerPage(10);
     }, []);
-    const handleDetailTabChange = (_, newValue) => {
+    const handleDetailTabChange = (_event, newValue) => {
         setDetailTabValue(newValue);
     };
-    const handleTablePaginationChange = (event, newPage) => {
-        setTablePaginationPage(newPage);
-    };
-    const handleRowsPerPageChange = (event) => {
-        setTablePaginationRowsPerPage(parseInt(event.target.value, 10));
-        setTablePaginationPage(0);
-    };
-    const handleAddRow = useCallback(() => {
-        setAddRowDialogOpen(true);
-    }, []);
     const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
         try {
@@ -204,28 +181,27 @@ const DataConstructionPage = () => {
             setIsRefreshing(false);
         }
     }, [refetchRows, toast]);
-    const handleProcessAreaChange = useCallback((_, value) => {
+    const handleProcessAreaChange = useCallback((_event, value) => {
         // Only update Process Area - don't reset other filters
         setSelectedProcessAreaId(value?.id ?? null);
         // Close modal and clear search when changing filters
         setSelectedTableId(null);
         setDetailDialogOpen(false);
     }, []);
-    const handleDataObjectChange = useCallback((_, value) => {
+    const handleDataObjectChange = useCallback((_event, value) => {
         // Only update Data Object - don't reset other filters
         setSelectedDataObjectId(value?.id ?? null);
         // Close modal and clear search when changing filters
         setSelectedTableId(null);
         setDetailDialogOpen(false);
     }, []);
-    const handleSystemChange = useCallback((_, value) => {
+    const handleSystemChange = useCallback((_event, value) => {
         // Only update System - don't reset other filters
         setSelectedSystemId(value?.id ?? null);
         // Close modal and clear search when changing filters
         setSelectedTableId(null);
         setDetailDialogOpen(false);
     }, []);
-    const isLoadingTables = isLoadingAllDefinitions;
     const isLoadingDetails = isLoadingFields || isLoadingRows || isLoadingRules;
     return (_jsxs(Box, { sx: { p: 3 }, children: [_jsxs(Box, { sx: { mb: 4 }, children: [_jsx(Typography, { variant: "h4", component: "h1", sx: { mb: 1, fontWeight: 'bold' }, children: "Data Construction" }), _jsx(Typography, { variant: "body2", color: "textSecondary", children: "Manage and edit construction table data with validation rules" })] }), _jsxs(Paper, { sx: { p: 3, mb: 3, backgroundColor: alpha(theme.palette.primary.main, 0.02), border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}` }, children: [_jsx(Typography, { variant: "subtitle2", sx: { mb: 2, fontWeight: 600, textTransform: 'uppercase', color: 'textSecondary' }, children: "Filters" }), _jsxs(Grid, { container: true, spacing: 2, children: [_jsx(Grid, { item: true, xs: 12, sm: 6, md: 3, children: _jsx(Autocomplete, { fullWidth: true, options: processAreas, getOptionLabel: (option) => option.name, value: selectedProcessArea ?? null, onChange: handleProcessAreaChange, loading: isLoadingProcessAreas, disabled: isLoadingProcessAreas, size: "small", renderInput: (params) => (_jsx(TextField, { ...params, label: "Process Area", placeholder: "Select...", required: true })) }) }), _jsx(Grid, { item: true, xs: 12, sm: 6, md: 3, children: _jsx(Autocomplete, { fullWidth: true, options: dataObjects, getOptionLabel: (option) => option.name, value: selectedDataObject ?? null, onChange: handleDataObjectChange, loading: isLoadingDataObjects, disabled: isLoadingDataObjects || !selectedProcessArea, size: "small", renderInput: (params) => (_jsx(TextField, { ...params, label: "Data Object", placeholder: "Select...", required: true })) }) }), _jsx(Grid, { item: true, xs: 12, sm: 6, md: 3, children: _jsx(Autocomplete, { fullWidth: true, options: systems, getOptionLabel: (option) => option.name, value: selectedSystem ?? null, onChange: handleSystemChange, loading: isLoadingSystems, disabled: isLoadingSystems, size: "small", renderInput: (params) => (_jsx(TextField, { ...params, label: "System", placeholder: "Select...", required: true })) }) }), _jsx(Grid, { item: true, xs: 12, sm: 6, md: 3, children: _jsx(TextField, { fullWidth: true, size: "small", placeholder: "Search tables...", value: searchText, onChange: (e) => setSearchText(e.target.value), InputProps: {
                                         startAdornment: _jsx(SearchIcon, { sx: { mr: 1, color: 'action.disabled' } })
@@ -239,23 +215,19 @@ const DataConstructionPage = () => {
                                                     ? 'success'
                                                     : table.constructedTableStatus === 'rejected'
                                                         ? 'error'
-                                                        : 'default' }) }), _jsx(TableCell, { align: "right", children: _jsx(Stack, { direction: "row", spacing: 0.5, justifyContent: "flex-end", children: _jsx(Tooltip, { title: "Open table", children: _jsx(IconButton, { size: "small", onClick: () => handleOpenTableDetails(table), disabled: !table.constructedTableId, children: _jsx(OpenInNewIcon, { fontSize: "small" }) }) }) }) })] }, table.id))) })] }) })) }), _jsx(Dialog, { open: detailDialogOpen, onClose: handleCloseTableDetails, maxWidth: "lg", fullWidth: true, PaperProps: {
-                    sx: { maxHeight: '90vh' }
-                }, children: selectedTableData && (_jsxs(_Fragment, { children: [_jsxs(DialogTitle, { sx: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }, children: [_jsxs(Box, { children: [_jsx(Typography, { variant: "h6", sx: { fontWeight: 600 }, children: selectedTableData.alias || 'Construction Table' }), _jsx(Typography, { variant: "caption", color: "textSecondary", children: selectedTableData.description })] }), _jsx(Stack, { direction: "row", spacing: 1, children: _jsx(IconButton, { size: "small", onClick: handleRefresh, disabled: isRefreshing, title: "Refresh data", children: _jsx(RefreshIcon, { fontSize: "small" }) }) })] }), _jsx(Divider, {}), _jsxs(DialogContent, { sx: { p: 0 }, children: [_jsxs(MuiTabs, { value: detailTabValue, onChange: handleDetailTabChange, sx: { borderBottom: 1, borderColor: 'divider', px: 3 }, children: [_jsx(MuiTab, { label: "Data Entry", id: "table-details-tab-0" }), _jsx(MuiTab, { label: "Validation Rules", id: "table-details-tab-1" })] }), _jsx(TabPanel, { value: detailTabValue, index: 0, children: isLoadingDetails ? (_jsx(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 }, children: _jsx(Typography, { color: "textSecondary", children: "Loading..." }) })) : (_jsxs(Stack, { spacing: 2, children: [_jsxs(Stack, { direction: "row", spacing: 1, justifyContent: "space-between", children: [_jsxs(Typography, { variant: "subtitle2", sx: { fontWeight: 600 }, children: ["Data Rows (", rows.length, ")"] }), _jsx(Button, { size: "small", startIcon: _jsx(AddIcon, {}), variant: "contained", onClick: handleAddRow, disabled: !canManage, children: "Add Row" })] }), selectedTableData.constructedTableId && (_jsx(ConstructedDataGrid, { constructedTableId: selectedTableData.constructedTableId, fields: fields, rows: rows, onDataChange: handleRefresh }))] })) }), _jsx(TabPanel, { value: detailTabValue, index: 1, children: isLoadingDetails ? (_jsx(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 }, children: _jsx(Typography, { color: "textSecondary", children: "Loading..." }) })) : (selectedTableData.constructedTableId && (_jsx(ValidationRulesManager, { constructedTableId: selectedTableData.constructedTableId, fields: fields, validationRules: validationRules, onRulesChange: () => {
+                                                        : 'default' }) }), _jsx(TableCell, { align: "right", children: _jsx(Stack, { direction: "row", spacing: 0.5, justifyContent: "flex-end", children: _jsx(Tooltip, { title: "Open table", children: _jsx(IconButton, { size: "small", onClick: () => handleOpenTableDetails(table), disabled: !table.constructedTableId, children: _jsx(OpenInNewIcon, { fontSize: "small" }) }) }) }) })] }, table.id))) })] }) })) }), _jsx(Dialog, { open: detailDialogOpen, onClose: () => {
+                    // Do nothing - only allow close button to close this modal
+                }, maxWidth: false, fullWidth: true, disableEscapeKeyDown: true, PaperProps: {
+                    sx: {
+                        width: '95vw',
+                        height: '95vh',
+                        maxHeight: '95vh',
+                        m: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column'
+                    }
+                }, children: selectedTableData && (_jsxs(_Fragment, { children: [_jsxs(DialogTitle, { sx: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }, children: [_jsxs(Box, { children: [_jsx(Typography, { variant: "h6", sx: { fontWeight: 600 }, children: selectedTableData.alias || 'Construction Table' }), _jsx(Typography, { variant: "caption", color: "textSecondary", children: selectedTableData.description })] }), _jsxs(Stack, { direction: "row", spacing: 1, children: [_jsx(IconButton, { size: "small", onClick: handleRefresh, disabled: isRefreshing, title: "Refresh data", children: _jsx(RefreshIcon, { fontSize: "small" }) }), _jsx(IconButton, { size: "small", onClick: handleCloseTableDetails, title: "Close", children: _jsx(CloseIcon, { fontSize: "small" }) })] })] }), _jsx(Divider, {}), _jsxs(DialogContent, { sx: { p: 0, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }, children: [_jsxs(MuiTabs, { value: detailTabValue, onChange: handleDetailTabChange, sx: { borderBottom: 1, borderColor: 'divider', px: 4, pt: 2, position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'background.paper' }, children: [_jsx(MuiTab, { label: "Data Entry", id: "table-details-tab-0" }), _jsx(MuiTab, { label: "Validation Rules", id: "table-details-tab-1" })] }), _jsx(TabPanel, { value: detailTabValue, index: 0, sx: { flex: 1, overflow: 'auto', p: 4, pt: 3 }, children: isLoadingDetails ? (_jsx(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 }, children: _jsx(Typography, { color: "textSecondary", children: "Loading..." }) })) : (_jsx(Box, { sx: { flex: 1, p: 2.5, pt: 1, pb: 3 }, children: selectedTableData.constructedTableId && (_jsx(ConstructedDataGrid, { constructedTableId: selectedTableData.constructedTableId, fields: fields, rows: rows, onDataChange: handleRefresh })) })) }), _jsx(TabPanel, { value: detailTabValue, index: 1, sx: { flex: 1, overflow: 'auto', p: 4, pt: 3 }, children: isLoadingDetails ? (_jsx(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 }, children: _jsx(Typography, { color: "textSecondary", children: "Loading..." }) })) : (selectedTableData.constructedTableId && (_jsx(ValidationRulesManager, { constructedTableId: selectedTableData.constructedTableId, fields: fields, validationRules: validationRules, onRulesChange: () => {
                                             queryClient.refetchQueries(['validationRules', selectedTableData.constructedTableId]);
-                                        } }))) })] })] })) }), selectedTableData?.constructedTableId && (_jsx(AddRowDialog, { open: addRowDialogOpen, fields: fields, onAdd: async (rowData) => {
-                    try {
-                        await batchSaveConstructedData(selectedTableData.constructedTableId, {
-                            rows: [rowData],
-                            validateOnly: false
-                        });
-                        await handleRefresh();
-                        setAddRowDialogOpen(false);
-                    }
-                    catch (error) {
-                        console.error('Failed to add row:', error);
-                        throw error;
-                    }
-                }, onClose: () => setAddRowDialogOpen(false) }))] }));
+                                        } }))) })] })] })) })] }));
 };
 export default DataConstructionPage;

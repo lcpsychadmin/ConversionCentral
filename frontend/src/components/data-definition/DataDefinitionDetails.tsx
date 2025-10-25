@@ -1,4 +1,4 @@
-import { ChangeEvent, ClipboardEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ClipboardEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
 	Autocomplete,
 	Box,
@@ -106,13 +106,6 @@ const FIELD_COLUMNS: FieldColumn[] = [
 	{ key: 'dataValidation', label: 'Data Validation', kind: 'text', multiline: true, minWidth: 220 },
 	{ key: 'referenceTable', label: 'Reference Table', kind: 'text', minWidth: 180 },
 	{ key: 'groupingTab', label: 'Grouping Tab', kind: 'text', minWidth: 160 }
-];
-
-const BOOLEAN_FIELD_KEYS: BooleanDraftKey[] = [
-	'systemRequired',
-	'businessProcessRequired',
-	'suppressedField',
-	'active'
 ];
 
 const buildDraft = (field: Field): FieldDraft => ({
@@ -415,7 +408,6 @@ const DataDefinitionDetails = ({
 	const [committed, setCommitted] = useState<Record<string, FieldDraft>>(initialDrafts);
 	const [inlineRows, setInlineRows] = useState<Record<string, InlineRowState>>({});
 	const [gridViewByTable, setGridViewByTable] = useState<Record<string, boolean>>({});
-	const [filterValue, setFilterValue] = useState('');
 	const [newMenu, setNewMenu] = useState<{ tableId: string; anchor: HTMLElement } | null>(null);
 	const [activeDialog, setActiveDialog] = useState<{ tableId: string; type: InlineRowState['type'] } | null>(null);
 	const [dragSource, setDragSource] = useState<{ tableId: string; fieldId: string } | null>(null);

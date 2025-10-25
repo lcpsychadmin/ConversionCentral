@@ -41,11 +41,12 @@ const SystemConnectionDetailModal = ({
   system,
   onClose
 }: SystemConnectionDetailModalProps) => {
+  const theme = useTheme();
+
   if (!connection) {
     return null;
   }
 
-  const theme = useTheme();
   const parsed = parseJdbcConnectionString(connection.connectionString);
 
   return (

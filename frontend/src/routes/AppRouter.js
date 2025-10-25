@@ -13,6 +13,8 @@ import SystemConnectionsPage from '@pages/SystemConnectionsPage';
 import ProjectsPage from '@pages/ProjectsPage';
 import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
+import ReportingDesignerPage from '@pages/ReportingDesignerPage';
+import ReportingCatalogPage from '@pages/ReportingCatalogPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
 const Loader = () => (_jsx(Box, { display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", children: _jsx(CircularProgress, {}) }));
@@ -38,7 +40,9 @@ const router = createBrowserRouter([
                     { path: 'application-settings/connections', element: _jsx(SystemConnectionsPage, {}) },
                     { path: 'data-objects', element: _jsx(InventoryPage, {}) },
                     { path: 'project-settings/projects', element: _jsx(ProjectsPage, {}) },
-                    { path: 'project-settings/releases', element: _jsx(ReleasesPage, {}) }
+                    { path: 'project-settings/releases', element: _jsx(ReleasesPage, {}) },
+                    { path: 'reporting/designer', element: _jsx(ReportingDesignerPage, {}) },
+                    { path: 'reporting/catalog', element: _jsx(ReportingCatalogPage, {}) }
                 ]
             },
             {

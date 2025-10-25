@@ -1,5 +1,6 @@
-import { AxiosError } from 'axios';
 import client from './api/client';
+
+export type ConstructedRowPayload = Record<string, unknown>;
 
 export interface ConstructedTable {
   id: string;
@@ -28,7 +29,7 @@ export interface ConstructedData {
   id: string;
   constructedTableId: string;
   rowIdentifier?: string | null;
-  payload: Record<string, any>;
+  payload: ConstructedRowPayload;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -41,7 +42,7 @@ export interface ValidationError {
 }
 
 export interface BatchSaveRequest {
-  rows: Record<string, any>[];
+  rows: ConstructedRowPayload[];
   validateOnly?: boolean;
 }
 
@@ -58,7 +59,7 @@ export interface ConstructedDataValidationRule {
   description?: string | null;
   ruleType: 'required' | 'unique' | 'range' | 'pattern' | 'custom' | 'cross_field';
   fieldId?: string | null;
-  configuration: Record<string, any>;
+  configuration: Record<string, unknown>;
   errorMessage: string;
   isActive: boolean;
   appliesTo_NewOnly: boolean;
@@ -173,12 +174,22 @@ export async function batchSaveConstructedData(
 /**
  * Create a single constructed data row
  */
+export interface CreateConstructedDataPayload {
+  constructedTableId: string;
+  payload: ConstructedRowPayload;
+  rowIdentifier?: string | null;
+}
+
 export async function createConstructedData(
-  data: Omit<ConstructedData, 'id' | 'createdAt' | 'updatedAt'>
+  data: CreateConstructedDataPayload
 ): Promise<ConstructedData> {
   const response = await client.post<ConstructedData>(
     '/constructed-data',
-    data
+    {
+      constructed_table_id: data.constructedTableId,
+      payload: data.payload,
+      row_identifier: data.rowIdentifier ?? null,
+    }
   );
   return response.data;
 }
@@ -192,7 +203,11 @@ export async function updateConstructedData(
 ): Promise<ConstructedData> {
   const response = await client.put<ConstructedData>(
     `/constructed-data/${id}`,
-    data
+    {
+      ...(data.constructedTableId ? { constructed_table_id: data.constructedTableId } : {}),
+      ...(data.rowIdentifier !== undefined ? { row_identifier: data.rowIdentifier } : {}),
+      ...(data.payload !== undefined ? { payload: data.payload } : {}),
+    }
   );
   return response.data;
 }

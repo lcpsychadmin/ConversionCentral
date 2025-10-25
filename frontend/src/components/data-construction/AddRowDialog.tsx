@@ -15,20 +15,23 @@ import {
 import { ConstructedField } from '../../services/constructedDataService';
 import { useToast } from '../../hooks/useToast';
 
+type RowValue = string | number | null;
+type RowData = Record<string, RowValue>;
+
 interface Props {
   open: boolean;
   fields: ConstructedField[];
-  onAdd: (rowData: Record<string, any>) => Promise<void>;
+  onAdd: (rowData: RowData) => Promise<void>;
   onClose: () => void;
 }
 
 const AddRowDialog: React.FC<Props> = ({ open, fields, onAdd, onClose }) => {
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<RowData>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const toast = useToast();
 
-  const handleChange = useCallback((fieldKey: string, value: any) => {
+  const handleChange = useCallback((fieldKey: string, value: RowValue) => {
     setFormData((prev) => ({
       ...prev,
       [fieldKey]: value
@@ -60,13 +63,14 @@ const AddRowDialog: React.FC<Props> = ({ open, fields, onAdd, onClose }) => {
 
     setIsSubmitting(true);
     try {
-      await onAdd(formData);
+  await onAdd(formData);
       toast.showSuccess('Row added successfully');
       setFormData({});
       setValidationErrors({});
       onClose();
-    } catch (error: any) {
-      toast.showError(error.message || 'Failed to add row');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to add row';
+      toast.showError(message);
     } finally {
       setIsSubmitting(false);
     }

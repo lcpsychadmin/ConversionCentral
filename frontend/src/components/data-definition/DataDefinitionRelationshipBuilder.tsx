@@ -138,7 +138,6 @@ const TableCard = ({
   onFieldDrop?: (fieldId: string, e: React.DragEvent) => void;
   onFieldRefChange?: (fieldId: string, ref: FieldRef) => void;
 }) => {
-  const theme = useTheme();
   const tableName = table.alias || table.table?.name || 'Unknown table';
   const physicalName = table.table?.schemaName
     ? `${table.table.schemaName}.${table.table.physicalName}`
@@ -295,6 +294,8 @@ const TableCard = ({
 
   return (
     <Paper
+      data-side={side}
+      data-role={isSource ? 'source' : 'target'}
       sx={{
         borderRadius: '8px',
         overflow: 'hidden',
@@ -428,7 +429,6 @@ const DataDefinitionRelationshipBuilder = ({
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DataDefinitionRelationship | null>(null);
   const [draggedFieldId, setDraggedFieldId] = useState<string | null>(null);
-  const [dragOverFieldId, setDragOverFieldId] = useState<string | null>(null);
   const [tablePositions, setTablePositions] = useState<Map<string, TablePosition>>(() => {
     const positions = new Map<string, TablePosition>();
     tables.forEach((table, idx) => {
@@ -631,7 +631,6 @@ const DataDefinitionRelationshipBuilder = ({
 
   const handleFieldDragEnd = useCallback(() => {
     setDraggedFieldId(null);
-    setDragOverFieldId(null);
   }, []);
 
   const handleFieldDragOver = useCallback(() => {
@@ -667,14 +666,12 @@ const DataDefinitionRelationshipBuilder = ({
     if (relationshipExists(draggedFieldId, targetFieldId)) {
       toast.showError('A relationship between these fields already exists.');
       setDraggedFieldId(null);
-      setDragOverFieldId(null);
       return;
     }
 
     // Create relationship from dragged field to target field
     openCreateDialog(draggedFieldId, targetFieldId);
     setDraggedFieldId(null);
-    setDragOverFieldId(null);
   }, [draggedFieldId, fieldLookup, openCreateDialog, relationshipExists, toast]);
 
   const handleTableMouseDown = useCallback(

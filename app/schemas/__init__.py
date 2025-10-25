@@ -145,6 +145,17 @@ from app.schemas.entities import (
     PreLoadValidationResultRead,
     PreLoadValidationResultUpdate,
 )
+from app.schemas.reporting import (
+    ReportAggregateFn,
+    ReportDesignerColumn,
+    ReportDesignerDefinition,
+    ReportDesignerJoin,
+    ReportDesignerTablePlacement,
+    ReportJoinType,
+    ReportPreviewRequest,
+    ReportPreviewResponse,
+    ReportSortDirection,
+)
 
 __all__ = [name for name in globals() if name.endswith(("Create", "Read", "Update"))]
 __all__.extend([
@@ -167,4 +178,13 @@ __all__.extend([
     "DependencyOrderItem",
     "TableLoadOrderApprovalRole",
     "TableLoadOrderApprovalDecision",
+    "ReportAggregateFn",
+    "ReportDesignerColumn",
+    "ReportDesignerDefinition",
+    "ReportDesignerJoin",
+    "ReportDesignerTablePlacement",
+    "ReportJoinType",
+    "ReportPreviewRequest",
+    "ReportPreviewResponse",
+    "ReportSortDirection",
 ])

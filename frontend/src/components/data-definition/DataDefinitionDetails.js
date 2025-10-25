@@ -42,12 +42,6 @@ const FIELD_COLUMNS = [
     { key: 'referenceTable', label: 'Reference Table', kind: 'text', minWidth: 180 },
     { key: 'groupingTab', label: 'Grouping Tab', kind: 'text', minWidth: 160 }
 ];
-const BOOLEAN_FIELD_KEYS = [
-    'systemRequired',
-    'businessProcessRequired',
-    'suppressedField',
-    'active'
-];
 const buildDraft = (field) => ({
     name: field.name,
     description: field.description ?? '',
@@ -238,7 +232,6 @@ const DataDefinitionDetails = ({ definition, canEdit = false, inlineSavingState,
     const [committed, setCommitted] = useState(initialDrafts);
     const [inlineRows, setInlineRows] = useState({});
     const [gridViewByTable, setGridViewByTable] = useState({});
-    const [filterValue, setFilterValue] = useState('');
     const [newMenu, setNewMenu] = useState(null);
     const [activeDialog, setActiveDialog] = useState(null);
     const [dragSource, setDragSource] = useState(null);

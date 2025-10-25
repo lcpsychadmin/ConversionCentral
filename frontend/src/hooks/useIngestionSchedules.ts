@@ -7,11 +7,7 @@ import {
   triggerIngestionSchedule,
   updateIngestionSchedule
 } from '../services/ingestionScheduleService';
-import {
-  IngestionSchedule,
-  IngestionScheduleInput,
-  IngestionScheduleUpdateInput
-} from '../types/data';
+import { IngestionSchedule, IngestionScheduleUpdateInput } from '../types/data';
 import { useToast } from './useToast';
 
 const INGESTION_SCHEDULES_KEY = ['ingestion-schedules'];

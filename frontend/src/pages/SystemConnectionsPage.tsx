@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   Paper,
-  Stack,
   Typography
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';

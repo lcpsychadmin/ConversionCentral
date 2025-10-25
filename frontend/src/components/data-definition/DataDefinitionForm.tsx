@@ -23,7 +23,7 @@ import PostAddIcon from '@mui/icons-material/PostAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PreviewIcon from '@mui/icons-material/Preview';
 
-import { DataDefinition, DataDefinitionTableInput, Table, TableInput, FieldInput, Field, ConnectionTablePreview } from '../../types/data';
+import { DataDefinition, DataDefinitionTableInput, Table, TableInput, Field, ConnectionTablePreview } from '../../types/data';
 import { createTable, updateTable, createField, fetchTablePreview } from '../../services/tableService';
 import { fetchAvailableSourceTables, AvailableSourceTable, SourceTableColumn } from '../../services/dataDefinitionService';
 import { useToast } from '../../hooks/useToast';

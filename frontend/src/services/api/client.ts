@@ -20,20 +20,33 @@ const client = axios.create({
   baseURL: normalizedBaseUrl
 });
 
-// Helper function to convert snake_case keys to camelCase
-const toCamelCase = (obj: any): any => {
-  if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) return obj.map(toCamelCase);
-  if (typeof obj !== 'object') return obj;
+type JsonRecord = Record<string, unknown>;
 
-  const result: any = {};
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-      result[camelKey] = toCamelCase(obj[key]);
+const isJsonRecord = (value: unknown): value is JsonRecord => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+// Helper function to convert snake_case keys to camelCase
+const toCamelCase = <T>(input: T): T => {
+  if (input === null || input === undefined) return input;
+  if (Array.isArray(input)) return input.map(toCamelCase) as unknown as T;
+  if (!isJsonRecord(input)) return input;
+
+  const result: JsonRecord = {};
+  Object.keys(input).forEach((key) => {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const value = input[key];
+
+    // Preserve constructed data payload keys (they must stay snake_case for field matching)
+    if (camelKey === 'payload' && isJsonRecord(value)) {
+      result[camelKey] = value;
+      return;
     }
-  }
-  return result;
+
+    result[camelKey] = toCamelCase(value);
+  });
+
+  return result as unknown as T;
 };
 
 client.interceptors.request.use((config) => {

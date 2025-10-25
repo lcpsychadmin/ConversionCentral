@@ -40,6 +40,7 @@ from app.routers import (
 	table_load_order_approval,
 	dependency_approval,
 	dependency_dag,
+	reporting,
 )
 
 api_router = APIRouter()
@@ -82,5 +83,6 @@ api_router.include_router(table_load_order.router)
 api_router.include_router(table_load_order_approval.router)
 api_router.include_router(dependency_approval.router)
 api_router.include_router(dependency_dag.router)
+api_router.include_router(reporting.router)
 
 __all__ = ["api_router"]

@@ -43,7 +43,8 @@ const AddRowDialog = ({ open, fields, onAdd, onClose }) => {
             onClose();
         }
         catch (error) {
-            toast.showError(error.message || 'Failed to add row');
+            const message = error instanceof Error ? error.message : 'Failed to add row';
+            toast.showError(message);
         }
         finally {
             setIsSubmitting(false);

@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
   Paper,
   Stack,
   Typography

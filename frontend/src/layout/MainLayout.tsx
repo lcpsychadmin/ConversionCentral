@@ -10,6 +10,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ProjectsIcon from '@mui/icons-material/FolderOpen';
 import DataObjectIcon from '@mui/icons-material/Storage';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 
 import { useAuth } from '../context/AuthContext';
 
@@ -54,6 +55,15 @@ const navItems: NavItem[] = [
       { label: 'Inventory', path: '/data-objects' },
       { label: 'Data Definitions', path: '/data-definitions' },
       { label: 'Data Construction', path: '/data-construction' }
+    ]
+  },
+  {
+    label: 'Reporting',
+    collapsible: true,
+    icon: <AssessmentIcon />,
+    children: [
+      { label: 'Reporting Designer', path: '/reporting/designer' },
+      { label: 'Reports & Outputs', path: '/reporting/catalog' }
     ]
   }
 ];

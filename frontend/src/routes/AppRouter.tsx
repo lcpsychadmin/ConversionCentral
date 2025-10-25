@@ -13,6 +13,8 @@ import SystemConnectionsPage from '@pages/SystemConnectionsPage';
 import ProjectsPage from '@pages/ProjectsPage';
 import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
+import ReportingDesignerPage from '@pages/ReportingDesignerPage';
+import ReportingCatalogPage from '@pages/ReportingCatalogPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
 
@@ -53,7 +55,9 @@ const router = createBrowserRouter([
           { path: 'application-settings/connections', element: <SystemConnectionsPage /> },
           { path: 'data-objects', element: <InventoryPage /> },
           { path: 'project-settings/projects', element: <ProjectsPage /> },
-          { path: 'project-settings/releases', element: <ReleasesPage /> }
+          { path: 'project-settings/releases', element: <ReleasesPage /> },
+          { path: 'reporting/designer', element: <ReportingDesignerPage /> },
+          { path: 'reporting/catalog', element: <ReportingCatalogPage /> }
         ]
       },
       {

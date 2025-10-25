@@ -10,11 +10,7 @@ import {
   testSystemConnection,
   updateSystemConnection
 } from '../services/systemConnectionService';
-import {
-  SystemConnection,
-  SystemConnectionInput,
-  SystemConnectionUpdateInput
-} from '../types/data';
+import { SystemConnection, SystemConnectionUpdateInput } from '../types/data';
 import { useToast } from './useToast';
 
 const SYSTEM_CONNECTIONS_KEY = ['system-connections'];

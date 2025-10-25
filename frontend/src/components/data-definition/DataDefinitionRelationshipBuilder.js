@@ -28,7 +28,6 @@ const sanitizeNotes = (value) => {
 };
 // Table card component for two-column layout
 const TableCard = ({ table, side, isSource, selectedFieldId, onFieldSelect, onFieldDragStart, onFieldDragEnd, onFieldDragOver, onFieldDrop, onFieldRefChange }) => {
-    const theme = useTheme();
     const tableName = table.alias || table.table?.name || 'Unknown table';
     const physicalName = table.table?.schemaName
         ? `${table.table.schemaName}.${table.table.physicalName}`
@@ -142,7 +141,7 @@ const TableCard = ({ table, side, isSource, selectedFieldId, onFieldSelect, onFi
                         fontSize: '0.875rem'
                     }, children: definitionField.field?.name || 'Unknown field' })] }, definitionField.id));
     };
-    return (_jsxs(Paper, { sx: {
+    return (_jsxs(Paper, { "data-side": side, "data-role": isSource ? 'source' : 'target', sx: {
             borderRadius: '8px',
             overflow: 'hidden',
             border: `1px solid ${alpha(headerColor, 0.2)}`,
@@ -198,7 +197,6 @@ const DataDefinitionRelationshipBuilder = ({ tables, relationships, canEdit, bus
     const [dialogSubmitting, setDialogSubmitting] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [draggedFieldId, setDraggedFieldId] = useState(null);
-    const [dragOverFieldId, setDragOverFieldId] = useState(null);
     const [tablePositions, setTablePositions] = useState(() => {
         const positions = new Map();
         tables.forEach((table, idx) => {
@@ -343,7 +341,6 @@ const DataDefinitionRelationshipBuilder = ({ tables, relationships, canEdit, bus
     }, []);
     const handleFieldDragEnd = useCallback(() => {
         setDraggedFieldId(null);
-        setDragOverFieldId(null);
     }, []);
     const handleFieldDragOver = useCallback(() => {
         // Allow drop
@@ -373,13 +370,11 @@ const DataDefinitionRelationshipBuilder = ({ tables, relationships, canEdit, bus
         if (relationshipExists(draggedFieldId, targetFieldId)) {
             toast.showError('A relationship between these fields already exists.');
             setDraggedFieldId(null);
-            setDragOverFieldId(null);
             return;
         }
         // Create relationship from dragged field to target field
         openCreateDialog(draggedFieldId, targetFieldId);
         setDraggedFieldId(null);
-        setDragOverFieldId(null);
     }, [draggedFieldId, fieldLookup, openCreateDialog, relationshipExists, toast]);
     const handleTableMouseDown = useCallback((tableId, e) => {
         if (!canEdit || busy)

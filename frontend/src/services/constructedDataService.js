@@ -31,18 +31,23 @@ export async function batchSaveConstructedData(constructedTableId, request) {
     const response = await client.post(`/constructed-data/${constructedTableId}/batch-save`, request);
     return response.data;
 }
-/**
- * Create a single constructed data row
- */
 export async function createConstructedData(data) {
-    const response = await client.post('/constructed-data', data);
+    const response = await client.post('/constructed-data', {
+        constructed_table_id: data.constructedTableId,
+        payload: data.payload,
+        row_identifier: data.rowIdentifier ?? null,
+    });
     return response.data;
 }
 /**
  * Update a single constructed data row
  */
 export async function updateConstructedData(id, data) {
-    const response = await client.put(`/constructed-data/${id}`, data);
+    const response = await client.put(`/constructed-data/${id}`, {
+        ...(data.constructedTableId ? { constructed_table_id: data.constructedTableId } : {}),
+        ...(data.rowIdentifier !== undefined ? { row_identifier: data.rowIdentifier } : {}),
+        ...(data.payload !== undefined ? { payload: data.payload } : {}),
+    });
     return response.data;
 }
 /**
