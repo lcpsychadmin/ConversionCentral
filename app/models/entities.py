@@ -807,16 +807,15 @@ class DataDefinitionRelationship(Base, TimestampMixin):
     foreign_field_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("data_definition_fields.id", ondelete="CASCADE"), nullable=False
     )
-    relationship_type: Mapped[str] = mapped_column(
+    join_type: Mapped[str] = mapped_column(
         sa.Enum(
-            "one_to_one",
-            "one_to_many",
-            "many_to_one",
-            "many_to_many",
-            name="data_definition_relationship_type_enum",
+            "inner",
+            "left",
+            "right",
+            name="data_definition_join_type_enum",
         ),
         nullable=False,
-        default="one_to_one",
+        default="inner",
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

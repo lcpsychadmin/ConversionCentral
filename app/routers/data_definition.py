@@ -423,7 +423,7 @@ def create_relationship(
         primary_field_id=primary_field.id,
         foreign_table_id=foreign_field.definition_table_id,
         foreign_field_id=foreign_field.id,
-        relationship_type=payload.relationship_type,
+        join_type=payload.join_type,
         notes=payload.notes,
     )
     db.add(relationship)
@@ -484,8 +484,8 @@ def update_relationship(
             detail="Relationships must connect different tables.",
         )
 
-    if "relationship_type" in update_data:
-        relationship.relationship_type = update_data["relationship_type"]
+    if "join_type" in update_data:
+        relationship.join_type = update_data["join_type"]
 
     if "notes" in update_data:
         relationship.notes = update_data["notes"]

@@ -8,7 +8,7 @@ export const createDataDefinitionRelationship = async (definitionId, input) => {
     const response = await client.post(`/data-definitions/${definitionId}/relationships`, {
         primary_field_id: input.primaryFieldId,
         foreign_field_id: input.foreignFieldId,
-        relationship_type: input.relationshipType,
+        join_type: input.joinType,
         notes: input.notes ?? null
     });
     return mapDataDefinitionRelationship(response.data);
@@ -17,7 +17,7 @@ export const updateDataDefinitionRelationship = async (definitionId, relationshi
     const response = await client.put(`/data-definitions/${definitionId}/relationships/${relationshipId}`, {
         ...(input.primaryFieldId !== undefined ? { primary_field_id: input.primaryFieldId } : {}),
         ...(input.foreignFieldId !== undefined ? { foreign_field_id: input.foreignFieldId } : {}),
-        ...(input.relationshipType !== undefined ? { relationship_type: input.relationshipType } : {}),
+        ...(input.joinType !== undefined ? { join_type: input.joinType } : {}),
         ...(input.notes !== undefined ? { notes: input.notes ?? null } : {})
     });
     return mapDataDefinitionRelationship(response.data);

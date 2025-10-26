@@ -144,6 +144,7 @@ interface OutputColumnRowDescriptor {
   label: string;
   paddingY: number;
   justifyContent?: 'center' | 'flex-start';
+  minHeight?: number;
 }
 
 interface SortableOutputColumnProps {
@@ -190,6 +191,7 @@ const SortableOutputColumn = ({
     content: ReactNode;
     paddingY: number;
     justifyContent: 'center' | 'flex-start';
+    minHeight?: number;
   };
 
   const rows = rowDescriptors.reduce<OutputColumnRow[]>((acc, descriptor) => {
@@ -306,7 +308,8 @@ const SortableOutputColumn = ({
       key,
       content,
       paddingY: descriptor.paddingY,
-      justifyContent: descriptor.justifyContent ?? 'flex-start'
+      justifyContent: descriptor.justifyContent ?? 'flex-start',
+      minHeight: descriptor.minHeight
     });
     return acc;
   }, []);
@@ -335,8 +338,9 @@ const SortableOutputColumn = ({
             px: 1.25,
             py: row.paddingY,
             display: 'flex',
-            alignItems: row.justifyContent === 'center' ? 'center' : 'stretch',
+            alignItems: 'center',
             justifyContent: row.justifyContent,
+            minHeight: row.minHeight,
             borderBottom: index === rows.length - 1 ? 'none' : `1px solid ${theme.palette.divider}`
           }}
         >
@@ -1360,20 +1364,28 @@ const ReportingDesignerContent = () => {
   );
 
   const outputColumnRowDescriptors = useMemo<OutputColumnRowDescriptor[]>(() => {
+    const baseRow = (key: string, label: string, options?: Partial<OutputColumnRowDescriptor>): OutputColumnRowDescriptor => ({
+      key,
+      label,
+      paddingY: 0,
+      minHeight: 56,
+      ...options
+    });
+
     const rows: OutputColumnRowDescriptor[] = [
-      { key: 'field', label: 'Field', paddingY: 1 },
-      { key: 'table', label: 'Table', paddingY: 1 }
+      baseRow('field', 'Field'),
+      baseRow('table', 'Table')
     ];
 
     if (groupingEnabled) {
-      rows.push({ key: 'group', label: 'Group By', paddingY: 0.75 });
+      rows.push(baseRow('group', 'Group By'));
     }
 
-    rows.push({ key: 'sort', label: 'Sort', paddingY: 0.75 });
-    rows.push({ key: 'show', label: 'Show', paddingY: 0.75, justifyContent: 'center' });
+    rows.push(baseRow('sort', 'Sort'));
+    rows.push(baseRow('show', 'Show', { justifyContent: 'center' }));
 
     for (let index = 0; index < criteriaRowCount; index += 1) {
-      rows.push({ key: `criteria-${index}`, label: index === 0 ? 'Criteria' : 'Or', paddingY: 0.75 });
+      rows.push(baseRow(`criteria-${index}`, index === 0 ? 'Criteria' : 'Or'));
     }
 
     return rows;
@@ -1982,7 +1994,7 @@ const ReportingDesignerContent = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minHeight: '100vh' }}>
       <Box>
         <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-          Reporting Designer
+          Report Designer
         </Typography>
         <Typography variant="body1" color="text.secondary">
           Compose relational-style report definitions by combining enterprise tables, mapping joins, and shaping output fields prior to publishing.
@@ -2245,9 +2257,10 @@ const ReportingDesignerContent = () => {
                                 px: 1.25,
                                 py: row.paddingY,
                                 display: 'flex',
-                                alignItems: row.justifyContent === 'center' ? 'center' : 'flex-start',
+                                alignItems: 'center',
                                 justifyContent: row.justifyContent ?? 'flex-start',
                                 fontWeight: 600,
+                                minHeight: row.minHeight,
                                 borderBottom:
                                   index === outputColumnRowDescriptors.length - 1
                                     ? 'none'
@@ -2317,27 +2330,6 @@ const ReportingDesignerContent = () => {
           </Paper>
         </Box>
       </Paper>
-
-      <Paper elevation={0} variant="outlined" sx={{ p: 2.5 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-          Upcoming Capabilities
-        </Typography>
-        <List dense>
-          <ListItem>
-            <ListItemText primary="Drag tables directly onto the canvas with relationship-aware placement." />
-          </ListItem>
-          <ListItem>
-            <ListItemText primary="Author joins and filters, then preview dataset results inline." />
-          </ListItem>
-          <ListItem>
-            <ListItemText primary="Curate output columns with sorting, grouping, and aggregation controls." />
-          </ListItem>
-          <ListItem>
-            <ListItemText primary="Persist report definitions, manage versions, and publish to data objects." />
-          </ListItem>
-        </List>
-      </Paper>
-
       <Dialog open={Boolean(joinDialogState)} onClose={handleJoinDialogClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ pb: 1.5 }}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>

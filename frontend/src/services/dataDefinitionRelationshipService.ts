@@ -27,7 +27,7 @@ export const createDataDefinitionRelationship = async (
     {
       primary_field_id: input.primaryFieldId,
       foreign_field_id: input.foreignFieldId,
-      relationship_type: input.relationshipType,
+      join_type: input.joinType,
       notes: input.notes ?? null
     }
   );
@@ -44,7 +44,7 @@ export const updateDataDefinitionRelationship = async (
     {
       ...(input.primaryFieldId !== undefined ? { primary_field_id: input.primaryFieldId } : {}),
       ...(input.foreignFieldId !== undefined ? { foreign_field_id: input.foreignFieldId } : {}),
-      ...(input.relationshipType !== undefined ? { relationship_type: input.relationshipType } : {}),
+      ...(input.joinType !== undefined ? { join_type: input.joinType } : {}),
       ...(input.notes !== undefined ? { notes: input.notes ?? null } : {})
     }
   );

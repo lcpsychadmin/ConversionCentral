@@ -19,6 +19,7 @@ interface ReportTableNodeData {
     type?: string | null;
     description?: string | null;
   }>;
+  allowSelection?: boolean;
   selectedFieldIds?: string[];
   onFieldToggle?: (fieldId: string) => void;
   onFieldAdd?: (fieldId: string) => void;
@@ -35,10 +36,14 @@ export const REPORTING_FIELD_DRAG_TYPE = 'application/reporting-field';
 
 const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => {
   const theme = useTheme();
+  const allowSelection = data.allowSelection !== false;
   const selectedFieldSet = useMemo(() => new Set(data.selectedFieldIds ?? []), [data.selectedFieldIds]);
   const [activeDropFieldId, setActiveDropFieldId] = useState<string | null>(null);
 
   const handleToggle = (fieldId: string) => {
+    if (!allowSelection) {
+      return;
+    }
     data.onFieldToggle?.(fieldId);
   };
 
@@ -47,8 +52,8 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
       return;
     }
 
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'link';
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
     setActiveDropFieldId(targetFieldId);
   };
 
@@ -154,24 +159,12 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
       >
         <Stack direction="row" alignItems="flex-start" spacing={1}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Stack spacing={0.25}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 700, color: theme.palette.common.white, letterSpacing: 0.2 }}
-              >
-                {data.label}
-              </Typography>
-              {data.subtitle && (
-                <Typography variant="caption" sx={{ color: alpha(theme.palette.common.white, 0.75) }}>
-                  {data.subtitle}
-                </Typography>
-              )}
-              {data.meta && (
-                <Typography variant="caption" sx={{ color: alpha(theme.palette.common.white, 0.65) }}>
-                  {data.meta}
-                </Typography>
-              )}
-            </Stack>
+            <Typography
+              variant="subtitle2"
+              sx={{ fontWeight: 700, color: theme.palette.common.white, letterSpacing: 0.2 }}
+            >
+              {data.label}
+            </Typography>
           </Box>
           {data.onRemoveTable && (
             <Tooltip title="Remove table">
@@ -219,10 +212,14 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                   key={field.id}
                   draggable
                   onDragStart={(event) => handleDragStart(event, field.id)}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleToggle(field.id);
-                  }}
+                  onClick={
+                    allowSelection
+                      ? (event) => {
+                          event.stopPropagation();
+                          handleToggle(field.id);
+                        }
+                      : undefined
+                  }
                   onDragOver={(event) => handleFieldDragOver(event, field.id)}
                   onDragLeave={handleFieldDragLeave}
                   onDrop={(event) => handleFieldDrop(event, field.id)}
@@ -270,24 +267,26 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                       boxShadow: `0 0 0 2px ${theme.palette.background.paper}`
                     }}
                   />
-                  <Checkbox
-                    size="small"
-                    checked={isSelected}
-                    icon={<RadioButtonUncheckedIcon fontSize="small" />}
-                    checkedIcon={<CheckCircleIcon fontSize="small" />}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => {
-                      event.stopPropagation();
-                      handleToggle(field.id);
-                    }}
-                    sx={{
-                      p: 0.25,
-                      color: alpha(theme.palette.text.secondary, 0.6),
-                      '&.Mui-checked': {
-                        color: theme.palette.primary.main
-                      }
-                    }}
-                  />
+                  {allowSelection ? (
+                    <Checkbox
+                      size="small"
+                      checked={isSelected}
+                      icon={<RadioButtonUncheckedIcon fontSize="small" />}
+                      checkedIcon={<CheckCircleIcon fontSize="small" />}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        handleToggle(field.id);
+                      }}
+                      sx={{
+                        p: 0.25,
+                        color: alpha(theme.palette.text.secondary, 0.6),
+                        '&.Mui-checked': {
+                          color: theme.palette.primary.main
+                        }
+                      }}
+                    />
+                  ) : null}
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography
                       variant="body2"

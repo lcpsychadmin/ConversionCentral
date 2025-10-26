@@ -342,11 +342,7 @@ export interface DataDefinitionField {
   updatedAt?: string;
 }
 
-export type DataDefinitionRelationshipType =
-  | 'one_to_one'
-  | 'one_to_many'
-  | 'many_to_one'
-  | 'many_to_many';
+export type DataDefinitionJoinType = 'inner' | 'left' | 'right';
 
 export interface DataDefinitionRelationship {
   id: string;
@@ -355,7 +351,7 @@ export interface DataDefinitionRelationship {
   primaryFieldId: string;
   foreignTableId: string;
   foreignFieldId: string;
-  relationshipType: DataDefinitionRelationshipType;
+  joinType: DataDefinitionJoinType;
   notes?: string | null;
   primaryField: DataDefinitionField | null;
   foreignField: DataDefinitionField | null;
@@ -366,14 +362,14 @@ export interface DataDefinitionRelationship {
 export interface DataDefinitionRelationshipInput {
   primaryFieldId: string;
   foreignFieldId: string;
-  relationshipType: DataDefinitionRelationshipType;
+  joinType: DataDefinitionJoinType;
   notes?: string | null;
 }
 
 export interface DataDefinitionRelationshipUpdateInput {
   primaryFieldId?: string;
   foreignFieldId?: string;
-  relationshipType?: DataDefinitionRelationshipType;
+  joinType?: DataDefinitionJoinType;
   notes?: string | null;
 }
 

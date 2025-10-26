@@ -38,7 +38,7 @@ from app.schemas.entities import (
     DataDefinitionRelationshipCreate,
     DataDefinitionRelationshipRead,
     DataDefinitionRelationshipUpdate,
-    DataDefinitionRelationshipType,
+    DataDefinitionJoinType,
     DependencyApprovalCreate,
     DependencyApprovalDecision,
     DependencyApprovalRead,
@@ -161,7 +161,7 @@ __all__ = [name for name in globals() if name.endswith(("Create", "Read", "Updat
 __all__.extend([
     "MappingSetStatus",
     "MappingStatus",
-    "DataDefinitionRelationshipType",
+    "DataDefinitionJoinType",
     "SystemConnectionType",
     "SystemConnectionAuthMethod",
     "SystemConnectionTestRequest",

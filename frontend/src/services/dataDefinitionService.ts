@@ -4,7 +4,7 @@ import {
   DataDefinitionField,
   DataDefinitionInput,
   DataDefinitionRelationship,
-  DataDefinitionRelationshipType,
+  DataDefinitionJoinType,
   DataDefinitionTableInput,
   DataDefinitionUpdateInput
 } from '../types/data';
@@ -42,7 +42,7 @@ export interface DataDefinitionRelationshipResponse {
   primaryFieldId: string;
   foreignTableId: string;
   foreignFieldId: string;
-  relationshipType: DataDefinitionRelationshipType;
+  joinType: DataDefinitionJoinType;
   notes?: string | null;
   primaryField?: DataDefinitionFieldResponse | null;
   foreignField?: DataDefinitionFieldResponse | null;
@@ -92,7 +92,7 @@ export const mapDataDefinitionRelationship = (
   primaryFieldId: payload.primaryFieldId,
   foreignTableId: payload.foreignTableId,
   foreignFieldId: payload.foreignFieldId,
-  relationshipType: payload.relationshipType,
+  joinType: payload.joinType,
   notes: payload.notes ?? null,
   primaryField: mapNullableDataDefinitionField(payload.primaryField),
   foreignField: mapNullableDataDefinitionField(payload.foreignField),

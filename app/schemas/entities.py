@@ -754,17 +754,16 @@ class DataDefinitionTableRead(TimestampSchema):
         allow_population_by_field_name = True
 
 
-class DataDefinitionRelationshipType(str, Enum):
-    ONE_TO_ONE = "one_to_one"
-    ONE_TO_MANY = "one_to_many"
-    MANY_TO_ONE = "many_to_one"
-    MANY_TO_MANY = "many_to_many"
+class DataDefinitionJoinType(str, Enum):
+    INNER = "inner"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class DataDefinitionRelationshipBase(BaseModel):
     primary_field_id: UUID
     foreign_field_id: UUID
-    relationship_type: DataDefinitionRelationshipType = DataDefinitionRelationshipType.ONE_TO_ONE
+    join_type: DataDefinitionJoinType = DataDefinitionJoinType.INNER
     notes: Optional[str] = None
 
     @root_validator
@@ -783,7 +782,7 @@ class DataDefinitionRelationshipCreate(DataDefinitionRelationshipBase):
 class DataDefinitionRelationshipUpdate(BaseModel):
     primary_field_id: Optional[UUID] = None
     foreign_field_id: Optional[UUID] = None
-    relationship_type: Optional[DataDefinitionRelationshipType] = None
+    join_type: Optional[DataDefinitionJoinType] = None
     notes: Optional[str] = None
 
     @root_validator
@@ -802,7 +801,7 @@ class DataDefinitionRelationshipRead(TimestampSchema):
     primary_field_id: UUID
     foreign_table_id: UUID
     foreign_field_id: UUID
-    relationship_type: DataDefinitionRelationshipType
+    join_type: DataDefinitionJoinType
     notes: Optional[str] = None
     primary_field: DataDefinitionFieldRead
     foreign_field: DataDefinitionFieldRead

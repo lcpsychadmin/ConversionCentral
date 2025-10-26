@@ -62,7 +62,7 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <AssessmentIcon />,
     children: [
-      { label: 'Reporting Designer', path: '/reporting/designer' },
+  { label: 'Report Designer', path: '/reporting/designer' },
       { label: 'Reports & Outputs', path: '/reporting/catalog' }
     ]
   }

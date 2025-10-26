@@ -23,7 +23,7 @@ export const mapDataDefinitionRelationship = (payload) => ({
     primaryFieldId: payload.primaryFieldId,
     foreignTableId: payload.foreignTableId,
     foreignFieldId: payload.foreignFieldId,
-    relationshipType: payload.relationshipType,
+    joinType: payload.joinType,
     notes: payload.notes ?? null,
     primaryField: mapNullableDataDefinitionField(payload.primaryField),
     foreignField: mapNullableDataDefinitionField(payload.foreignField),
