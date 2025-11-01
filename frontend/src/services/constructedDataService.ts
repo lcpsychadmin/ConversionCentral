@@ -21,9 +21,16 @@ export interface ConstructedField {
   isNullable: boolean;
   defaultValue?: string | null;
   description?: string | null;
+  displayOrder: number;
   createdAt?: string;
   updatedAt?: string;
 }
+
+const AUDIT_FIELD_NAMES = new Set(
+  ['Project', 'Release', 'Created By', 'Created Date', 'Modified By', 'Modified Date'].map((name) =>
+    name.toLowerCase()
+  )
+);
 
 export interface ConstructedData {
   id: string;
@@ -139,10 +146,26 @@ export async function fetchConstructedFields(
   const response = await client.get<ConstructedField[]>(
     '/constructed-fields',
     {
-      params: { constructedTableId }
+      params: { constructed_table_id: constructedTableId }
     }
   );
-  return response.data;
+  return response.data
+    .slice()
+    .sort((left, right) => {
+      const leftAudit = AUDIT_FIELD_NAMES.has(left.name.toLowerCase());
+      const rightAudit = AUDIT_FIELD_NAMES.has(right.name.toLowerCase());
+      if (leftAudit !== rightAudit) {
+        return leftAudit ? 1 : -1;
+      }
+
+      const leftOrder = left.displayOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.displayOrder ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
 }
 
 /**

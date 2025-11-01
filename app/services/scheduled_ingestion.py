@@ -25,7 +25,7 @@ from app.models import (
 )
 from app.schemas import IngestionLoadStrategy, IngestionRunStatus, SystemConnectionType
 from app.services.connection_resolver import UnsupportedConnectionError, resolve_sqlalchemy_url
-from app.services.ingestion_loader import SqlServerTableLoader, build_loader_plan
+from app.services.ingestion_loader import DatabricksTableLoader, build_loader_plan
 
 
 @dataclass(frozen=True)
@@ -60,10 +60,10 @@ class ScheduledIngestionEngine:
         self,
         session_factory: Callable[[], Session] = SessionLocal,
         *,
-        loader: SqlServerTableLoader | None = None,
+        loader: DatabricksTableLoader | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._loader = loader or SqlServerTableLoader()
+        self._loader = loader or DatabricksTableLoader()
         self._scheduler: AsyncIOScheduler | None = None
 
     def start(self) -> None:
@@ -222,7 +222,7 @@ class ScheduledIngestionEngine:
         dedupe_flag: bool,
         source_table: SqlTable,
     ) -> int:
-        target_schema = snapshot.target_schema or snapshot.source_schema or "dbo"
+        target_schema = snapshot.target_schema or snapshot.source_schema or "default"
         plan = build_loader_plan(
             schema=target_schema,
             table_name=snapshot.target_table_name,
@@ -374,7 +374,7 @@ def build_ingestion_table_name(
         system_part = connection.system.physical_name
     else:
         system_part = str(connection.system_id)
-    schema_part = selection.schema_name or "dbo"
+    schema_part = selection.schema_name or "default"
     table_part = selection.table_name
     parts = [_sanitize_part(system_part), _sanitize_part(schema_part), _sanitize_part(table_part)]
     return "_".join(parts)

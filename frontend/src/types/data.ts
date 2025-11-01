@@ -158,6 +158,87 @@ export interface SystemConnectionUpdateInput {
   ingestionEnabled?: boolean;
 }
 
+export interface DatabricksSqlSettings {
+  id: string;
+  displayName: string;
+  workspaceHost: string;
+  httpPath: string;
+  catalog?: string | null;
+  schemaName?: string | null;
+  warehouseName?: string | null;
+  isActive: boolean;
+  hasAccessToken: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DatabricksSqlSettingsInput {
+  displayName: string;
+  workspaceHost: string;
+  httpPath: string;
+  accessToken: string;
+  catalog?: string | null;
+  schemaName?: string | null;
+  warehouseName?: string | null;
+}
+
+export interface DatabricksSqlSettingsUpdate {
+  displayName?: string;
+  workspaceHost?: string;
+  httpPath?: string;
+  accessToken?: string | null;
+  catalog?: string | null;
+  schemaName?: string | null;
+  warehouseName?: string | null;
+  isActive?: boolean;
+}
+
+export interface DatabricksSqlSettingsTestResult {
+  success: boolean;
+  message: string;
+  durationMs?: number | null;
+}
+
+export type ApplicationDatabaseEngine = 'default_postgres' | 'custom_postgres' | 'sqlserver';
+
+export interface ApplicationDatabaseConnectionInput {
+  host?: string;
+  port?: number | null;
+  database?: string;
+  username?: string;
+  password?: string;
+  options?: Record<string, string> | null;
+  useSsl?: boolean;
+}
+
+export interface ApplicationDatabaseApplyInput {
+  engine: ApplicationDatabaseEngine;
+  displayName?: string | null;
+  connection?: ApplicationDatabaseConnectionInput | null;
+}
+
+export interface ApplicationDatabaseTestResult {
+  success: boolean;
+  message: string;
+  latencyMs?: number | null;
+}
+
+export interface ApplicationDatabaseSetting {
+  id: string;
+  engine: ApplicationDatabaseEngine;
+  connectionDisplay?: string | null;
+  appliedAt: string;
+  displayName?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ApplicationDatabaseStatus {
+  configured: boolean;
+  setting: ApplicationDatabaseSetting | null;
+  adminEmail: string | null;
+}
+
 export interface SystemConnectionFormValues {
   systemId: string;
   databaseType: RelationalDatabaseType;
@@ -337,6 +418,7 @@ export interface DataDefinitionField {
   definitionTableId: string;
   fieldId: string;
   notes?: string | null;
+  displayOrder: number;
   field: Field;
   createdAt?: string;
   updatedAt?: string;
@@ -402,6 +484,7 @@ export interface DataDefinition {
 export interface DataDefinitionFieldInput {
   fieldId: string;
   notes?: string | null;
+  displayOrder?: number | null;
 }
 
 export interface DataDefinitionTableInput {

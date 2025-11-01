@@ -19,7 +19,7 @@ os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("INGESTION_DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("ENABLE_SQL_SERVER_SYNC", "false")
 
-from app.database import Base, get_db
+from app.database import Base, get_db, get_control_db
 from app.main import app
 
 
@@ -72,12 +72,25 @@ class PrefixedTestClient(TestClient):
 
 
 @pytest.fixture()
-def client(db_session: Session) -> TestClient:
+def client(db_session: Session) -> Generator[TestClient, None, None]:
     def override_get_db():
         try:
             yield db_session
         finally:
             pass
 
+    def override_get_control_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
     app.dependency_overrides[get_db] = override_get_db
-    return PrefixedTestClient(app)
+    app.dependency_overrides[get_control_db] = override_get_control_db
+
+    client = PrefixedTestClient(app)
+    try:
+        yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_control_db, None)

@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 
 
 class TimestampSchema(BaseModel):
@@ -355,6 +355,7 @@ class ConstructedFieldBase(BaseModel):
     is_nullable: bool = True
     default_value: Optional[str] = None
     description: Optional[str] = None
+    display_order: int = 0
 
 
 class ConstructedFieldCreate(ConstructedFieldBase):
@@ -368,6 +369,7 @@ class ConstructedFieldUpdate(BaseModel):
     is_nullable: Optional[bool] = None
     default_value: Optional[str] = None
     description: Optional[str] = None
+    display_order: Optional[int] = None
 
 
 class ConstructedFieldRead(ConstructedFieldBase, TimestampSchema):
@@ -695,6 +697,7 @@ class FieldRead(FieldBase, TimestampSchema):
 class DataDefinitionFieldInput(BaseModel):
     field_id: UUID
     notes: Optional[str] = None
+    display_order: Optional[int] = None
 
 
 class DataDefinitionTableInput(BaseModel):
@@ -723,6 +726,7 @@ class DataDefinitionFieldRead(TimestampSchema):
     definition_table_id: UUID
     field_id: UUID
     notes: Optional[str] = None
+    display_order: int
     field: FieldRead
 
 
@@ -760,11 +764,50 @@ class DataDefinitionJoinType(str, Enum):
     RIGHT = "right"
 
 
+LEGACY_RELATIONSHIP_TO_JOIN_TYPE = {
+    "one_to_one": DataDefinitionJoinType.INNER,
+    "one_to_many": DataDefinitionJoinType.LEFT,
+    "many_to_one": DataDefinitionJoinType.RIGHT,
+    "many_to_many": DataDefinitionJoinType.INNER,
+}
+
+
+JOIN_TYPE_TO_LEGACY_RELATIONSHIP = {
+    DataDefinitionJoinType.INNER: "one_to_one",
+    DataDefinitionJoinType.LEFT: "one_to_many",
+    DataDefinitionJoinType.RIGHT: "many_to_one",
+}
+
+
+def _normalize_join_type(value: Any) -> DataDefinitionJoinType | None:
+    if value is None:
+        return None
+    if isinstance(value, DataDefinitionJoinType):
+        return value
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in DataDefinitionJoinType._value2member_map_:
+            return DataDefinitionJoinType(lowered)
+        legacy = LEGACY_RELATIONSHIP_TO_JOIN_TYPE.get(lowered)
+        if legacy is not None:
+            return legacy
+    raise ValueError("Invalid relationship type. Expected inner/left/right or legacy cardinality values.")
+
+
 class DataDefinitionRelationshipBase(BaseModel):
     primary_field_id: UUID
     foreign_field_id: UUID
-    join_type: DataDefinitionJoinType = DataDefinitionJoinType.INNER
+    join_type: DataDefinitionJoinType = Field(
+        DataDefinitionJoinType.INNER, alias="relationship_type"
+    )
     notes: Optional[str] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+    @validator("join_type", pre=True)
+    def _translate_join_type(cls, value):
+        return _normalize_join_type(value)
 
     @root_validator
     def validate_fields(cls, values):
@@ -782,8 +825,14 @@ class DataDefinitionRelationshipCreate(DataDefinitionRelationshipBase):
 class DataDefinitionRelationshipUpdate(BaseModel):
     primary_field_id: Optional[UUID] = None
     foreign_field_id: Optional[UUID] = None
-    join_type: Optional[DataDefinitionJoinType] = None
+    join_type: Optional[DataDefinitionJoinType] = Field(
+        None, alias="relationship_type"
+    )
     notes: Optional[str] = None
+
+    @validator("join_type", pre=True)
+    def _translate_join_type(cls, value):
+        return _normalize_join_type(value)
 
     @root_validator
     def validate_fields(cls, values):
@@ -802,9 +851,27 @@ class DataDefinitionRelationshipRead(TimestampSchema):
     foreign_table_id: UUID
     foreign_field_id: UUID
     join_type: DataDefinitionJoinType
+    relationship_type: str = Field(default=None, alias="relationship_type")
     notes: Optional[str] = None
     primary_field: DataDefinitionFieldRead
     foreign_field: DataDefinitionFieldRead
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
+
+    @root_validator(pre=True)
+    def _populate_relationship_type(cls, values):
+        values = dict(values)
+        join_value = values.get("join_type")
+        if join_value is not None and values.get("relationship_type") is None:
+            join_enum = _normalize_join_type(join_value)
+            values["join_type"] = join_enum
+            values["relationship_type"] = JOIN_TYPE_TO_LEGACY_RELATIONSHIP.get(
+                join_enum,
+                join_enum.value if join_enum else None,
+            )
+        return values
 
 
 class DataDefinitionRead(TimestampSchema):
@@ -895,6 +962,62 @@ class SystemConnectionTestResult(BaseModel):
     message: str
     duration_ms: float | None = None
     connection_summary: str | None = None
+
+
+class DatabricksSqlSettingBase(BaseModel):
+    display_name: str = Field("Primary Warehouse", max_length=120)
+    workspace_host: str = Field(..., min_length=3, max_length=255)
+    http_path: str = Field(..., min_length=3, max_length=400)
+    catalog: Optional[str] = Field(None, max_length=120)
+    schema_name: Optional[str] = Field(None, max_length=120)
+    warehouse_name: Optional[str] = Field(None, max_length=180)
+
+    @validator("workspace_host", "http_path", pre=True)
+    def _strip_value(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class DatabricksSqlSettingCreate(DatabricksSqlSettingBase):
+    access_token: str = Field(..., min_length=10)
+
+
+class DatabricksSqlSettingUpdate(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=120)
+    workspace_host: Optional[str] = Field(None, min_length=3, max_length=255)
+    http_path: Optional[str] = Field(None, min_length=3, max_length=400)
+    access_token: Optional[str | None] = Field(None, min_length=10)
+    catalog: Optional[str | None] = Field(None, max_length=120)
+    schema_name: Optional[str | None] = Field(None, max_length=120)
+    warehouse_name: Optional[str | None] = Field(None, max_length=180)
+    is_active: Optional[bool] = None
+
+    @validator("workspace_host", "http_path", "display_name", pre=True)
+    def _strip_optional(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class DatabricksSqlSettingRead(DatabricksSqlSettingBase, TimestampSchema):
+    id: UUID
+    is_active: bool = True
+    has_access_token: bool = Field(False, description="True when an access token is stored server-side.")
+
+
+class DatabricksSqlSettingTestRequest(BaseModel):
+    workspace_host: str = Field(..., min_length=3, max_length=255)
+    http_path: str = Field(..., min_length=3, max_length=400)
+    access_token: str = Field(..., min_length=10)
+    catalog: Optional[str] = Field(None, max_length=120)
+    schema_name: Optional[str] = Field(None, max_length=120)
+
+
+class DatabricksSqlSettingTestResult(BaseModel):
+    success: bool
+    message: str
+    duration_ms: float | None = None
 
 
 class ConnectionCatalogTable(BaseModel):
@@ -1272,3 +1395,69 @@ class MappingUpdate(BaseModel):
 
 class MappingRead(MappingBase, TimestampSchema):
     id: UUID
+
+
+class ApplicationDatabaseEngine(str, Enum):
+    DEFAULT_POSTGRES = "default_postgres"
+    CUSTOM_POSTGRES = "custom_postgres"
+    SQLSERVER = "sqlserver"
+
+
+class ApplicationDatabaseConnectionInput(BaseModel):
+    host: Optional[str] = Field(None, max_length=255)
+    port: Optional[int] = Field(None, ge=1, le=65535)
+    database: Optional[str] = Field(None, max_length=255)
+    username: Optional[str] = Field(None, max_length=255)
+    password: Optional[str] = Field(None, max_length=255)
+    options: Optional[dict[str, str]] = None
+    use_ssl: Optional[bool] = None
+
+
+class ApplicationDatabaseTestRequest(BaseModel):
+    engine: ApplicationDatabaseEngine
+    connection: Optional[ApplicationDatabaseConnectionInput] = None
+
+    @root_validator
+    def _validate_connection(cls, values):
+        engine = values.get("engine")
+        connection = values.get("connection")
+        if engine in (ApplicationDatabaseEngine.CUSTOM_POSTGRES, ApplicationDatabaseEngine.SQLSERVER):
+            if not connection:
+                raise ValueError("Connection details are required for custom database engines.")
+            required_fields = ["host", "database", "username", "password"]
+            missing = [field for field in required_fields if not getattr(connection, field)]
+            if missing:
+                raise ValueError(f"Missing required connection fields: {', '.join(missing)}")
+        return values
+
+
+class ApplicationDatabaseTestResult(BaseModel):
+    success: bool
+    message: str
+    latency_ms: Optional[float] = None
+
+
+class ApplicationDatabaseApplyRequest(ApplicationDatabaseTestRequest):
+    display_name: Optional[str] = Field(None, max_length=200)
+
+
+class ApplicationDatabaseSettingRead(TimestampSchema):
+    id: UUID
+    engine: ApplicationDatabaseEngine
+    connection_display: Optional[str]
+    applied_at: datetime
+    display_name: Optional[str] = None
+
+
+class ApplicationDatabaseStatus(BaseModel):
+    configured: bool
+    setting: Optional[ApplicationDatabaseSettingRead] = None
+    admin_email: Optional[EmailStr] = None
+
+
+class AdminEmailSetting(BaseModel):
+    email: Optional[EmailStr] = None
+
+
+class AdminEmailUpdate(BaseModel):
+    email: EmailStr

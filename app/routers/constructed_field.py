@@ -1,7 +1,8 @@
 from logging import getLogger
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -16,6 +17,7 @@ from app.services.constructed_table_manager import (
     ConstructedTableManagerError,
     create_or_update_constructed_table,
 )
+from app.constants.audit_fields import AUDIT_FIELD_NAME_SET
 
 logger = getLogger(__name__)
 
@@ -133,8 +135,29 @@ def create_constructed_field(
 
 
 @router.get("", response_model=list[ConstructedFieldRead])
-def list_constructed_fields(db: Session = Depends(get_db)) -> list[ConstructedFieldRead]:
-    return db.query(ConstructedField).all()
+def list_constructed_fields(
+    constructed_table_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[ConstructedFieldRead]:
+    query = db.query(ConstructedField)
+
+    if constructed_table_id:
+        query = query.filter(ConstructedField.constructed_table_id == constructed_table_id)
+
+    audit_priority = case(
+        (func.lower(ConstructedField.name).in_(tuple(AUDIT_FIELD_NAME_SET)), 1),
+        else_=0,
+    )
+
+    return (
+        query.order_by(
+            audit_priority.asc(),
+            ConstructedField.display_order.asc(),
+            ConstructedField.created_at.asc(),
+            ConstructedField.id.asc(),
+        )
+        .all()
+    )
 
 
 @router.get("/{constructed_field_id}", response_model=ConstructedFieldRead)

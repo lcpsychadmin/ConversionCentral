@@ -15,6 +15,8 @@ interface CreateTableDialogProps {
   open: boolean;
   loading?: boolean;
   mode?: 'create' | 'edit';
+  hideSchemaField?: boolean;
+  defaultSchemaName?: string;
   initialValues?: {
     name?: string | null;
     physicalName?: string | null;
@@ -37,7 +39,7 @@ interface CreateTableDialogProps {
 }
 
 const STATUS_OPTIONS = ['active', 'draft', 'deprecated'];
-const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE', 'CONSTRUCTION'];
+const TABLE_TYPE_OPTIONS = ['BASE', 'VIEW', 'REFERENCE'];
 
 type TableFormValues = {
   name: string;
@@ -61,6 +63,8 @@ const CreateTableDialog = ({
   open,
   loading = false,
   mode = 'create',
+  hideSchemaField = false,
+  defaultSchemaName,
   initialValues,
   onClose,
   onSubmit
@@ -71,13 +75,18 @@ const CreateTableDialog = ({
         ? {
             name: initialValues.name ?? '',
             physicalName: initialValues.physicalName ?? '',
-            schemaName: initialValues.schemaName ?? '',
+            schemaName: hideSchemaField
+              ? initialValues.schemaName ?? defaultSchemaName ?? ''
+              : initialValues.schemaName ?? '',
             description: initialValues.description ?? '',
             tableType: initialValues.tableType ?? '',
             status: initialValues.status ?? 'active'
           }
-        : defaultValues,
-    [initialValues]
+        : {
+            ...defaultValues,
+            schemaName: hideSchemaField ? defaultSchemaName ?? '' : defaultValues.schemaName
+          },
+    [initialValues, hideSchemaField, defaultSchemaName]
   );
 
   const [values, setValues] = useState<TableFormValues>(baseValues);
@@ -125,10 +134,14 @@ const CreateTableDialog = ({
       return;
     }
 
+    const schemaValue = hideSchemaField
+      ? (defaultSchemaName ?? '').trim()
+      : values.schemaName.trim();
+
     await onSubmit({
       name: values.name.trim(),
       physicalName: values.physicalName.trim(),
-      schemaName: values.schemaName.trim(),
+      schemaName: schemaValue,
       description: values.description.trim(),
       tableType: values.tableType.trim(),
       status: values.status.trim()
@@ -159,12 +172,14 @@ const CreateTableDialog = ({
               helperText={errors.physicalName}
               fullWidth
             />
-            <TextField
-              label="Schema"
-              value={values.schemaName}
-              onChange={handleChange('schemaName')}
-              fullWidth
-            />
+            {!hideSchemaField && (
+              <TextField
+                label="Schema"
+                value={values.schemaName}
+                onChange={handleChange('schemaName')}
+                fullWidth
+              />
+            )}
             <TextField
               label="Description"
               value={values.description}

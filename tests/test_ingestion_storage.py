@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import create_engine, text
 
-from app.services.ingestion_storage import SqlServerIngestionStorage
+from app.services.ingestion_storage import DatabricksIngestionStorage
 
 
 def _build_table(fields):
@@ -26,7 +26,7 @@ def _field(name, field_type, length=None, decimal_places=None, system_required=F
 
 def test_load_rows_creates_table_and_inserts_data():
     engine = create_engine("sqlite:///:memory:", future=True)
-    storage = SqlServerIngestionStorage(engine=engine)
+    storage = DatabricksIngestionStorage(engine=engine)
 
     fields = [
         _field("Customer ID", "int", system_required=True),
@@ -50,7 +50,7 @@ def test_load_rows_creates_table_and_inserts_data():
 
 def test_replace_uses_delete_on_non_sqlserver():
     engine = create_engine("sqlite:///:memory:", future=True)
-    storage = SqlServerIngestionStorage(engine=engine)
+    storage = DatabricksIngestionStorage(engine=engine)
 
     fields = [_field("Identifier", "int", system_required=True)]
     table = _build_table(fields)

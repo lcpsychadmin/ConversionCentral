@@ -334,6 +334,7 @@ const DataDefinitionsPage = () => {
           alias: table.alias ?? null,
           description: table.description ?? null,
           loadOrder: table.loadOrder ?? null,
+          isConstruction: table.isConstruction,
           fields: table.tableId === tableId ? [...existingFields, ...newEntries] : existingFields
         };
       });
@@ -692,6 +693,129 @@ const DataDefinitionsPage = () => {
       }
     },
     [appendFieldsToDefinition, toast]
+  );
+
+  const handleReorderDefinitionFields = useCallback(
+    async (definitionTableId: string, orderedDefinitionFieldIds: string[]) => {
+      if (!definition) {
+        toast.showError('Data definition is not available.');
+        return false;
+      }
+
+      const targetTable = definition.tables.find((table) => table.id === definitionTableId);
+      if (!targetTable) {
+        toast.showError('Table could not be found in this definition.');
+        return false;
+      }
+
+      const tableKey = targetTable.tableId;
+      const definitionFieldMap = new Map(targetTable.fields.map((field) => [field.id, field]));
+      const canonicalIds = targetTable.fields.map((field) => field.id);
+
+      if (new Set(orderedDefinitionFieldIds).size !== orderedDefinitionFieldIds.length) {
+        toast.showError('Duplicate fields detected in the requested order.');
+        return false;
+      }
+
+      if (
+        orderedDefinitionFieldIds.length !== canonicalIds.length ||
+        orderedDefinitionFieldIds.some((id) => !definitionFieldMap.has(id))
+      ) {
+        toast.showError('All fields must be included when reordering.');
+        return false;
+      }
+
+      const orderedFieldsInput = orderedDefinitionFieldIds.map((definitionFieldId) => {
+        const definitionField = definitionFieldMap.get(definitionFieldId);
+        return {
+          fieldId: definitionField!.fieldId,
+          notes: definitionField!.notes ?? null
+        };
+      });
+
+      setTableSavingState((prev) => ({ ...prev, [tableKey]: true }));
+      try {
+        const tablesPayload: DataDefinitionTableInput[] = definition.tables.map((table) => ({
+          tableId: table.tableId,
+          alias: table.alias ?? null,
+          description: table.description ?? null,
+          loadOrder: table.loadOrder ?? null,
+          isConstruction: table.isConstruction,
+          fields:
+            table.id === definitionTableId
+              ? orderedFieldsInput
+              : table.fields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
+        }));
+
+        await updateDataDefinitionRequest(definition.id, { tables: tablesPayload });
+        await definitionQuery.refetch();
+        toast.showSuccess('Field order updated.');
+        return true;
+      } catch (error) {
+        toast.showError(getErrorMessage(error, 'Unable to update field order.'));
+        return false;
+      } finally {
+        setTableSavingState((prev) => {
+          const next = { ...prev };
+          delete next[tableKey];
+          return next;
+        });
+      }
+    },
+    [definition, definitionQuery, toast]
+  );
+
+  const handleDeleteDefinitionField = useCallback(
+    async (definitionTableId: string, definitionFieldId: string) => {
+      if (!definition) {
+        toast.showError('Data definition is not available.');
+        return false;
+      }
+
+      const targetTable = definition.tables.find((table) => table.id === definitionTableId);
+      if (!targetTable) {
+        toast.showError('Table could not be found in this definition.');
+        return false;
+      }
+
+      const remainingFields = targetTable.fields.filter((field) => field.id !== definitionFieldId);
+      if (remainingFields.length === targetTable.fields.length) {
+        toast.showError('Field could not be located in the selected table.');
+        return false;
+      }
+
+      const tableKey = targetTable.tableId;
+      setTableSavingState((prev) => ({ ...prev, [tableKey]: true }));
+
+      try {
+        const tablesPayload: DataDefinitionTableInput[] = definition.tables.map((table) => ({
+          tableId: table.tableId,
+          alias: table.alias ?? null,
+          description: table.description ?? null,
+          loadOrder: table.loadOrder ?? null,
+          isConstruction: table.isConstruction,
+          fields:
+            table.id === definitionTableId
+              ? remainingFields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
+              : table.fields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
+        }));
+
+        await updateDataDefinitionRequest(definition.id, { tables: tablesPayload });
+        await definitionQuery.refetch();
+        toast.showSuccess('Field removed from the data definition.');
+        return true;
+      } catch (error) {
+        toast.showError(getErrorMessage(error, 'Unable to remove the field from the data definition.'));
+        return false;
+      } finally {
+        setTableSavingState((prev) => {
+          const next = { ...prev };
+          delete next[tableKey];
+          return next;
+        });
+      }
+    },
+    [definition, definitionQuery, toast]
   );
 
   const handleBulkPasteResult = useCallback(
@@ -1054,6 +1178,8 @@ const DataDefinitionsPage = () => {
                 onCreateRelationship={handleCreateRelationship}
                 onUpdateRelationship={handleUpdateRelationship}
                 onDeleteRelationship={handleDeleteRelationship}
+                onReorderFields={handleReorderDefinitionFields}
+                onDeleteField={handleDeleteDefinitionField}
                 onBulkPasteResult={handleBulkPasteResult}
               />
             </Paper>
@@ -1090,6 +1216,7 @@ const DataDefinitionsPage = () => {
           onSubmit={handleFormSubmit}
           initialDefinition={formMode === 'edit' ? definition : null}
           tables={tablesForSystem}
+          fields={fieldsForSystem}
           systemId={selectedSystemId}
           dataObjectId={dataObjectId}
           onMetadataRefresh={refreshMetadata}

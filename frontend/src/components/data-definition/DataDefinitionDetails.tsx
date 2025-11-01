@@ -1,4 +1,5 @@
-import { ClipboardEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ClipboardEvent, MouseEvent, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import clsx from 'clsx';
 import {
 	Autocomplete,
 	Box,
@@ -30,13 +31,41 @@ import { alpha, styled, useTheme } from '@mui/material/styles';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import LibraryAddCheckOutlinedIcon from '@mui/icons-material/LibraryAddCheckOutlined';
 import PostAddOutlinedIcon from '@mui/icons-material/PostAddOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import PreviewIcon from '@mui/icons-material/Preview';
-import { DataGrid, GridColDef, GridRowClassNameParams, useGridApiContext } from '@mui/x-data-grid';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import {
+	DndContext,
+	DragEndEvent,
+	KeyboardSensor,
+	PointerSensor,
+	closestCenter,
+	useSensor,
+	useSensors
+} from '@dnd-kit/core';
+import type { DraggableAttributes } from '@dnd-kit/core';
+import {
+	SortableContext,
+	arrayMove,
+	sortableKeyboardCoordinates,
+	useSortable,
+	verticalListSortingStrategy
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+	DataGrid,
+	GridColDef,
+	GridRenderCellParams,
+	GridRow,
+	GridRowClassNameParams,
+	GridRowProps,
+	useGridApiContext
+} from '@mui/x-data-grid';
 
 import DataDefinitionRelationshipBuilder from './DataDefinitionRelationshipBuilder';
 import ConnectionDataPreviewDialog from '../system-connection/ConnectionDataPreviewDialog';
@@ -107,6 +136,12 @@ const FIELD_COLUMNS: FieldColumn[] = [
 	{ key: 'referenceTable', label: 'Reference Table', kind: 'text', minWidth: 180 },
 	{ key: 'groupingTab', label: 'Grouping Tab', kind: 'text', minWidth: 160 }
 ];
+
+const AUDIT_FIELD_NAMES = new Set(
+	['Project', 'Release', 'Created By', 'Created Date', 'Modified By', 'Modified Date'].map((name) =>
+		name.toLowerCase()
+	)
+);
 
 const buildDraft = (field: Field): FieldDraft => ({
 	name: field.name,
@@ -332,6 +367,148 @@ const GridTextarea = styled(TextareaAutosize)(({ theme }) => ({
 	}
 }));
 
+type RowDragContextValue = {
+	attributes: DraggableAttributes;
+	listeners: ReturnType<typeof useSortable>['listeners'];
+	setActivatorNodeRef: (element: HTMLElement | null) => void;
+	isDragging: boolean;
+	disabled: boolean;
+};
+
+const RowDragContext = createContext<RowDragContextValue | null>(null);
+
+type DraggableRowProps = GridRowProps & {
+	disableDrag?: boolean;
+};
+
+const DraggableRow = ({ disableDrag = false, className, style, ...rest }: DraggableRowProps) => {
+	const sortable = useSortable({
+		id: String(rest.rowId),
+		disabled: disableDrag
+	});
+
+	const transformStyle = !disableDrag && sortable.transform
+		? CSS.Transform.toString({ ...sortable.transform, scaleX: 1, scaleY: 1 })
+		: undefined;
+
+	const combinedStyle = disableDrag
+		? style
+		: {
+			...style,
+			transform: transformStyle ?? style?.transform,
+			transition: sortable.transition ?? style?.transition
+		};
+
+	return (
+		<RowDragContext.Provider
+			value={{
+				attributes: sortable.attributes,
+				listeners: sortable.listeners,
+				setActivatorNodeRef: sortable.setActivatorNodeRef,
+				isDragging: sortable.isDragging,
+				disabled: disableDrag
+			}}
+		>
+			<GridRow
+				{...rest}
+				ref={sortable.setNodeRef}
+				className={clsx(className, sortable.isDragging ? 'dragging-row' : undefined)}
+				style={combinedStyle}
+			/>
+		</RowDragContext.Provider>
+	);
+};
+
+type RowActionsCellProps = GridRenderCellParams<FieldRow> & {
+	canEdit: boolean;
+	disableActions: boolean;
+	onDelete: (definitionFieldId: string) => void;
+};
+
+const RowActionsCell = ({ row, canEdit, disableActions, onDelete }: RowActionsCellProps) => {
+	if (row.__isPlaceholder) {
+		return null;
+	}
+
+	const handleDeleteClick = (event: MouseEvent<HTMLButtonElement>) => {
+		event.stopPropagation();
+		onDelete(row.id);
+	};
+
+	return (
+		<IconButton
+			size="small"
+			aria-label="Remove field"
+			onClick={handleDeleteClick}
+			disabled={!canEdit || disableActions}
+		>
+			<DeleteOutlineIcon fontSize="small" />
+		</IconButton>
+	);
+};
+
+type DragHandleCellProps = GridRenderCellParams<FieldRow> & {
+	canEdit: boolean;
+	disableActions: boolean;
+	dndEnabled: boolean;
+};
+
+const DragHandleCell = ({ row, canEdit, disableActions, dndEnabled }: DragHandleCellProps) => {
+	const theme = useTheme();
+	const dragContext = useContext(RowDragContext);
+
+	if (row.__isPlaceholder) {
+		return (
+			<Box
+				sx={{
+					display: 'flex',
+					alignItems: 'center',
+					justifyContent: 'center',
+					width: '100%'
+				}}
+			>
+				<Box
+					sx={{
+						width: 12,
+						height: 12,
+						borderRadius: '50%',
+						border: `2px dashed ${alpha(theme.palette.primary.main, 0.4)}`
+					}}
+				/>
+			</Box>
+		);
+	}
+
+	const draggingDisabled = !dndEnabled || disableActions || !canEdit || !dragContext || dragContext.disabled;
+	const activatorRef = draggingDisabled || !dragContext ? undefined : dragContext.setActivatorNodeRef;
+	const activatorListeners = draggingDisabled || !dragContext ? undefined : dragContext.listeners;
+	const activatorAttributes = draggingDisabled || !dragContext ? undefined : dragContext.attributes;
+	const isActive = Boolean(row.active);
+
+	return (
+		<IconButton
+			size="small"
+			aria-label="Reorder field"
+			disabled={draggingDisabled}
+			sx={{
+				cursor: draggingDisabled ? 'default' : 'grab',
+				color: isActive ? theme.palette.primary.main : theme.palette.text.secondary,
+				'&:hover': {
+					color: draggingDisabled ? undefined : theme.palette.primary.dark
+				},
+				'&.Mui-disabled': {
+					color: alpha(theme.palette.text.disabled, 0.8)
+				}
+			}}
+			ref={activatorRef}
+			{...(activatorAttributes ?? {})}
+			{...(activatorListeners ?? {})}
+		>
+			<DragIndicatorIcon fontSize="small" />
+		</IconButton>
+	);
+};
+
 type BulkPasteResult = {
 	tableId: string;
 	tableName: string;
@@ -366,6 +543,8 @@ type DataDefinitionDetailsProps = {
 	onCreateRelationship?: (input: DataDefinitionRelationshipInput) => Promise<boolean>;
 	onUpdateRelationship?: (relationshipId: string, input: DataDefinitionRelationshipUpdateInput) => Promise<boolean>;
 	onDeleteRelationship?: (relationshipId: string) => Promise<boolean>;
+	onReorderFields?: (definitionTableId: string, orderedDefinitionFieldIds: string[]) => Promise<boolean>;
+	onDeleteField?: (definitionTableId: string, definitionFieldId: string) => Promise<boolean>;
 	relationshipBusy?: boolean;
 };
 
@@ -384,6 +563,8 @@ const DataDefinitionDetails = ({
 	onCreateRelationship,
 	onUpdateRelationship,
 	onDeleteRelationship,
+	onReorderFields,
+	onDeleteField,
 	relationshipBusy = false
 }: DataDefinitionDetailsProps) => {
 	const toast = useToast();
@@ -412,6 +593,25 @@ const DataDefinitionDetails = ({
 	const [activeDialog, setActiveDialog] = useState<{ tableId: string; type: InlineRowState['type'] } | null>(null);
 	const [dragSource, setDragSource] = useState<{ tableId: string; fieldId: string } | null>(null);
 	const [dropTargetTableId, setDropTargetTableId] = useState<string | null>(null);
+	const [fieldOrderByTable, setFieldOrderByTable] = useState<Record<string, string[]>>({});
+	const auditFieldIdsByTable = useMemo(() => {
+		const map: Record<string, string[]> = {};
+		definition.tables.forEach((table) => {
+			if (!table.isConstruction) {
+				return;
+			}
+			const ids = table.fields
+				.filter((definitionField) => {
+					const name = definitionField.field?.name?.trim().toLowerCase();
+					return Boolean(name && AUDIT_FIELD_NAMES.has(name));
+				})
+				.map((definitionField) => definitionField.id);
+			if (ids.length) {
+				map[table.id] = ids;
+			}
+		});
+		return map;
+	}, [definition.tables]);
 	const [intendedRelationship, setIntendedRelationship] = useState<{ primaryFieldId: string; foreignFieldId: string } | null>(null);
 	const [previewOpen, setPreviewOpen] = useState(false);
 	const [previewTableId, setPreviewTableId] = useState<string | null>(null);
@@ -421,6 +621,10 @@ const DataDefinitionDetails = ({
 	const [previewLoading, setPreviewLoading] = useState(false);
 	const [previewError, setPreviewError] = useState<string | null>(null);
 	const theme = useTheme();
+	const reorderSensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+		useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+	);
 
 	const chipBaseSx = useMemo(
 		() => ({
@@ -535,6 +739,28 @@ const DataDefinitionDetails = ({
 				next[table.id] = prev[table.id] ?? false;
 			});
 			return next;
+		});
+	}, [definition.tables]);
+
+	useEffect(() => {
+		setFieldOrderByTable((prev) => {
+			let changed = false;
+			const next = { ...prev };
+			definition.tables.forEach((table) => {
+				const orderedIds = table.fields
+					.filter((definitionField) => definitionField.field != null)
+					.map((definitionField) => definitionField.id);
+				const existing = prev[table.id];
+				const needsUpdate =
+					!existing ||
+					existing.length !== orderedIds.length ||
+					existing.some((value, index) => value !== orderedIds[index]);
+				if (needsUpdate) {
+					next[table.id] = orderedIds;
+					changed = true;
+				}
+			});
+			return changed ? next : prev;
 		});
 	}, [definition.tables]);
 
@@ -670,6 +896,111 @@ const DataDefinitionDetails = ({
 			}
 		},
 		[canEdit, getCommittedForField, onInlineFieldSubmit]
+	);
+
+	const persistReorder = useCallback(
+		async (definitionTableId: string, nextOrder: string[], previousOrder: string[]) => {
+			if (!onReorderFields) {
+				return;
+			}
+			const success = await onReorderFields(definitionTableId, nextOrder);
+			if (!success) {
+				setFieldOrderByTable((prev) => ({ ...prev, [definitionTableId]: previousOrder }));
+			}
+		},
+		[onReorderFields]
+	);
+
+	const persistDeletion = useCallback(
+		async (definitionTableId: string, definitionFieldId: string, previousOrder: string[]) => {
+			if (!onDeleteField) {
+				return;
+			}
+			const success = await onDeleteField(definitionTableId, definitionFieldId);
+			if (!success) {
+				setFieldOrderByTable((prev) => ({ ...prev, [definitionTableId]: previousOrder }));
+			}
+		},
+		[onDeleteField]
+	);
+
+	const handleDeleteField = useCallback(
+		(definitionTableId: string, definitionFieldId: string) => {
+			if (!onDeleteField) {
+				return;
+			}
+			const auditIds = auditFieldIdsByTable[definitionTableId] ?? [];
+			if (auditIds.includes(definitionFieldId)) {
+				toast.showInfo('Audit fields cannot be removed from constructed tables.');
+				return;
+			}
+			let previousOrder: string[] | null = null;
+			setFieldOrderByTable((prev) => {
+				const currentOrder = prev[definitionTableId];
+				if (!currentOrder || !currentOrder.includes(definitionFieldId)) {
+					return prev;
+				}
+				previousOrder = currentOrder.slice();
+				const nextOrder = currentOrder.filter((id) => id !== definitionFieldId);
+				return { ...prev, [definitionTableId]: nextOrder };
+			});
+			if (previousOrder) {
+				void persistDeletion(definitionTableId, definitionFieldId, previousOrder);
+			}
+		},
+		[persistDeletion, onDeleteField, auditFieldIdsByTable, toast]
+	);
+
+	const handleFieldDragEnd = useCallback(
+		(definitionTableId: string, event: DragEndEvent) => {
+			if (!onReorderFields) {
+				return;
+			}
+			const { active, over } = event;
+			if (!over || active.id === over.id) {
+				return;
+			}
+			const auditIds = auditFieldIdsByTable[definitionTableId] ?? [];
+			let previousOrder: string[] | null = null;
+			let nextOrder: string[] | null = null;
+			setFieldOrderByTable((prev) => {
+				const currentOrder = prev[definitionTableId];
+				if (!currentOrder) {
+					return prev;
+				}
+				const activeId = String(active.id);
+				const overId = String(over.id);
+				const nonAuditOrder = currentOrder.filter((id) => !auditIds.includes(id));
+				const fromIndex = nonAuditOrder.indexOf(activeId);
+				const toIndex = nonAuditOrder.indexOf(overId);
+				if (fromIndex === -1 || toIndex === -1) {
+					return prev;
+				}
+				const reorderedNonAudit = arrayMove(nonAuditOrder.slice(), fromIndex, toIndex);
+				const nextFullOrder: string[] = [];
+				let nonAuditCursor = 0;
+				for (let i = 0; i < currentOrder.length; i += 1) {
+					const fieldId = currentOrder[i];
+					if (auditIds.includes(fieldId)) {
+						nextFullOrder.push(fieldId);
+					} else {
+						nextFullOrder.push(reorderedNonAudit[nonAuditCursor]);
+						nonAuditCursor += 1;
+					}
+				}
+				const changed = nextFullOrder.some((id, index) => id !== currentOrder[index]);
+				if (!changed) {
+					return prev;
+				}
+				previousOrder = currentOrder.slice();
+				nextOrder = nextFullOrder;
+				return { ...prev, [definitionTableId]: nextFullOrder };
+			});
+			if (previousOrder && nextOrder) {
+				void persistReorder(definitionTableId, nextOrder, previousOrder);
+			}
+		},
+		[persistReorder, onReorderFields, auditFieldIdsByTable]
 	);
 
 	const clearInlineRow = useCallback((definitionTableId: string) => {
@@ -1168,8 +1499,15 @@ const DataDefinitionDetails = ({
 				const isNewMenuOpen = newMenu?.tableId === table.id;
 				const menuAnchor = isNewMenuOpen ? newMenu.anchor : undefined;
 
-				const rows: FieldRow[] = table.fields
+				const auditIds = auditFieldIdsByTable[table.id] ?? [];
+				const baseRows: FieldRow[] = table.fields
 					.filter((definitionField) => definitionField.field != null)
+					.filter((definitionField) => {
+						if (!table.isConstruction) {
+							return true;
+						}
+						return !auditIds.includes(definitionField.id);
+					})
 					.map((definitionField) => ({
 						id: definitionField.id,
 						notes: definitionField.notes ?? '',
@@ -1177,13 +1515,31 @@ const DataDefinitionDetails = ({
 						...getDraftForField(definitionField.field!)
 					}));
 				if (isGridView) {
-					rows.push({
+					baseRows.push({
 						id: `__placeholder__-${table.id}`,
 						notes: '',
 						__isPlaceholder: true,
 						...createEmptyDraft()
 					});
 				}
+
+				const nonPlaceholderRows = baseRows.filter((row) => !row.__isPlaceholder);
+				const storedOrder = fieldOrderByTable[table.id];
+				const orderedRows = isGridView
+					? baseRows
+					: (storedOrder ?? nonPlaceholderRows.map((row) => row.id))
+						.map((rowId) => nonPlaceholderRows.find((row) => row.id === rowId))
+						.filter((row): row is FieldRow => Boolean(row));
+				const visibleRowIds = orderedRows.filter((row) => !row.__isPlaceholder).map((row) => row.id);
+				const dndEnabled = Boolean(
+					canEdit &&
+					onReorderFields &&
+					!isGridView &&
+					!fieldActionsDisabled &&
+					!tableSaving &&
+					visibleRowIds.length > 1
+				);
+				const actionsDisabled = fieldActionsDisabled || tableSaving || Boolean(inlineState) || isGridView;
 
 				const baseColumns: GridColDef<FieldRow>[] = FIELD_COLUMNS.map((column) => {
 					const baseMinWidth = 'minWidth' in column ? column.minWidth : undefined;
@@ -1450,42 +1806,177 @@ const DataDefinitionDetails = ({
 
 				const columns: GridColDef<FieldRow>[] = [
 					{
-						field: '__indicator',
+						field: '__dragHandle',
 						headerName: '',
-						width: 36,
-						minWidth: 36,
+						width: 44,
+						minWidth: 44,
 						sortable: false,
 						filterable: false,
 						disableColumnMenu: true,
 						headerAlign: 'center',
 						align: 'center',
 						resizable: false,
-						valueGetter: () => null,
-						renderCell: ({ row }) => {
-							const isPlaceholder = Boolean(row.__isPlaceholder);
-							const isActive = Boolean(row.active);
-							const paletteColor = isActive ? theme.palette.primary.main : theme.palette.grey[500];
-							return (
-								<Box
-									sx={{
-										display: 'inline-flex',
-										width: isPlaceholder ? 10 : 12,
-										height: isPlaceholder ? 10 : 12,
-										borderRadius: '50%',
-										border: `2px solid ${alpha(paletteColor, isPlaceholder ? 0.3 : 0.6)}`,
-										bgcolor: isPlaceholder ? 'transparent' : alpha(paletteColor, 0.6),
-										opacity: isActive || isPlaceholder ? 1 : 0.5,
-										transition: theme.transitions.create(['background-color', 'border-color'], {
-											duration: theme.transitions.duration.shortest
-										})
-									}}
-								/>
-							);
-						}
+						renderCell: (params) => (
+							<DragHandleCell
+								{...params}
+								canEdit={canEdit}
+								disableActions={actionsDisabled}
+								dndEnabled={dndEnabled}
+							/>
+						)
 					},
 					...baseColumns,
-					notesColumn
-				];
+						notesColumn,
+						{
+							field: '__actions',
+							headerName: '',
+							width: 56,
+							minWidth: 52,
+							sortable: false,
+							filterable: false,
+							disableColumnMenu: true,
+							headerAlign: 'center',
+							align: 'center',
+							renderCell: (params) => (
+								<RowActionsCell
+									{...params}
+									canEdit={canEdit}
+									disableActions={actionsDisabled}
+									onDelete={(definitionFieldId) => handleDeleteField(table.id, definitionFieldId)}
+								/>
+							)
+						}
+					];
+
+					const dataGridElement = (
+						<DataGrid
+							autoHeight
+							rows={orderedRows}
+							columns={columns}
+							disableRowSelectionOnClick
+							disableColumnSelector
+							disableDensitySelector
+							hideFooter
+							density="comfortable"
+							sortingOrder={['asc', 'desc']}
+							getRowClassName={resolveRowClassName}
+							columnHeaderHeight={isGridView ? 46 : 52}
+							rowHeight={isGridView ? 68 : 52}
+							showColumnVerticalBorder
+							showCellVerticalBorder
+							slots={dndEnabled ? { toolbar: QuickFilterToolbar, row: DraggableRow } : { toolbar: QuickFilterToolbar }}
+							slotProps={dndEnabled ? { row: { disableDrag: false } } : undefined}
+							sx={{
+								'--DataGrid-rowBorderColor': alpha(theme.palette.divider, 0.22),
+								'--DataGrid-columnSeparatorColor': alpha(theme.palette.divider, 0.22),
+								border: `1px solid ${alpha(theme.palette.divider, 0.45)}`,
+								borderRadius: isGridView ? 1.5 : 2,
+								bgcolor: alpha(theme.palette.background.paper, 0.98),
+								boxShadow: `0 6px 18px ${alpha(theme.palette.common.black, 0.05)}`,
+								'& .MuiDataGrid-columnHeaders': {
+									background: `linear-gradient(180deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.dark, 0.8)} 100%)`,
+									borderBottom: `1px solid ${theme.palette.primary.dark}`,
+									boxShadow: `inset 0 -2px 4px ${alpha(theme.palette.primary.dark, 0.35)}`,
+									textTransform: 'uppercase',
+									letterSpacing: 0.35,
+									color: theme.palette.primary.contrastText
+								},
+								'& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
+									outline: 'none'
+								},
+								'& .MuiDataGrid-columnHeaderTitle': {
+									fontWeight: 700,
+									fontSize: 12.5,
+									color: theme.palette.primary.contrastText,
+									textShadow: `0 1px 2px ${alpha(theme.palette.primary.dark, 0.4)}`
+								},
+								'& .MuiDataGrid-columnHeader .MuiSvgIcon-root': {
+									color: alpha(theme.palette.primary.contrastText, 0.9)
+								},
+								'& .MuiDataGrid-cell': {
+									display: 'flex',
+									alignItems: 'center',
+									borderBottom: `1px solid ${alpha(theme.palette.divider, 0.18)}`,
+									borderRight: `1px solid ${alpha(theme.palette.divider, 0.16)}`,
+									fontSize: 13.5,
+									color: theme.palette.text.primary,
+									padding: theme.spacing(0.75, 1.25),
+									lineHeight: 1.45,
+									transition: theme.transitions.create(['background-color', 'box-shadow'], {
+										duration: theme.transitions.duration.shortest
+									})
+								},
+								'& .MuiDataGrid-cell.multiline-cell': {
+									alignItems: 'flex-start',
+									paddingTop: theme.spacing(1.15),
+									paddingBottom: theme.spacing(1.15)
+								},
+								'& .MuiDataGrid-cell.multiline-cell .MuiTypography-root': {
+									width: '100%'
+								},
+								'& .MuiDataGrid-row .MuiDataGrid-cell:last-of-type': {
+									borderRight: 'none'
+								},
+								'& .MuiDataGrid-row:nth-of-type(even) .MuiDataGrid-cell': {
+									backgroundColor: alpha(theme.palette.action.hover, 0.12)
+								},
+								'& .MuiDataGrid-row:hover .MuiDataGrid-cell': {
+									backgroundColor: alpha(theme.palette.primary.main, 0.04)
+								},
+								'& .MuiDataGrid-row.Mui-selected .MuiDataGrid-cell': {
+									backgroundColor: alpha(theme.palette.primary.main, 0.08)
+								},
+								'& .MuiDataGrid-cell:focus-within': {
+									outline: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
+									outlineOffset: -2,
+									backgroundColor: alpha(theme.palette.primary.main, 0.05)
+								},
+								'& .MuiDataGrid-cell.MuiDataGrid-cell--editable': {
+									backgroundColor: alpha(theme.palette.primary.light, 0.05)
+								},
+								'& .MuiDataGrid-cell.MuiDataGrid-cell--editing': {
+									backgroundColor: alpha(theme.palette.common.white, 0.98),
+									boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.45)}`
+								},
+								'& .MuiDataGrid-virtualScroller': {
+									backgroundColor: 'transparent'
+								},
+								'& .placeholder-row .MuiDataGrid-cell': {
+									fontStyle: 'italic',
+									color: theme.palette.text.disabled,
+									backgroundColor: alpha(theme.palette.info.main, 0.08),
+									transition: theme.transitions.create(['background-color', 'box-shadow', 'color'], {
+										duration: theme.transitions.duration.shortest
+									})
+								},
+								'& .placeholder-row .MuiDataGrid-cell:focus-within': {
+									outline: 'none',
+									backgroundColor: alpha(theme.palette.info.main, 0.15),
+									boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.info.main, 0.6)}, 0 0 8px ${alpha(theme.palette.info.main, 0.3)}`,
+									color: theme.palette.info.dark,
+									fontWeight: 500
+								},
+								'& .placeholder-row:hover .MuiDataGrid-cell': {
+									backgroundColor: alpha(theme.palette.info.main, 0.12),
+									color: theme.palette.text.secondary
+								}
+							}}
+						/>
+					);
+
+					const gridContent = dndEnabled ? (
+						<DndContext
+							sensors={reorderSensors}
+							collisionDetection={closestCenter}
+							onDragEnd={(event) => handleFieldDragEnd(table.id, event)}
+						>
+							<SortableContext items={visibleRowIds} strategy={verticalListSortingStrategy}>
+								{dataGridElement}
+							</SortableContext>
+						</DndContext>
+					) : (
+						dataGridElement
+					);
 
 				return (
 					<Paper 
@@ -1720,118 +2211,7 @@ const DataDefinitionDetails = ({
 											}
 										}}
 									>
-										<DataGrid
-											autoHeight
-											rows={rows}
-											columns={columns}
-											disableRowSelectionOnClick
-											disableColumnSelector
-											disableDensitySelector
-											hideFooter
-											density="comfortable"
-											sortingOrder={['asc', 'desc']}
-											getRowClassName={resolveRowClassName}
-											columnHeaderHeight={isGridView ? 46 : 52}
-											rowHeight={isGridView ? 68 : 52}
-											showColumnVerticalBorder
-											showCellVerticalBorder
-											slots={{ toolbar: QuickFilterToolbar }}
-											sx={{
-												'--DataGrid-rowBorderColor': alpha(theme.palette.divider, 0.22),
-												'--DataGrid-columnSeparatorColor': alpha(theme.palette.divider, 0.22),
-												border: `1px solid ${alpha(theme.palette.divider, 0.45)}`,
-												borderRadius: isGridView ? 1.5 : 2,
-												bgcolor: alpha(theme.palette.background.paper, 0.98),
-												boxShadow: `0 6px 18px ${alpha(theme.palette.common.black, 0.05)}`,
-												'& .MuiDataGrid-columnHeaders': {
-													background: `linear-gradient(180deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.dark, 0.8)} 100%)`,
-													borderBottom: `1px solid ${theme.palette.primary.dark}`,
-													boxShadow: `inset 0 -2px 4px ${alpha(theme.palette.primary.dark, 0.35)}`,
-													textTransform: 'uppercase',
-													letterSpacing: 0.35,
-													color: theme.palette.primary.contrastText
-												},
-												'& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
-													outline: 'none'
-												},
-												'& .MuiDataGrid-columnHeaderTitle': {
-													fontWeight: 700,
-													fontSize: 12.5,
-													color: theme.palette.primary.contrastText,
-													textShadow: `0 1px 2px ${alpha(theme.palette.primary.dark, 0.4)}`
-												},
-												'& .MuiDataGrid-columnHeader .MuiSvgIcon-root': {
-													color: alpha(theme.palette.primary.contrastText, 0.9)
-												},
-												'& .MuiDataGrid-cell': {
-													display: 'flex',
-													alignItems: 'center',
-													borderBottom: `1px solid ${alpha(theme.palette.divider, 0.18)}`,
-													borderRight: `1px solid ${alpha(theme.palette.divider, 0.16)}`,
-													fontSize: 13.5,
-													color: theme.palette.text.primary,
-													padding: theme.spacing(0.75, 1.25),
-													lineHeight: 1.45,
-													transition: theme.transitions.create(['background-color', 'box-shadow'], {
-														duration: theme.transitions.duration.shortest
-													})
-												},
-												'& .MuiDataGrid-cell.multiline-cell': {
-													alignItems: 'flex-start',
-													paddingTop: theme.spacing(1.15),
-													paddingBottom: theme.spacing(1.15)
-												},
-												'& .MuiDataGrid-cell.multiline-cell .MuiTypography-root': {
-													width: '100%'
-												},
-												'& .MuiDataGrid-row .MuiDataGrid-cell:last-of-type': {
-													borderRight: 'none'
-												},
-												'& .MuiDataGrid-row:nth-of-type(even) .MuiDataGrid-cell': {
-													backgroundColor: alpha(theme.palette.action.hover, 0.12)
-												},
-												'& .MuiDataGrid-row:hover .MuiDataGrid-cell': {
-													backgroundColor: alpha(theme.palette.primary.main, 0.04)
-												},
-												'& .MuiDataGrid-row.Mui-selected .MuiDataGrid-cell': {
-													backgroundColor: alpha(theme.palette.primary.main, 0.08)
-												},
-												'& .MuiDataGrid-cell:focus-within': {
-													outline: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
-													outlineOffset: -2,
-													backgroundColor: alpha(theme.palette.primary.main, 0.05)
-												},
-												'& .MuiDataGrid-cell.MuiDataGrid-cell--editable': {
-													backgroundColor: alpha(theme.palette.primary.light, 0.05)
-												},
-												'& .MuiDataGrid-cell.MuiDataGrid-cell--editing': {
-													backgroundColor: alpha(theme.palette.common.white, 0.98),
-													boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.45)}`
-												},
-												'& .MuiDataGrid-virtualScroller': {
-													backgroundColor: 'transparent'
-												},
-												'& .placeholder-row .MuiDataGrid-cell': {
-													fontStyle: 'italic',
-													color: theme.palette.text.disabled,
-													backgroundColor: alpha(theme.palette.info.main, 0.08),
-													transition: theme.transitions.create(['background-color', 'box-shadow', 'color'], {
-														duration: theme.transitions.duration.shortest
-													})
-												},
-												'& .placeholder-row .MuiDataGrid-cell:focus-within': {
-													outline: 'none',
-													backgroundColor: alpha(theme.palette.info.main, 0.15),
-													boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.info.main, 0.6)}, 0 0 8px ${alpha(theme.palette.info.main, 0.3)}`,
-													color: theme.palette.info.dark,
-													fontWeight: 500
-												},
-												'& .placeholder-row:hover .MuiDataGrid-cell': {
-													backgroundColor: alpha(theme.palette.info.main, 0.12),
-													color: theme.palette.text.secondary
-												}
-											}}
-										/>
+										{gridContent}
 									</Box>
 
 									{isGridView && (

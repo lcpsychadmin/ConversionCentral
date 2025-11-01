@@ -16,6 +16,7 @@ export interface DataDefinitionFieldResponse {
   definitionTableId: string;
   fieldId: string;
   notes?: string | null;
+  displayOrder?: number | null;
   field: FieldResponse;
   createdAt?: string;
   updatedAt?: string;
@@ -69,6 +70,7 @@ export const mapDataDefinitionField = (
   definitionTableId: payload.definitionTableId,
   fieldId: payload.fieldId,
   notes: payload.notes ?? null,
+  displayOrder: payload.displayOrder ?? 0,
   field: mapField(payload.field),
   createdAt: payload.createdAt,
   updatedAt: payload.updatedAt
@@ -130,9 +132,10 @@ const normalizeTableInput = (table: DataDefinitionTableInput) => ({
   description: table.description ?? null,
   load_order: table.loadOrder ?? null,
   is_construction: table.isConstruction ?? false,
-  fields: table.fields.map((field) => ({
+  fields: table.fields.map((field, index) => ({
     field_id: field.fieldId,
-    notes: field.notes ?? null
+    notes: field.notes ?? null,
+    display_order: field.displayOrder ?? index
   }))
 });
 

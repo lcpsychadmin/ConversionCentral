@@ -41,6 +41,9 @@ from app.models.entities import (
     ConnectionTableSelection,
     Table,
     User,
+    DatabricksSqlSetting,
+    ApplicationDatabaseSetting,
+    ApplicationSetting,
 )
 
 __all__ = [
@@ -86,4 +89,7 @@ __all__ = [
     "ProcessAreaRoleAssignment",
     "User",
     "ReleaseDataObject",
+    "DatabricksSqlSetting",
+    "ApplicationDatabaseSetting",
+    "ApplicationSetting",
 ]

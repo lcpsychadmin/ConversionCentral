@@ -107,6 +107,14 @@ def _generate_drop_table_sql(schema_name: str, table_name: str) -> str:
     return f"IF OBJECT_ID('[{schema_name}].[{table_name}]', 'U') IS NOT NULL DROP TABLE [{schema_name}].[{table_name}]"
 
 
+def _generate_ensure_schema_sql(schema_name: str) -> str:
+    """Generate a statement to create the schema when it does not exist."""
+    return (
+        f"IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = '{schema_name}') "
+        f"BEGIN EXEC('CREATE SCHEMA [{schema_name}]'); END"
+    )
+
+
 def _generate_alter_table_sql(
     schema_name: str, table_name: str, current_fields: list[ConstructedField], new_fields: list[ConstructedField]
 ) -> list[str]:
@@ -159,6 +167,10 @@ def create_or_update_constructed_table(
 
     try:
         with engine.connect() as connection:
+            ensure_schema_sql = _generate_ensure_schema_sql(schema_name)
+            logger.info(f"Executing: {ensure_schema_sql}")
+            connection.execute(text(ensure_schema_sql))
+
             # Drop existing table if it exists
             drop_sql = _generate_drop_table_sql(schema_name, table_name)
             logger.info(f"Executing: {drop_sql}")

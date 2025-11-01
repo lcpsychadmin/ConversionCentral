@@ -258,6 +258,7 @@ class ConstructedTable(Base, TimestampMixin):
         back_populates="constructed_table",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        order_by="ConstructedField.display_order",
     )
     data_rows: Mapped[list["ConstructedData"]] = relationship(
         "ConstructedData",
@@ -292,6 +293,7 @@ class ConstructedField(Base, TimestampMixin):
     is_nullable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     default_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     constructed_table: Mapped[ConstructedTable] = relationship(
         "ConstructedTable", back_populates="fields"
@@ -701,6 +703,7 @@ class DataDefinitionTable(Base, TimestampMixin):
         back_populates="definition_table",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        order_by="DataDefinitionField.display_order",
     )
     relationships_as_primary: Mapped[list["DataDefinitionRelationship"]] = relationship(
         "DataDefinitionRelationship",
@@ -751,6 +754,7 @@ class DataDefinitionField(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     definition_table: Mapped[DataDefinitionTable] = relationship(
         "DataDefinitionTable", back_populates="fields"
@@ -1536,6 +1540,60 @@ class IngestionJob(Base, TimestampMixin):
         "ExecutionContext", back_populates="ingestion_jobs"
     )
     table: Mapped[Table] = relationship("Table", back_populates="ingestion_jobs")
+
+
+class DatabricksSqlSetting(Base, TimestampMixin):
+    __tablename__ = "databricks_sql_settings"
+    __table_args__ = (
+        sa.UniqueConstraint("is_active", name="uq_databricks_sql_settings_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Primary Warehouse")
+    workspace_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    http_path: Mapped[str] = mapped_column(String(400), nullable=False)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    catalog: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ApplicationDatabaseSetting(Base, TimestampMixin):
+    __tablename__ = "application_database_settings"
+    __table_args__ = (
+        sa.UniqueConstraint("is_active", name="uq_application_database_settings_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    engine: Mapped[str] = mapped_column(
+        sa.Enum(
+            "default_postgres",
+            "custom_postgres",
+            "sqlserver",
+            name="application_database_engine_enum",
+        ),
+        nullable=False,
+        default="default_postgres",
+    )
+    connection_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connection_display: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ApplicationSetting(Base, TimestampMixin):
+    __tablename__ = "application_settings"
+    __table_args__ = (
+        sa.UniqueConstraint("key", name="uq_application_settings_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IngestionSchedule(Base, TimestampMixin):

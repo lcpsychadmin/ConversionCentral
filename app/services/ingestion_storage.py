@@ -5,19 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping, MutableMapping, Sequence
 
 from sqlalchemy import Column, MetaData, Table, insert, text
-from sqlalchemy.dialects.mssql import (
-    BIGINT,
-    BIT,
-    DATE,
-    DATETIME2,
-    DECIMAL,
-    FLOAT,
-    INTEGER,
-    NVARCHAR,
-    SMALLINT,
-    TIME,
-    VARCHAR,
-)
+from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine
 
 from app.ingestion import get_ingestion_engine
@@ -33,22 +21,21 @@ class ColumnSpec:
     nullable: bool
 
 
-class SqlServerIngestionStorage:
-    """Manages creation and loading of ingested tables in SQL Server."""
+class DatabricksIngestionStorage:
+    """Create and load staging tables inside the configured Databricks SQL warehouse."""
 
-    def __init__(self, *, engine: Engine | None = None, default_schema: str = "dbo"):
+    def __init__(self, *, engine: Engine | None = None, default_schema: str = "default"):
         self.engine = engine or get_ingestion_engine()
         self.default_schema = default_schema
-        self._dialect_name = self.engine.dialect.name.lower()
 
     def ensure_table(self, table_model: TableModel) -> Table:
         schema = table_model.schema_name or self.default_schema
+        if self.engine.dialect.name == "sqlite":
+            schema = None
         table_name = self._normalize_identifier(table_model.physical_name or table_model.name)
 
         specs = [self._build_column_spec(field) for field in table_model.fields]
-        metadata = MetaData(schema=schema)
-        if self._dialect_name != "mssql":
-            metadata = MetaData()
+        metadata = MetaData(schema=schema or None)
         if not specs:
             raise ValueError("Cannot create ingestion table without defined fields.")
 
@@ -75,10 +62,7 @@ class SqlServerIngestionStorage:
         with self.engine.begin() as connection:
             if replace:
                 qualified = self._qualify_table(ingestion_table)
-                if self._dialect_name == "mssql":
-                    connection.execute(text(f"TRUNCATE TABLE {qualified}"))
-                else:
-                    connection.execute(text(f"DELETE FROM {qualified}"))
+                connection.execute(text(f"DELETE FROM {qualified}"))
             result = connection.execute(insert(ingestion_table), normalized_rows)
         return result.rowcount or 0
 
@@ -123,50 +107,49 @@ class SqlServerIngestionStorage:
 
         if normalized in {"string", "str", "nvarchar", "nchar", "text"}:
             size = length or 255
-            return NVARCHAR(length=size)
+            return satypes.String(length=size)
         if normalized in {"varchar", "char"}:
             size = length or 255
-            return VARCHAR(length=size)
+            return satypes.String(length=size)
         if normalized in {"int", "integer"}:
-            return INTEGER()
+            return satypes.Integer()
         if normalized in {"smallint"}:
-            return SMALLINT()
+            return satypes.SmallInteger()
         if normalized in {"bigint"}:
-            return BIGINT()
+            return satypes.BigInteger()
         if normalized in {"float", "double", "real"}:
-            return FLOAT()
+            return satypes.Float()
         if normalized in {"decimal", "numeric"}:
             precision = length or 18
-            return DECIMAL(precision=precision, scale=scale)
+            return satypes.Numeric(precision=precision, scale=scale)
         if normalized in {"datetime", "datetime2", "timestamp"}:
-            return DATETIME2()
+            return satypes.DateTime(timezone=True)
         if normalized in {"date"}:
-            return DATE()
+            return satypes.Date()
         if normalized in {"time"}:
-            return TIME()
+            return satypes.Time()
         if normalized in {"bool", "boolean", "bit"}:
-            return BIT()
+            return satypes.Boolean()
         # Fallback to NVARCHAR if unknown.
         size = length or 255
-        return NVARCHAR(length=size)
+        return satypes.String(length=size)
 
     def _ensure_schema_exists(self, schema: str) -> None:
-        if self._dialect_name != "mssql":
+        if not schema:
             return
-        if not schema or schema.lower() == "dbo":
+        if self.engine.dialect.name == "sqlite":
             return
-        stmt = text(
-            "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = :schema) "
-            "EXEC('CREATE SCHEMA [' + :schema + ']')"
-        )
+        stmt = text(f"CREATE SCHEMA IF NOT EXISTS `{schema}`")
         with self.engine.begin() as connection:
-            connection.execute(stmt, {"schema": schema})
+            connection.execute(stmt)
 
     def _qualify_table(self, table: Table) -> str:
-        if self._dialect_name == "mssql":
-            schema = table.schema or self.default_schema
-            return f"[{schema}].[{table.name}]"
-        return table.name
+        schema = table.schema
+        if not schema and self.engine.dialect.name != "sqlite":
+            schema = self.default_schema
+        if schema:
+            return f"`{schema}`.`{table.name}`"
+        return f"`{table.name}`"
 
     def _normalize_identifier(self, value: str) -> str:
         sanitized = _IDENTIFIER_RE.sub("_", value.strip())

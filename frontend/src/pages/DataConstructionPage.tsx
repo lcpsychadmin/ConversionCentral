@@ -67,24 +67,31 @@ interface TabPanelProps {
 }
 
 function TabPanel({ children, value, index, sx, ...other }: TabPanelProps) {
+  const isActive = value === index;
+
   return (
     <Box
       role="tabpanel"
-      hidden={value !== index}
+      hidden={!isActive}
       id={`table-details-tabpanel-${index}`}
       aria-labelledby={`table-details-tab-${index}`}
       sx={[
         {
-          display: value === index ? 'flex' : 'none',
+          display: isActive ? 'flex' : 'none',
           flexDirection: 'column',
           flex: 1,
-          overflow: 'auto'
+          minHeight: 0,
+          overflow: 'hidden'
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : [])
       ]}
       {...other}
     >
-      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
+      {isActive ? (
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {children}
+        </Box>
+      ) : null}
     </Box>
   );
 }
@@ -599,13 +606,13 @@ const DataConstructionPage = () => {
                 <MuiTab label="Validation Rules" id="table-details-tab-1" />
               </MuiTabs>
 
-              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'auto', p: 4, pt: 3 }}>
+              <TabPanel value={detailTabValue} index={0} sx={{ flex: 1, overflow: 'hidden', p: 4, pt: 3 }}>
                 {isLoadingDetails ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <Typography color="textSecondary">Loading...</Typography>
                   </Box>
                 ) : (
-                  <Box sx={{ flex: 1, p: 2.5, pt: 1, pb: 3 }}>
+                  <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', p: 2.5, pt: 1, pb: 3 }}>
                     {selectedTableData.constructedTableId && (
                       <ConstructedDataGrid
                         constructedTableId={selectedTableData.constructedTableId}

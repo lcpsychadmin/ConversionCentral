@@ -58,6 +58,8 @@ _FIELD_TYPE_MAP: dict[str, str] = {
     "time": "time",
 }
 
+CONSTRUCTED_TABLE_SCHEMA = "construction_data"
+
 
 def sync_construction_tables_for_definition(definition_id: UUID, db: Session) -> None:
     """Ensure constructed tables mirror the current data definition configuration."""
@@ -89,11 +91,11 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
             constructed_table.status = ConstructedTableStatus.APPROVED.value
             active_constructed_table_ids.add(constructed_table.id)
 
-            if settings.enable_sql_server_sync:
+            if settings.enable_constructed_table_sync:
                 _sync_sql_server_table(system, table, constructed_table)
         else:
             if table.constructed_table:
-                _drop_sql_table(system, table.constructed_table, settings.enable_sql_server_sync)
+                _drop_sql_table(system, table.constructed_table, settings.enable_constructed_table_sync)
                 db.delete(table.constructed_table)
 
     if not active_constructed_table_ids:
@@ -113,7 +115,7 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
         )
 
     for constructed_table in stale_tables:
-        _drop_sql_table(system, constructed_table, settings.enable_sql_server_sync)
+        _drop_sql_table(system, constructed_table, settings.enable_constructed_table_sync)
         db.delete(constructed_table)
 
 
@@ -163,12 +165,14 @@ def _sync_constructed_fields(
         data_type = _map_field_type(source_field.field_type)
         is_nullable = not source_field.system_required
         description = definition_field.notes or source_field.description
+        display_order = definition_field.display_order
 
         constructed_field = existing_fields_by_name.get(field_name)
         if constructed_field:
             constructed_field.data_type = data_type
             constructed_field.is_nullable = is_nullable
             constructed_field.description = description
+            constructed_field.display_order = display_order
         else:
             constructed_field = ConstructedField(
                 constructed_table_id=constructed_table.id,
@@ -176,8 +180,10 @@ def _sync_constructed_fields(
                 data_type=data_type,
                 is_nullable=is_nullable,
                 description=description,
+                display_order=display_order,
             )
             db.add(constructed_field)
+            existing_fields_by_name[field_name] = constructed_field
 
     for field_name, constructed_field in list(existing_fields_by_name.items()):
         if field_name not in desired_field_names:
@@ -208,7 +214,7 @@ def _sync_sql_server_table(
         )
         return
 
-    schema_name = (definition_table.table.schema_name or "dbo") if definition_table.table else "dbo"
+    schema_name = CONSTRUCTED_TABLE_SCHEMA
 
     try:
         create_or_update_constructed_table(
@@ -248,9 +254,7 @@ def _drop_sql_table(
         )
         return
 
-    schema_name = "dbo"
-    if constructed_table.data_definition_table and constructed_table.data_definition_table.table:
-        schema_name = constructed_table.data_definition_table.table.schema_name or "dbo"
+    schema_name = CONSTRUCTED_TABLE_SCHEMA
 
     try:
         drop_constructed_table(

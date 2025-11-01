@@ -1,0 +1,35 @@
+.ag-theme-quartz .ag-body-viewport,
+.ag-theme-quartz .ag-center-cols-viewport {
+  overflow: auto !important;
+  -ms-overflow-style: auto !important;
+  scrollbar-width: thin !important;
+}
+
+.ag-theme-quartz .ag-center-cols-viewport {
+  overflow-y: hidden !important;
+}
+
+.ag-theme-quartz .ag-body-viewport::-webkit-scrollbar,
+.ag-theme-quartz .ag-center-cols-viewport::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  display: block !important;
+}
+
+.ag-theme-quartz .ag-body-viewport::-webkit-scrollbar-thumb,
+.ag-theme-quartz .ag-center-cols-viewport::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 120, 120, 0.6);
+  border-radius: 6px;
+}
+
+.ag-theme-quartz .ag-body-viewport::-webkit-scrollbar-track,
+.ag-theme-quartz .ag-center-cols-viewport::-webkit-scrollbar-track {
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+.ag-theme-quartz .ag-body-horizontal-scroll,
+.ag-theme-quartz .ag-body-horizontal-scroll-viewport,
+.ag-theme-quartz .ag-body-vertical-scroll,
+.ag-theme-quartz .ag-body-vertical-scroll-viewport {
+  display: none !important;
+}

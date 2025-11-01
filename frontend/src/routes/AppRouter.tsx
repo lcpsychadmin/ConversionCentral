@@ -10,13 +10,16 @@ import ProcessAreasPage from '@pages/ProcessAreasPage';
 import InventoryPage from '@pages/DataObjectsPage';
 import SystemsPage from '@pages/SystemsPage';
 import SystemConnectionsPage from '@pages/SystemConnectionsPage';
+import DatabricksSettingsPage from '@pages/DatabricksSettingsPage';
 import ProjectsPage from '@pages/ProjectsPage';
 import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
 import ReportingDesignerPage from '@pages/ReportingDesignerPage';
 import ReportingCatalogPage from '@pages/ReportingCatalogPage';
+import ApplicationDatabaseSetupPage from '@pages/ApplicationDatabaseSetupPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
+import { ApplicationDatabaseGuard } from '@routes/guards/ApplicationDatabaseGuard';
 
 const Loader = () => (
   <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
@@ -42,7 +45,9 @@ const router = createBrowserRouter([
         path: '/',
         element: (
           <ProtectedRoute>
-            <MainLayout />
+            <ApplicationDatabaseGuard>
+              <MainLayout />
+            </ApplicationDatabaseGuard>
           </ProtectedRoute>
         ),
         children: [
@@ -53,6 +58,8 @@ const router = createBrowserRouter([
           { path: 'process-areas', element: <ProcessAreasPage /> },
           { path: 'systems', element: <SystemsPage /> },
           { path: 'application-settings/connections', element: <SystemConnectionsPage /> },
+          { path: 'application-settings/application-database', element: <ApplicationDatabaseSetupPage /> },
+          { path: 'application-settings/databricks', element: <DatabricksSettingsPage /> },
           { path: 'data-objects', element: <InventoryPage /> },
           { path: 'project-settings/projects', element: <ProjectsPage /> },
           { path: 'project-settings/releases', element: <ReleasesPage /> },

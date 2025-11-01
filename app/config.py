@@ -14,12 +14,46 @@ class Settings(BaseSettings):
         default=None,
         env="INGESTION_DATABASE_URL",
         description=(
-            "SQL Server connection string used for storing ingested data."
-            " Example: mssql+pyodbc://sa:YourStrong!Passw0rd@localhost:1433/conversion_ingestion"
-            "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+            "Optional SQLAlchemy connection string override for the Databricks SQL warehouse."
+            " When unset, the application composes a connection string from the Databricks"
+            " workspace settings stored in the database."
         ),
     )
-    enable_sql_server_sync: bool = Field(True, env="ENABLE_SQL_SERVER_SYNC")
+    databricks_host: str | None = Field(
+        default=None,
+        env="DATABRICKS_HOST",
+        description=(
+            "Default Databricks workspace host (e.g. adb-123456789012345.7.azuredatabricks.net)."
+        ),
+    )
+    databricks_http_path: str | None = Field(
+        default=None,
+        env="DATABRICKS_HTTP_PATH",
+        description="Default SQL warehouse HTTP path (e.g. /sql/1.0/warehouses/<warehouse-id>).",
+    )
+    databricks_catalog: str | None = Field(
+        default=None,
+        env="DATABRICKS_CATALOG",
+        description="Fallback catalog to use when no catalog is stored in the database settings.",
+    )
+    databricks_schema: str | None = Field(
+        default=None,
+        env="DATABRICKS_SCHEMA",
+        description="Fallback schema to use when no schema is stored in the database settings.",
+    )
+    databricks_token: str | None = Field(
+        default=None,
+        env="DATABRICKS_TOKEN",
+        description="Optional personal access token used when the database has no stored token.",
+    )
+    enable_constructed_table_sync: bool = Field(
+        False,
+        env="ENABLE_CONSTRUCTED_TABLE_SYNC",
+        description=(
+            "When true the application will attempt to mirror constructed tables into the"
+            " configured Databricks warehouse."
+        ),
+    )
     frontend_origins: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.audit_fields import AUDIT_FIELD_DEFINITIONS, AUDIT_FIELD_NAME_SET
 from app.database import get_db
 from app.models import (
     DataDefinition,
@@ -31,6 +32,7 @@ from app.services.catalog_browser import fetch_source_table_columns, ConnectionC
 from app.services.data_construction_sync import sync_construction_tables_for_definition
 
 router = APIRouter(prefix="/data-definitions", tags=["Data Definitions"])
+
 
 
 def _definition_query(db: Session):
@@ -94,6 +96,104 @@ def _ensure_link_exists(data_object_id: UUID, system_id: UUID, db: Session) -> N
         )
 
 
+def _ensure_audit_fields_for_definition_table(
+    definition_table: DataDefinitionTable, db: Session
+) -> None:
+    """Guarantee the audit fields exist on the constructed table definition."""
+    table = definition_table.table or db.get(Table, definition_table.table_id)
+    if not table:
+        return
+
+    existing_table_fields_by_name = {
+        field.name.lower(): field for field in table.fields
+    }
+    existing_table_fields_by_id = {field.id: field for field in table.fields}
+    existing_definition_fields_by_id = {
+        definition_field.field_id: definition_field for definition_field in definition_table.fields
+    }
+
+    non_audit_display_orders = [
+        definition_field.display_order
+        for definition_field in definition_table.fields
+        if existing_table_fields_by_id.get(definition_field.field_id)
+        and existing_table_fields_by_id[definition_field.field_id].name.lower() not in AUDIT_FIELD_NAME_SET
+    ]
+    max_non_audit_display_order = max(non_audit_display_orders, default=-1)
+    next_display_order = max_non_audit_display_order + 1
+
+    for spec in AUDIT_FIELD_DEFINITIONS:
+        lookup_name = spec["name"].lower()
+        field = existing_table_fields_by_name.get(lookup_name)
+        if not field:
+            field = Field(
+                table_id=table.id,
+                name=spec["name"],
+                description=spec.get("description"),
+                field_type=spec["field_type"],
+                field_length=spec.get("field_length"),
+                decimal_places=spec.get("decimal_places"),
+                system_required=spec.get("system_required", False),
+                business_process_required=spec.get("business_process_required", False),
+                suppressed_field=False,
+                active=True,
+                reference_table=spec.get("reference_table"),
+            )
+            db.add(field)
+            db.flush()
+            table.fields.append(field)
+            existing_table_fields_by_name[lookup_name] = field
+            existing_table_fields_by_id[field.id] = field
+        else:
+            # Align core metadata for pre-existing audit fields
+            if spec.get("description") and field.description != spec["description"]:
+                field.description = spec["description"]
+            if field.field_type != spec["field_type"]:
+                field.field_type = spec["field_type"]
+            if spec.get("field_length") is not None and field.field_length != spec.get("field_length"):
+                field.field_length = spec.get("field_length")
+            if spec.get("decimal_places") is not None and field.decimal_places != spec.get("decimal_places"):
+                field.decimal_places = spec.get("decimal_places")
+            desired_system_required = spec.get("system_required")
+            if desired_system_required is not None and field.system_required != desired_system_required:
+                field.system_required = desired_system_required
+            desired_bpr = spec.get("business_process_required")
+            if desired_bpr is not None and field.business_process_required != desired_bpr:
+                field.business_process_required = desired_bpr
+            if field.reference_table != spec.get("reference_table"):
+                field.reference_table = spec.get("reference_table")
+
+        if field.id not in existing_definition_fields_by_id:
+            definition_field = DataDefinitionField(
+                definition_table_id=definition_table.id,
+                field_id=field.id,
+                notes=spec.get("notes"),
+                display_order=next_display_order,
+            )
+            db.add(definition_field)
+            db.flush()
+            definition_table.fields.append(definition_field)
+            existing_definition_fields_by_id[field.id] = definition_field
+        else:
+            notes = spec.get("notes")
+            if notes is not None:
+                existing_definition_fields_by_id[field.id].notes = notes
+            existing_definition_fields_by_id[field.id].display_order = next_display_order
+
+        next_display_order += 1
+
+
+def _remove_audit_fields_for_definition_table(
+    definition_table: DataDefinitionTable, db: Session
+) -> None:
+    """Remove audit definition fields when construction mode is disabled."""
+    for definition_field in list(definition_table.fields):
+        field = definition_field.field
+        if field and field.name.lower() in AUDIT_FIELD_NAME_SET:
+            if definition_field not in db.deleted:
+                db.delete(definition_field)
+            definition_table.fields.remove(definition_field)
+
+
 def _to_payload_dict(payload):
     if hasattr(payload, "dict"):
         return payload.dict()
@@ -147,9 +247,10 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
         )
         db.add(definition_table)
         db.flush()
+        definition_table.table = table
 
         seen_fields: set[UUID] = set()
-        for field_payload in table_data.get("fields", []):
+        for index, field_payload in enumerate(table_data.get("fields", [])):
             field_data = _to_payload_dict(field_payload)
             field_id = field_data["field_id"]
 
@@ -169,13 +270,22 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
                     detail="Field does not belong to the selected table.",
                 )
 
+            display_order = field_data.get("display_order")
+            if display_order is None or not isinstance(display_order, int):
+                display_order = index
+
             definition_field = DataDefinitionField(
                 definition_table_id=definition_table.id,
                 field_id=field_id,
                 notes=field_data.get("notes"),
+                display_order=display_order,
             )
             db.add(definition_field)
             db.flush()
+            definition_table.fields.append(definition_field)
+
+        if definition_table.is_construction:
+            _ensure_audit_fields_for_definition_table(definition_table, db)
 
 
 def _update_tables_preserve_relationships(
@@ -239,19 +349,23 @@ def _update_tables_preserve_relationships(
             db.add(definition_table)
             db.flush()
             existing_tables_by_table_id[table_id] = definition_table
+            definition_table.table = table
         else:
             definition_table.alias = table_data.get("alias")
             definition_table.description = table_data.get("description")
             definition_table.load_order = load_order
             definition_table.is_construction = bool(table_data.get("is_construction", False))
+            if definition_table.table is None:
+                definition_table.table = table
 
         existing_fields_by_field_id: dict[UUID, DataDefinitionField] = {
             field.field_id: field for field in definition_table.fields
         }
+        table_fields_by_id: dict[UUID, Field] = {field.id: field for field in table.fields}
         desired_field_ids: set[UUID] = set()
         seen_fields: set[UUID] = set()
 
-        for field_payload in table_data.get("fields", []):
+        for index, field_payload in enumerate(table_data.get("fields", [])):
             field_data = _to_payload_dict(field_payload)
             field_id = field_data["field_id"]
 
@@ -272,21 +386,39 @@ def _update_tables_preserve_relationships(
                     detail="Field does not belong to the selected table.",
                 )
 
+            display_order = field_data.get("display_order")
+            if display_order is None or not isinstance(display_order, int):
+                display_order = index
+
             definition_field = existing_fields_by_field_id.get(field_id)
             if definition_field:
                 definition_field.notes = field_data.get("notes")
+                definition_field.display_order = display_order
             else:
                 definition_field = DataDefinitionField(
                     definition_table_id=definition_table.id,
                     field_id=field_id,
                     notes=field_data.get("notes"),
+                    display_order=display_order,
                 )
                 db.add(definition_field)
                 db.flush()
+                existing_fields_by_field_id[field_id] = definition_field
+                definition_table.fields.append(definition_field)
 
         for field_id, definition_field in list(existing_fields_by_field_id.items()):
+            table_field = table_fields_by_id.get(field_id)
+            if table_field and table_field.name.lower() in AUDIT_FIELD_NAME_SET:
+                continue
             if field_id not in desired_field_ids:
                 db.delete(definition_field)
+                if definition_field in definition_table.fields:
+                    definition_table.fields.remove(definition_field)
+
+        if definition_table.is_construction:
+            _ensure_audit_fields_for_definition_table(definition_table, db)
+        else:
+            _remove_audit_fields_for_definition_table(definition_table, db)
 
     for table in list(definition.tables):
         if table.table_id not in payload_table_ids:
@@ -349,7 +481,6 @@ def create_data_definition(
             status_code=status.HTTP_409_CONFLICT,
             detail="A data definition already exists for this data object and system.",
         )
-
     definition = DataDefinition(
         data_object_id=payload.data_object_id,
         system_id=payload.system_id,

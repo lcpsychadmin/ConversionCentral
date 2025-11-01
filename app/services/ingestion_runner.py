@@ -9,14 +9,14 @@ from app.models import IngestionJob, SystemConnection, Table as TableModel
 from app.schemas import SystemConnectionType
 from app.services.connection_resolver import UnsupportedConnectionError, resolve_sqlalchemy_url
 from app.services.connection_testing import ConnectionTestError
-from app.services.ingestion_storage import SqlServerIngestionStorage
+from app.services.ingestion_storage import DatabricksIngestionStorage
 
 
 class IngestionRunner:
-    """Coordinates extracting data from a source connection and loading it into SQL Server."""
+    """Coordinates extracting data from a source connection and loading it into Databricks."""
 
-    def __init__(self, storage: SqlServerIngestionStorage | None = None):
-        self.storage = storage or SqlServerIngestionStorage()
+    def __init__(self, storage: DatabricksIngestionStorage | None = None):
+        self.storage = storage or DatabricksIngestionStorage()
 
     def ingest_table(
         self,

@@ -4,10 +4,9 @@ FROM python:3.11-slim-bullseye AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    DEBIAN_FRONTEND=noninteractive \
-    ACCEPT_EULA=Y
+    DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies and Microsoft ODBC Driver 18 for SQL Server
+# Install build dependencies for the API
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
@@ -19,10 +18,6 @@ RUN apt-get update \
         unixodbc-dev \
         libpq-dev \
         netcat-openbsd \
-    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
-    && curl https://packages.microsoft.com/config/debian/11/prod.list -o /etc/apt/sources.list.d/mssql-release.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends msodbcsql18 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

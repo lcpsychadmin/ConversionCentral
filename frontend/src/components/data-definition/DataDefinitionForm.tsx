@@ -22,6 +22,24 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PreviewIcon from '@mui/icons-material/Preview';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import {
+  DndContext,
+  DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { DataDefinition, DataDefinitionTableInput, Table, TableInput, Field, ConnectionTablePreview } from '../../types/data';
 import { createTable, updateTable, createField, fetchTablePreview } from '../../services/tableService';
@@ -41,6 +59,7 @@ interface DataDefinitionFormProps {
   initialDefinition?: DataDefinition | null;
   dataObjectId?: string;
   tables: Table[];
+  fields: Field[];
   systemId: string;
   onMetadataRefresh?: () => Promise<void>;
 }
@@ -48,6 +67,7 @@ interface DataDefinitionFormProps {
 type FieldRow = {
   id: string;
   fieldId: string;
+  fieldName: string;
   notes: string;
 };
 
@@ -78,7 +98,7 @@ type Snapshot = {
     description: string;
     loadOrder: string;
     isConstruction: boolean;
-    fields: Array<{ fieldId: string; notes: string }>;
+    fields: Array<{ fieldId: string; fieldName: string; notes: string }>;
   }>;
 };
 
@@ -91,6 +111,26 @@ const getNextLoadOrderValue = (rows: Array<{ loadOrder: string }>): string => {
   const next = numericValues.length ? Math.max(...numericValues) + 1 : 1;
   return next.toString();
 };
+
+const toSourceTableKey = (schemaName?: string | null, tableName?: string | null) => {
+  if (!tableName) {
+    return null;
+  }
+  return `${(schemaName ?? '').toLowerCase()}::${tableName.toLowerCase()}`;
+};
+
+const buildSourceTableKeyList = (tableList: AvailableSourceTable[]) => {
+  const keys = new Set<string>();
+  tableList.forEach((table) => {
+    const key = toSourceTableKey(table.schemaName, table.tableName);
+    if (key) {
+      keys.add(key);
+    }
+  });
+  return Array.from(keys);
+};
+
+const CONSTRUCTION_SCHEMA = 'construction_data';
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof AxiosError) {
@@ -118,6 +158,7 @@ const snapshotFromDefinition = (definition?: DataDefinition | null): Snapshot =>
       isConstruction: table.isConstruction ?? false,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
+        fieldName: field.field?.name ?? '',
         notes: field.notes ?? ''
       }))
     })) ?? []
@@ -133,6 +174,7 @@ const normalizeSnapshot = (snapshot: Snapshot) => ({
     isConstruction: table.isConstruction,
     fields: table.fields.map((field) => ({
       fieldId: field.fieldId,
+      fieldName: field.fieldName.trim(),
       notes: field.notes.trim()
     }))
   }))
@@ -149,9 +191,191 @@ const buildRows = (tables: Snapshot['tables']): TableRow[] =>
     fields: table.fields.map((field) => ({
       id: generateId(),
       fieldId: field.fieldId,
+      fieldName: field.fieldName,
       notes: field.notes
     }))
   }));
+
+type FieldDisplayItemProps = {
+  fieldRow: FieldRow;
+  field: Field | undefined;
+};
+
+const fieldItemStyles = {
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: 1,
+  px: 1.5,
+  py: 1,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1.5,
+  backgroundColor: 'background.paper'
+} as const;
+
+const FieldDisplayItem = ({ fieldRow, field }: FieldDisplayItemProps) => {
+  const displayName = field?.name ?? (fieldRow.fieldName ? fieldRow.fieldName : fieldRow.fieldId);
+  const trimmedDescription = field?.description?.trim() ?? '';
+  const trimmedNotes = fieldRow.notes.trim();
+
+  return (
+    <Box sx={fieldItemStyles}>
+      <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.disabled' }}>
+        <DragIndicatorIcon fontSize="small" />
+      </Box>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+          {displayName}
+        </Typography>
+        {trimmedDescription && (
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+            {trimmedDescription}
+          </Typography>
+        )}
+        {trimmedNotes && (
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+            Notes: {trimmedNotes}
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  );
+};
+
+type SortableFieldItemProps = {
+  fieldRow: FieldRow;
+  field: Field | undefined;
+  onDelete: () => void;
+};
+
+const SortableFieldItem = ({ fieldRow, field, onDelete }: SortableFieldItemProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: fieldRow.id
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition
+  };
+
+  const displayName = field?.name ?? (fieldRow.fieldName ? fieldRow.fieldName : fieldRow.fieldId);
+  const trimmedDescription = field?.description?.trim() ?? '';
+  const trimmedNotes = fieldRow.notes.trim();
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={style}
+      sx={{
+        ...fieldItemStyles,
+        gap: 1.5,
+        backgroundColor: isDragging ? 'action.hover' : fieldItemStyles.backgroundColor,
+        transition: 'background-color 120ms ease, box-shadow 120ms ease',
+        boxShadow: isDragging ? 2 : 0
+      }}
+    >
+      <IconButton
+        size="small"
+        aria-label="Reorder field"
+        {...attributes}
+        {...listeners}
+        sx={{ cursor: 'grab' }}
+      >
+        <DragIndicatorIcon fontSize="small" />
+      </IconButton>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+          {displayName}
+        </Typography>
+        {trimmedDescription && (
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+            {trimmedDescription}
+          </Typography>
+        )}
+        {trimmedNotes && (
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+            Notes: {trimmedNotes}
+          </Typography>
+        )}
+      </Box>
+      <IconButton size="small" aria-label="Remove field" onClick={onDelete}>
+        <DeleteOutlineIcon fontSize="small" />
+      </IconButton>
+    </Box>
+  );
+};
+
+type TableFieldsEditorProps = {
+  tableRowId: string;
+  fields: FieldRow[];
+  fieldMap: Map<string, Field>;
+  canEdit: boolean;
+  onDelete: (fieldRowId: string) => void;
+  onReorder: (tableRowId: string, activeId: string, overId: string) => void;
+};
+
+const TableFieldsEditor = ({
+  tableRowId,
+  fields,
+  fieldMap,
+  canEdit,
+  onDelete,
+  onReorder
+}: TableFieldsEditorProps) => {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  if (!fields.length) {
+    return null;
+  }
+
+  if (!canEdit) {
+    return (
+      <Stack spacing={1}>
+        {fields.map((fieldRow) => (
+          <FieldDisplayItem
+            key={fieldRow.id}
+            fieldRow={fieldRow}
+            field={fieldMap.get(fieldRow.fieldId)}
+          />
+        ))}
+      </Stack>
+    );
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      return;
+    }
+    onReorder(tableRowId, String(active.id), String(over.id));
+  };
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext
+        items={fields.map((field) => field.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <Stack spacing={1}>
+          {fields.map((fieldRow) => (
+            <SortableFieldItem
+              key={fieldRow.id}
+              fieldRow={fieldRow}
+              field={fieldMap.get(fieldRow.fieldId)}
+              onDelete={() => onDelete(fieldRow.id)}
+            />
+          ))}
+        </Stack>
+      </SortableContext>
+    </DndContext>
+  );
+};
 
 const DataDefinitionForm = ({
   open,
@@ -162,6 +386,7 @@ const DataDefinitionForm = ({
   initialDefinition,
   dataObjectId,
   tables,
+  fields,
   systemId,
   onMetadataRefresh
 }: DataDefinitionFormProps) => {
@@ -183,6 +408,7 @@ const DataDefinitionForm = ({
   } | null>(null);
   const [sourceTableDialogOpen, setSourceTableDialogOpen] = useState(false);
   const [availableSourceTables, setAvailableSourceTables] = useState<AvailableSourceTable[]>([]);
+  const [sourceTableKeys, setSourceTableKeys] = useState<string[]>([]);
   const [sourceTableDialogLoading, setSourceTableDialogLoading] = useState(false);
   const [sourceTableDialogError, setSourceTableDialogError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -192,6 +418,14 @@ const DataDefinitionForm = ({
   const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const fieldsById = useMemo(() => {
+    const map = new Map<string, Field>();
+    fields.forEach((field) => {
+      map.set(field.id, field);
+    });
+    return map;
+  }, [fields]);
 
   useEffect(() => {
     if (!open) return;
@@ -204,6 +438,43 @@ const DataDefinitionForm = ({
     setLocalTables((prev) => prev.filter((table) => !tables.some((item) => item.id === table.id)));
   }, [tables]);
 
+  const initialDefinitionObjectId = initialDefinition?.dataObjectId ?? null;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const objectId = initialDefinitionObjectId ?? dataObjectId;
+    if (!objectId) {
+      setSourceTableKeys([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSourceTables = async () => {
+      try {
+        const tablesResponse = await fetchAvailableSourceTables(objectId);
+        if (cancelled) {
+          return;
+        }
+        setAvailableSourceTables(tablesResponse);
+        setSourceTableKeys(buildSourceTableKeyList(tablesResponse));
+      } catch (error) {
+        if (!cancelled) {
+          setSourceTableKeys([]);
+        }
+      }
+    };
+
+    loadSourceTables();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, dataObjectId, initialDefinitionObjectId]);
+
   const combinedTables = useMemo(() => {
     const map = new Map<string, Table>();
     [...tables, ...localTables].forEach((table) => {
@@ -212,17 +483,20 @@ const DataDefinitionForm = ({
     return Array.from(map.values());
   }, [tables, localTables]);
 
+  const sourceTableKeySet = useMemo(() => new Set(sourceTableKeys), [sourceTableKeys]);
+
   const normalizedCurrent: Snapshot = useMemo(
     () => ({
       description,
       tables: tableRows.map((table) => ({
-        tableId: table.tableId,
+          tableId: table.tableId,
         alias: table.alias,
         description: table.description,
         loadOrder: table.loadOrder,
           isConstruction: table.isConstruction,
         fields: table.fields.map((field) => ({
           fieldId: field.fieldId,
+          fieldName: field.fieldName,
           notes: field.notes
         }))
       }))
@@ -316,18 +590,63 @@ const DataDefinitionForm = ({
     setTableRows((prev) => prev.filter((table) => table.id !== id));
   };
 
+  const handleRemoveField = (tableRowId: string, fieldRowId: string) => {
+    setTableRows((prev) =>
+      prev.map((table) => {
+        if (table.id !== tableRowId) {
+          return table;
+        }
+        const nextFields = table.fields.filter((field) => field.id !== fieldRowId);
+        if (nextFields.length === table.fields.length) {
+          return table;
+        }
+        return {
+          ...table,
+          fields: nextFields
+        };
+      })
+    );
+  };
+
+  const handleReorderFields = (tableRowId: string, activeId: string, overId: string) => {
+    if (activeId === overId) {
+      return;
+    }
+    setTableRows((prev) =>
+      prev.map((table) => {
+        if (table.id !== tableRowId) {
+          return table;
+        }
+        const fromIndex = table.fields.findIndex((field) => field.id === activeId);
+        const toIndex = table.fields.findIndex((field) => field.id === overId);
+        if (fromIndex === -1 || toIndex === -1) {
+          return table;
+        }
+        return {
+          ...table,
+          fields: arrayMove(table.fields, fromIndex, toIndex)
+        };
+      })
+    );
+  };
+
   const handleTableChange = (rowId: string, table: Table | null) => {
     setTableRows((prev) =>
       prev.map((row) => {
         if (row.id !== rowId) return row;
         const nextAlias = row.alias || table?.name || '';
+        const selectedKey = table
+          ? toSourceTableKey(table.schemaName, table.physicalName ?? table.name)
+          : null;
+        const shouldDisableConstruction = !table || (selectedKey && sourceTableKeySet.has(selectedKey));
         return {
           ...row,
           tableId: table?.id ?? '',
           alias: table ? nextAlias : '',
           description: table ? row.description || table.description || '' : row.description,
           fields: [],
-          loadOrder: row.loadOrder
+          loadOrder: row.loadOrder,
+          isConstruction: shouldDisableConstruction ? false : row.isConstruction
         };
       })
     );
@@ -370,6 +689,7 @@ const DataDefinitionForm = ({
     try {
       const tables = await fetchAvailableSourceTables(objectId);
       setAvailableSourceTables(tables);
+      setSourceTableKeys(buildSourceTableKeyList(tables));
       setSourceTableDialogOpen(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load source tables.';
@@ -456,6 +776,7 @@ const DataDefinitionForm = ({
         createdFields.push({
           id: generateId(),
           fieldId: newField.id,
+          fieldName: newField.name,
           notes: ''
         });
       } catch (error) {
@@ -485,6 +806,13 @@ const DataDefinitionForm = ({
     });
 
     setSourceTableDialogOpen(false);
+    setSourceTableKeys((prev) => {
+      const key = toSourceTableKey(sourceTable.schemaName, sourceTable.tableName);
+      if (!key || prev.includes(key)) {
+        return prev;
+      }
+      return [...prev, key];
+    });
     toast.showSuccess(
       `Table "${sourceTable.tableName}" added with ${createdFields.length} field${createdFields.length === 1 ? '' : 's'}.`
     );
@@ -543,7 +871,7 @@ const DataDefinitionForm = ({
     const sanitized: SanitizedTablePayload = {
       name: values.name.trim(),
       physicalName: values.physicalName.trim(),
-      schemaName: sanitizeOptionalString(values.schemaName),
+      schemaName: CONSTRUCTION_SCHEMA,
       description: sanitizeOptionalString(values.description),
       tableType: sanitizeOptionalString(values.tableType),
       status: values.status.trim() || 'active'
@@ -733,6 +1061,35 @@ const DataDefinitionForm = ({
 
   const tablesAvailable = combinedTables.length > 0;
 
+  useEffect(() => {
+    if (!combinedTables.length) {
+      return;
+    }
+
+    setTableRows((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        if (!row.tableId || !row.isConstruction) {
+          return row;
+        }
+        const tableMeta = combinedTables.find((table) => table.id === row.tableId);
+        if (!tableMeta) {
+          return row;
+        }
+        const key = toSourceTableKey(
+          tableMeta.schemaName,
+          tableMeta.physicalName ?? tableMeta.name
+        );
+        if (key && sourceTableKeySet.has(key)) {
+          changed = true;
+          return { ...row, isConstruction: false };
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+  }, [combinedTables, sourceTableKeySet]);
+
   return (
     <>
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
@@ -758,6 +1115,26 @@ const DataDefinitionForm = ({
             <Stack spacing={2}>
               {tableRows.map((row) => {
                 const selectedTable = combinedTables.find((table) => table.id === row.tableId) ?? null;
+                const selectedTableKey = selectedTable
+                  ? toSourceTableKey(
+                      selectedTable.schemaName,
+                      selectedTable.physicalName ?? selectedTable.name
+                    )
+                  : null;
+                const isSourceTable = Boolean(
+                  selectedTableKey && sourceTableKeySet.has(selectedTableKey)
+                );
+                const canEditFields = row.isConstruction && Boolean(row.tableId) && !loading;
+                let fieldHelperText = 'Fields sourced from existing tables are read-only within this form.';
+                if (row.isConstruction) {
+                  if (!row.tableId) {
+                    fieldHelperText = 'Select a construction table to manage its fields.';
+                  } else if (loading) {
+                    fieldHelperText = 'Field changes are disabled while saving.';
+                  } else {
+                    fieldHelperText = 'Drag to reorder fields or remove entries to update this constructed table.';
+                  }
+                }
 
                 return (
                   <Box key={row.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 2 }}>
@@ -845,35 +1222,62 @@ const DataDefinitionForm = ({
                           sx={{ width: { xs: '100%', md: 160 } }}
                         />
                       </Stack>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={row.isConstruction}
-                            onChange={(event) =>
-                              setTableRows((prev) =>
-                                prev.map((table) =>
-                                  table.id === row.id
-                                    ? { ...table, isConstruction: event.target.checked }
-                                    : table
+                      {!isSourceTable && (
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={row.isConstruction}
+                              onChange={(event) =>
+                                setTableRows((prev) =>
+                                  prev.map((table) =>
+                                    table.id === row.id
+                                      ? { ...table, isConstruction: event.target.checked }
+                                      : table
+                                  )
                                 )
-                              )
-                            }
-                            disabled={!row.tableId}
-                          />
-                        }
-                        label="Construction table"
-                        sx={{ pl: 1 }}
-                      />
+                              }
+                              disabled={!row.tableId}
+                            />
+                          }
+                          label="Construction table"
+                          sx={{ pl: 1 }}
+                        />
+                      )}
+                      {isSourceTable && (
+                        <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
+                          Construction tables must originate from non-source tables.
+                        </Typography>
+                      )}
 
                       <Box>
                         <Typography variant="subtitle1" gutterBottom>
                           Fields
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {row.fields.length > 0
-                            ? `${row.fields.length} field${row.fields.length === 1 ? '' : 's'} currently associated. Manage fields from the Data Definition screen.`
-                            : 'Fields can be added after saving from the Data Definition page.'}
-                        </Typography>
+                        {row.fields.length ? (
+                          <>
+                            <TableFieldsEditor
+                              tableRowId={row.id}
+                              fields={row.fields}
+                              fieldMap={fieldsById}
+                              canEdit={canEditFields}
+                              onDelete={(fieldRowId) => handleRemoveField(row.id, fieldRowId)}
+                              onReorder={handleReorderFields}
+                            />
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: 'block', mt: 0.5 }}
+                            >
+                              {fieldHelperText}
+                            </Typography>
+                          </>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            {row.isConstruction
+                              ? 'No fields yet. Add fields after saving from the Data Definition page.'
+                              : 'Fields can be added after saving from the Data Definition page.'}
+                          </Typography>
+                        )}
                       </Box>
                     </Stack>
                   </Box>
@@ -924,6 +1328,8 @@ const DataDefinitionForm = ({
         open={tableDialogOpen}
         loading={tableDialogLoading}
         mode={tableDialogMode}
+        hideSchemaField
+        defaultSchemaName={CONSTRUCTION_SCHEMA}
         initialValues={
           editingTable
             ? {

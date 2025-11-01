@@ -35,6 +35,8 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Systems', path: '/systems' },
       { label: 'Connections', path: '/application-settings/connections' },
+      { label: 'Application Database', path: '/application-settings/application-database' },
+      { label: 'Databricks Warehouse', path: '/application-settings/databricks' },
       { label: 'Process Areas', path: '/process-areas' }
     ]
   },

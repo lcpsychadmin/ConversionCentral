@@ -41,6 +41,9 @@ from app.routers import (
 	dependency_approval,
 	dependency_dag,
 	reporting,
+	databricks_settings,
+	application_database,
+	application_settings,
 )
 
 api_router = APIRouter()
@@ -84,5 +87,8 @@ api_router.include_router(table_load_order_approval.router)
 api_router.include_router(dependency_approval.router)
 api_router.include_router(dependency_dag.router)
 api_router.include_router(reporting.router)
+api_router.include_router(databricks_settings.router)
+api_router.include_router(application_database.router)
+api_router.include_router(application_settings.router)
 
 __all__ = ["api_router"]

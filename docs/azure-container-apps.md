@@ -53,17 +53,19 @@ docker push $frontendImage
 ## 4. Configure databases
 
 1. **PostgreSQL**: Create an Azure Database for PostgreSQL Flexible Server. Collect the SQLAlchemy URL (format `postgresql+psycopg://user:password@host:5432/dbname`).
-2. **SQL Server ingestion**: Use Azure SQL Database/Managed Instance. Ensure the ODBC driver is accessible (driver `ODBC Driver 18 for SQL Server`). Collect the SQLAlchemy-style connection string you provide to the backend.
-3. Apply the schema:
-   - Run Alembic migrations through the backend app on first start (already executed in `start.sh`).
-   - Execute `docker/sqlserver-init.sql` against the Azure SQL instance (e.g., using Azure Data Studio or `sqlcmd`).
+2. **Databricks SQL warehouse**: Provision a SQL warehouse in your Databricks workspace (or reuse an existing one). Generate a personal access token (PAT) with permission to query the warehouse and note the following values:
+  - Workspace host (for example `adb-123456789012345.7.azuredatabricks.net`)
+  - HTTP path (for example `/sql/1.0/warehouses/<warehouse-id>`)
+  - Optional catalog and schema defaults if you want the application to target a specific schema by default.
+3. Apply the schema by running Alembic migrations during the backend startup (handled automatically by `docker/backend/start.sh`).
 
 ## 5. Deploy the backend container app
 
 ```powershell
-$databaseUrl = "postgresql+psycopg://..."            # Replace
-$ingestionUrl = "mssql+pyodbc://..."                 # Replace
-$ingestionPassword = "<ingestion-user-password>"     # Optional, if used elsewhere
+$databaseUrl    = "postgresql+psycopg://..."            # PostgreSQL SQLAlchemy URL
+$databricksHost = "adb-123456789012345.7.azuredatabricks.net"
+$databricksPath = "/sql/1.0/warehouses/<warehouse-id>"
+$databricksToken = "<databricks-personal-access-token>"
 
 az containerapp create `
   -g $resourceGroup -n "cc-backend" `
@@ -73,17 +75,21 @@ az containerapp create `
   --ingress external `
   --registry-server "$acrName.azurecr.io" `
   --cpu 1 --memory 2Gi `
-  --secrets database-url=$databaseUrl ingestion-url=$ingestionUrl `
+  --secrets `
+      database-url=$databaseUrl `
+      databricks-token=$databricksToken `
   --env-vars `
       DATABASE_URL=secretref:database-url `
-      INGESTION_DATABASE_URL=secretref:ingestion-url `
+      DATABRICKS_HOST=$databricksHost `
+      DATABRICKS_HTTP_PATH=$databricksPath `
+      DATABRICKS_TOKEN=secretref:databricks-token `
       APP_NAME="Conversion Central API" `
       FRONTEND_ORIGINS="https://cc-frontend.<region>.azurecontainerapps.io,https://localhost:3000"
 ```
 
 Notes:
 - Replace the sample `FRONTEND_ORIGINS` with the actual frontend hostname once it is known.
-- If you set additional secrets (e.g., ingestion password), reference them via `secretref` too.
+- If you configure optional catalog or schema defaults, set `DATABRICKS_CATALOG` / `DATABRICKS_SCHEMA` environment variables.
 
 ## 6. Deploy the frontend container app
 
@@ -112,7 +118,7 @@ If the frontend needs environment variables beyond `VITE_API_URL`, set them here
 
 ## 8. Local development
 
-No changes are required locally. Continue using `docker compose up` with the bundled Postgres and SQL Server containers. The new environment variables (`FRONTEND_ORIGINS`, Azure connection strings) only apply to the cloud deployment.
+No changes are required locally. Continue using `docker compose up` to start the Postgres-backed API and the frontend. Configure Databricks credentials through environment variables (`DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`, etc.) when you want to test warehouse integrations from your local environment.
 
 ## 9. Cleanup
 

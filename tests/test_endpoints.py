@@ -1262,10 +1262,25 @@ def test_data_definition_construction_sync_creates_constructed_table(client, db_
 
     assert constructed_table.status == "approved"
     assert constructed_table.data_definition_id == definition_id
-    assert {field.name for field in constructed_table.fields} == {
+    audit_field_names = {
+        "Project",
+        "Release",
+        "Created By",
+        "Created Date",
+        "Modified By",
+        "Modified Date",
+    }
+    constructed_field_names = {field.name for field in constructed_table.fields}
+    expected_field_names = {
         setup["field_one_name"],
         setup["field_two_name"],
+    } | audit_field_names
+    assert constructed_field_names == expected_field_names
+
+    response_field_names = {
+        field_entry["field"]["name"] for field_entry in table_entry["fields"]
     }
+    assert audit_field_names.issubset(response_field_names)
 
 
 def test_data_definition_construction_sync_removes_constructed_table(client, db_session):
