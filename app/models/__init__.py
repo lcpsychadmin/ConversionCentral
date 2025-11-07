@@ -12,7 +12,6 @@ from app.models.entities import (
     ProcessAreaRoleAssignment,
     ConstructedTable,
     ConstructedField,
-    ConstructedData,
     ConstructedDataValidationRule,
     ConstructedTableApproval,
     DataObjectDependency,
@@ -42,6 +41,7 @@ from app.models.entities import (
     Table,
     User,
     DatabricksSqlSetting,
+    SapHanaSetting,
     ApplicationDatabaseSetting,
     ApplicationSetting,
 )
@@ -64,7 +64,6 @@ __all__ = [
     "DataDefinitionField",
     "DataDefinitionRelationship",
     "FieldLoad",
-    "ConstructedData",
     "ConstructedDataValidationRule",
     "Role",
     "DataObjectDependency",
@@ -90,6 +89,7 @@ __all__ = [
     "User",
     "ReleaseDataObject",
     "DatabricksSqlSetting",
+    "SapHanaSetting",
     "ApplicationDatabaseSetting",
     "ApplicationSetting",
 ]

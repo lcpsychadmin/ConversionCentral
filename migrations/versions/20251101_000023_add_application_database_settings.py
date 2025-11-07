@@ -7,6 +7,7 @@ Create Date: 2025-11-01 00:30:00.000000
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 from sqlalchemy.dialects import postgresql
 
 
@@ -16,21 +17,34 @@ down_revision = "20251101_000022"
 branch_labels = None
 depends_on = None
 
-application_database_engine_enum = sa.Enum(
+application_database_engine_enum = postgresql.ENUM(
     "default_postgres",
     "custom_postgres",
     "sqlserver",
     name="application_database_engine_enum",
+    create_type=False,
 )
 
 
 def upgrade() -> None:
-    application_database_engine_enum.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    enum_exists = bind.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM pg_type WHERE typname = 'application_database_engine_enum'
+            )
+            """
+        )
+    ).scalar()
+
+    if not enum_exists:
+        application_database_engine_enum.create(bind, checkfirst=False)
     op.create_table(
         "application_database_settings",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("display_name", sa.String(length=200), nullable=True),
-        sa.Column("engine", application_database_engine_enum, nullable=False),
+    sa.Column("engine", application_database_engine_enum, nullable=False),
         sa.Column("connection_url", sa.Text(), nullable=True),
         sa.Column("connection_display", sa.String(length=512), nullable=True),
         sa.Column("applied_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -47,4 +61,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("application_database_settings")
-    application_database_engine_enum.drop(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    enum_exists = bind.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM pg_type WHERE typname = 'application_database_engine_enum'
+            )
+            """
+        )
+    ).scalar()
+
+    if enum_exists:
+        application_database_engine_enum.drop(bind, checkfirst=False)

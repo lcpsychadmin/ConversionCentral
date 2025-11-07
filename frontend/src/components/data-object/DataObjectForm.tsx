@@ -92,7 +92,7 @@ const DataObjectForm = ({
     const nextErrors: { name?: string; processAreaId?: string } = {};
 
     if (!values.processAreaId) {
-      nextErrors.processAreaId = 'Process area is required';
+      nextErrors.processAreaId = 'Product team is required';
     }
 
     if (!trimmedName) {
@@ -133,7 +133,7 @@ const DataObjectForm = ({
           <Stack spacing={2} mt={1}>
             {noProcessAreas && (
               <Alert severity="warning">
-                Create a process area before adding data objects. Once available, you can assign the data object to it here.
+                Create a product team before adding data objects. Once available, you can assign the data object to it here.
               </Alert>
             )}
             <TextField
@@ -159,7 +159,7 @@ const DataObjectForm = ({
             />
             <TextField
               select
-              label="Process Area"
+              label="Product Team"
               fullWidth
               required
               id="data-object-process-area"
@@ -167,7 +167,7 @@ const DataObjectForm = ({
               value={values.processAreaId ?? ''}
               onChange={handleChange('processAreaId')}
               error={!!errors.processAreaId}
-              helperText={errors.processAreaId ?? 'Select the process area that owns this data object.'}
+              helperText={errors.processAreaId ?? 'Select the product team that owns this data object.'}
               disabled={noProcessAreas}
             >
               {processAreas.map((area) => (

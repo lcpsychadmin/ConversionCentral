@@ -42,8 +42,10 @@ from app.routers import (
 	dependency_dag,
 	reporting,
 	databricks_settings,
+	sap_hana_settings,
 	application_database,
 	application_settings,
+	upload_data,
 )
 
 api_router = APIRouter()
@@ -88,7 +90,9 @@ api_router.include_router(dependency_approval.router)
 api_router.include_router(dependency_dag.router)
 api_router.include_router(reporting.router)
 api_router.include_router(databricks_settings.router)
+api_router.include_router(sap_hana_settings.router)
 api_router.include_router(application_database.router)
 api_router.include_router(application_settings.router)
+api_router.include_router(upload_data.router)
 
 __all__ = ["api_router"]

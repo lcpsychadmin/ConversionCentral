@@ -8,16 +8,19 @@ import {
 
 interface DatabricksSettingsResponse {
   id: string;
-  display_name: string;
-  workspace_host: string;
-  http_path: string;
+  displayName: string;
+  workspaceHost: string;
+  httpPath: string;
   catalog?: string | null;
-  schema_name?: string | null;
-  warehouse_name?: string | null;
-  is_active: boolean;
-  has_access_token: boolean;
-  created_at?: string;
-  updated_at?: string;
+  schemaName?: string | null;
+  constructedSchema?: string | null;
+  ingestionBatchRows?: number | null;
+  ingestionMethod?: 'sql' | 'spark';
+  warehouseName?: string | null;
+  isActive: boolean;
+  hasAccessToken: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface DatabricksSettingsTestPayload {
@@ -26,28 +29,34 @@ interface DatabricksSettingsTestPayload {
   access_token: string;
   catalog?: string | null;
   schema_name?: string | null;
+  constructed_schema?: string | null;
+  ingestion_batch_rows?: number | null;
+  ingestion_method?: 'sql' | 'spark';
 }
 
 interface DatabricksSettingsTestResponse {
   success: boolean;
   message: string;
-  duration_ms?: number | null;
+  durationMs?: number | null;
 }
 
 const mapDatabricksSettings = (
   payload: DatabricksSettingsResponse
 ): DatabricksSqlSettings => ({
   id: payload.id,
-  displayName: payload.display_name,
-  workspaceHost: payload.workspace_host,
-  httpPath: payload.http_path,
+  displayName: payload.displayName,
+  workspaceHost: payload.workspaceHost,
+  httpPath: payload.httpPath,
   catalog: payload.catalog ?? null,
-  schemaName: payload.schema_name ?? null,
-  warehouseName: payload.warehouse_name ?? null,
-  isActive: payload.is_active,
-  hasAccessToken: payload.has_access_token,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  schemaName: payload.schemaName ?? null,
+  constructedSchema: payload.constructedSchema ?? null,
+  ingestionBatchRows: payload.ingestionBatchRows ?? null,
+  ingestionMethod: payload.ingestionMethod ?? 'sql',
+  warehouseName: payload.warehouseName ?? null,
+  isActive: payload.isActive,
+  hasAccessToken: payload.hasAccessToken,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 export const fetchDatabricksSettings = async (): Promise<DatabricksSqlSettings | null> => {
@@ -65,6 +74,9 @@ export const createDatabricksSettings = async (
     access_token: input.accessToken,
     catalog: input.catalog ?? null,
     schema_name: input.schemaName ?? null,
+    constructed_schema: input.constructedSchema ?? null,
+    ingestion_batch_rows: input.ingestionBatchRows ?? null,
+    ingestion_method: input.ingestionMethod ?? 'sql',
     warehouse_name: input.warehouseName ?? null
   });
   return mapDatabricksSettings(response.data);
@@ -80,6 +92,11 @@ export const updateDatabricksSettings = async (
     ...(input.httpPath !== undefined ? { http_path: input.httpPath } : {}),
     ...(input.catalog !== undefined ? { catalog: input.catalog } : {}),
     ...(input.schemaName !== undefined ? { schema_name: input.schemaName } : {}),
+    ...(input.constructedSchema !== undefined
+      ? { constructed_schema: input.constructedSchema }
+      : {}),
+    ...(input.ingestionBatchRows !== undefined ? { ingestion_batch_rows: input.ingestionBatchRows } : {}),
+    ...(input.ingestionMethod !== undefined ? { ingestion_method: input.ingestionMethod } : {}),
     ...(input.warehouseName !== undefined ? { warehouse_name: input.warehouseName } : {}),
     ...(input.accessToken !== undefined ? { access_token: input.accessToken } : {}),
     ...(input.isActive !== undefined ? { is_active: input.isActive } : {})
@@ -95,7 +112,10 @@ export const testDatabricksSettings = async (
     http_path: input.httpPath,
     access_token: input.accessToken,
     catalog: input.catalog ?? null,
-    schema_name: input.schemaName ?? null
+    schema_name: input.schemaName ?? null,
+    constructed_schema: input.constructedSchema ?? null,
+    ingestion_batch_rows: input.ingestionBatchRows ?? null,
+    ingestion_method: input.ingestionMethod ?? 'sql'
   };
   const response = await client.post<DatabricksSettingsTestResponse>(
     '/databricks/settings/test',
@@ -105,6 +125,6 @@ export const testDatabricksSettings = async (
   return {
     success: response.data.success,
     message: response.data.message,
-    durationMs: response.data.duration_ms ?? null
+    durationMs: response.data.durationMs ?? null
   };
 };

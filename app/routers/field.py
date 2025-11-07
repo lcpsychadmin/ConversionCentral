@@ -31,7 +31,13 @@ def create_field(payload: FieldCreate, db: Session = Depends(get_db)) -> FieldRe
 
 @router.get("", response_model=list[FieldRead])
 def list_fields(db: Session = Depends(get_db)) -> list[FieldRead]:
-    return db.query(Field).all()
+    # Return unique fields by id to guard against any duplicate rows accidentally present
+    # in queries or fixtures. Preserve insertion order where possible.
+    fields = db.query(Field).all()
+    unique: dict[str, Field] = {}
+    for f in fields:
+        unique[str(f.id)] = f
+    return list(unique.values())
 
 
 @router.get("/{field_id}", response_model=FieldRead)

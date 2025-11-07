@@ -84,6 +84,7 @@ from app.schemas.entities import (
     IngestionScheduleUpdate,
     IngestionRunRead,
     IngestionRunStatus,
+    DataWarehouseTarget,
     ProcessAreaCreate,
     ProcessAreaRead,
     ProcessAreaRoleAssignmentCreate,
@@ -117,6 +118,11 @@ from app.schemas.entities import (
     DatabricksSqlSettingUpdate,
     DatabricksSqlSettingTestRequest,
     DatabricksSqlSettingTestResult,
+    SapHanaSettingCreate,
+    SapHanaSettingRead,
+    SapHanaSettingUpdate,
+    SapHanaSettingTestRequest,
+    SapHanaSettingTestResult,
     ApplicationDatabaseEngine,
     ApplicationDatabaseConnectionInput,
     ApplicationDatabaseTestRequest,
@@ -126,6 +132,8 @@ from app.schemas.entities import (
     ApplicationDatabaseStatus,
     AdminEmailSetting,
     AdminEmailUpdate,
+    CompanySettingsRead,
+    CompanySettingsUpdate,
     SystemCreate,
     SystemRead,
     SystemUpdate,
@@ -170,12 +178,19 @@ from app.schemas.reporting import (
     ReportPreviewResponse,
     ReportSortDirection,
 )
+from app.schemas.upload_data import (
+    UploadDataColumn,
+    UploadDataCreateResponse,
+    UploadDataPreviewResponse,
+    UploadTableMode,
+)
 
 __all__ = [name for name in globals() if name.endswith(("Create", "Read", "Update"))]
 __all__.extend([
     "MappingSetStatus",
     "MappingStatus",
     "DataDefinitionJoinType",
+    "DataWarehouseTarget",
     "SystemConnectionType",
     "SystemConnectionAuthMethod",
     "SystemConnectionTestRequest",
@@ -203,6 +218,8 @@ __all__.extend([
     "ReportSortDirection",
     "DatabricksSqlSettingTestRequest",
     "DatabricksSqlSettingTestResult",
+    "SapHanaSettingTestRequest",
+    "SapHanaSettingTestResult",
     "ApplicationDatabaseEngine",
     "ApplicationDatabaseConnectionInput",
     "ApplicationDatabaseTestRequest",
@@ -211,4 +228,8 @@ __all__.extend([
     "ApplicationDatabaseStatus",
     "AdminEmailSetting",
     "AdminEmailUpdate",
+    "UploadDataColumn",
+    "UploadDataCreateResponse",
+    "UploadDataPreviewResponse",
+    "UploadTableMode",
 ])

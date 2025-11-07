@@ -7,13 +7,13 @@ from app.database import get_db
 from app.models import ProcessArea
 from app.schemas import ProcessAreaCreate, ProcessAreaRead, ProcessAreaUpdate
 
-router = APIRouter(prefix="/process-areas", tags=["Process Areas"])
+router = APIRouter(prefix="/process-areas", tags=["Product Teams"])
 
 
 def _get_process_area_or_404(process_area_id: UUID, db: Session) -> ProcessArea:
     process_area = db.get(ProcessArea, process_area_id)
     if not process_area:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product team not found")
     return process_area
 
 

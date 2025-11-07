@@ -168,6 +168,7 @@ def _ensure_audit_fields_for_definition_table(
                 field_id=field.id,
                 notes=spec.get("notes"),
                 display_order=next_display_order,
+                is_unique=False,
             )
             db.add(definition_field)
             db.flush()
@@ -178,6 +179,7 @@ def _ensure_audit_fields_for_definition_table(
             if notes is not None:
                 existing_definition_fields_by_id[field.id].notes = notes
             existing_definition_fields_by_id[field.id].display_order = next_display_order
+            existing_definition_fields_by_id[field.id].is_unique = False
 
         next_display_order += 1
 
@@ -279,6 +281,7 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
                 field_id=field_id,
                 notes=field_data.get("notes"),
                 display_order=display_order,
+                is_unique=bool(field_data.get("is_unique", False)),
             )
             db.add(definition_field)
             db.flush()
@@ -394,12 +397,14 @@ def _update_tables_preserve_relationships(
             if definition_field:
                 definition_field.notes = field_data.get("notes")
                 definition_field.display_order = display_order
+                definition_field.is_unique = bool(field_data.get("is_unique", False))
             else:
                 definition_field = DataDefinitionField(
                     definition_table_id=definition_table.id,
                     field_id=field_id,
                     notes=field_data.get("notes"),
                     display_order=display_order,
+                    is_unique=bool(field_data.get("is_unique", False)),
                 )
                 db.add(definition_field)
                 db.flush()

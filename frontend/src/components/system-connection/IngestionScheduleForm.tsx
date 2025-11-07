@@ -15,11 +15,12 @@ import {
   Stack,
   Switch,
   TextField,
-  Typography
+  Typography,
+  Link
 } from '@mui/material';
 import Select, { SelectChangeEvent } from '@mui/material/Select';
 
-import { IngestionLoadStrategy, IngestionSchedule } from '../../types/data';
+import { DataWarehouseTarget, IngestionLoadStrategy, IngestionSchedule } from '../../types/data';
 
 export interface ScheduleSelectionOption {
   id: string;
@@ -30,15 +31,31 @@ export interface ScheduleSelectionOption {
   disabled?: boolean;
 }
 
+export interface WarehouseOption {
+  value: DataWarehouseTarget;
+  label: string;
+  disabled?: boolean;
+  helperText?: string;
+}
+
+export interface SapHanaOption {
+  id: string;
+  label: string;
+  disabled?: boolean;
+}
+
 interface IngestionScheduleFormProps {
   open: boolean;
   title: string;
   options: ScheduleSelectionOption[];
+  warehouseOptions: WarehouseOption[];
+  sapHanaOptions: SapHanaOption[];
   initialValues?: IngestionSchedule | null;
   loading?: boolean;
   onClose: () => void;
   onSubmit: (values: FormValues) => void;
   disableSelectionChange?: boolean;
+  sapHanaSettingsPath?: string;
 }
 
 export interface FormValues {
@@ -49,6 +66,8 @@ export interface FormValues {
   watermarkColumn?: string;
   primaryKeyColumn?: string;
   targetSchema?: string;
+  targetWarehouse: DataWarehouseTarget;
+  sapHanaSettingId?: string;
   batchSize: number;
   isActive: boolean;
 }
@@ -63,6 +82,8 @@ const DEFAULT_VALUES: FormValues = {
   watermarkColumn: '',
   primaryKeyColumn: '',
   targetSchema: '',
+  targetWarehouse: 'databricks_sql',
+  sapHanaSettingId: '',
   batchSize: 5000,
   isActive: true
 };
@@ -86,6 +107,8 @@ const buildInitialValues = (
     watermarkColumn: initial.watermarkColumn ?? '',
     primaryKeyColumn: initial.primaryKeyColumn ?? '',
     targetSchema: initial.targetSchema ?? '',
+    targetWarehouse: initial.targetWarehouse,
+    sapHanaSettingId: initial.sapHanaSettingId ?? '',
     batchSize: initial.batchSize,
     isActive: initial.isActive
   };
@@ -110,6 +133,10 @@ const validate = (values: FormValues): FieldErrorMap => {
     errors.primaryKeyColumn = 'Primary key column is required for numeric key strategy.';
   }
 
+  if (values.targetWarehouse === 'sap_hana' && !values.sapHanaSettingId) {
+    errors.sapHanaSettingId = 'Select an SAP HANA configuration.';
+  }
+
   if (values.batchSize < 1) {
     errors.batchSize = 'Batch size must be positive.';
   }
@@ -126,6 +153,7 @@ const normalize = (values: FormValues): FormValues => ({
   watermarkColumn: trimString(values.watermarkColumn),
   primaryKeyColumn: trimString(values.primaryKeyColumn),
   targetSchema: trimString(values.targetSchema),
+  sapHanaSettingId: values.sapHanaSettingId?.trim() || '',
   batchSize: Number(values.batchSize),
   connectionTableSelectionId: values.connectionTableSelectionId
 });
@@ -134,11 +162,14 @@ const IngestionScheduleForm = ({
   open,
   title,
   options,
+  warehouseOptions,
+  sapHanaOptions,
   initialValues = null,
   loading = false,
   onClose,
   onSubmit,
-  disableSelectionChange = false
+  disableSelectionChange = false,
+  sapHanaSettingsPath
 }: IngestionScheduleFormProps) => {
   const initialSnapshot = useMemo(
     () => buildInitialValues(initialValues, options),
@@ -153,6 +184,19 @@ const IngestionScheduleForm = ({
     setErrors({});
   }, [initialSnapshot, open]);
 
+  useEffect(() => {
+    if (values.targetWarehouse !== 'sap_hana') {
+      return;
+    }
+    if (values.sapHanaSettingId && values.sapHanaSettingId.length > 0) {
+      return;
+    }
+    const firstAvailable = sapHanaOptions.find((option) => !option.disabled)?.id;
+    if (firstAvailable) {
+      setValues((prev) => ({ ...prev, sapHanaSettingId: firstAvailable }));
+    }
+  }, [sapHanaOptions, values.targetWarehouse, values.sapHanaSettingId]);
+
   const handleChange = <K extends keyof FormValues>(field: K) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const next = event.target.value;
@@ -164,6 +208,23 @@ const IngestionScheduleForm = ({
     const next = event.target.value as IngestionLoadStrategy;
     setValues((prev) => ({ ...prev, loadStrategy: next }));
     setErrors((prev) => ({ ...prev, watermarkColumn: undefined, primaryKeyColumn: undefined }));
+  };
+
+  const handleWarehouseChange = (event: SelectChangeEvent<DataWarehouseTarget>) => {
+    const next = event.target.value as DataWarehouseTarget;
+    const defaultSetting = next === 'sap_hana' ? sapHanaOptions.find((option) => !option.disabled)?.id ?? '' : '';
+    setValues((prev) => ({
+      ...prev,
+      targetWarehouse: next,
+      sapHanaSettingId: next === 'sap_hana' ? (prev.sapHanaSettingId || defaultSetting) : ''
+    }));
+    setErrors((prev) => ({ ...prev, sapHanaSettingId: undefined }));
+  };
+
+  const handleSapHanaSettingChange = (event: SelectChangeEvent<string>) => {
+    const next = event.target.value ?? '';
+    setValues((prev) => ({ ...prev, sapHanaSettingId: next }));
+    setErrors((prev) => ({ ...prev, sapHanaSettingId: undefined }));
   };
 
   const handleToggleActive = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
@@ -195,6 +256,7 @@ const IngestionScheduleForm = ({
 
   const selectedOption = options.find((option) => option.id === values.connectionTableSelectionId);
   const targetPreview = selectedOption?.targetPreview;
+  const sapHanaConfigured = sapHanaOptions.length > 0;
 
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
@@ -231,6 +293,63 @@ const IngestionScheduleForm = ({
               <Typography variant="body2" color="text.secondary">
                 Target table will be <strong>{targetPreview}</strong>
               </Typography>
+            )}
+
+            <FormControl fullWidth required>
+              <InputLabel id="target-warehouse-label">Target Warehouse</InputLabel>
+              <Select
+                labelId="target-warehouse-label"
+                label="Target Warehouse"
+                value={values.targetWarehouse}
+                onChange={handleWarehouseChange}
+              >
+                {warehouseOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value} disabled={option.disabled}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                {
+                  warehouseOptions.find((option) => option.value === values.targetWarehouse)?.helperText ??
+                  'Choose where the ingested data should land.'
+                }
+              </FormHelperText>
+            </FormControl>
+
+            {values.targetWarehouse === 'sap_hana' && (
+              sapHanaConfigured ? (
+                <FormControl fullWidth required error={!!errors.sapHanaSettingId}>
+                  <InputLabel id="sap-hana-setting-label">SAP HANA Configuration</InputLabel>
+                  <Select
+                    labelId="sap-hana-setting-label"
+                    label="SAP HANA Configuration"
+                    value={values.sapHanaSettingId ?? ''}
+                    onChange={handleSapHanaSettingChange}
+                  >
+                    {sapHanaOptions.map((option) => (
+                      <MenuItem key={option.id} value={option.id} disabled={option.disabled}>
+                        {option.label}
+                        {option.disabled ? ' (inactive)' : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>{errors.sapHanaSettingId}</FormHelperText>
+                </FormControl>
+              ) : (
+                <Alert severity="warning">
+                  No SAP HANA warehouse is configured. Configure one in the data warehouse settings
+                  {sapHanaSettingsPath ? ' page.' : '.'}
+                  {sapHanaSettingsPath && (
+                    <>
+                      {' '}
+                      <Link href={sapHanaSettingsPath} target="_blank" rel="noreferrer">
+                        Open settings
+                      </Link>
+                    </>
+                  )}
+                </Alert>
+              )
             )}
 
             <TextField

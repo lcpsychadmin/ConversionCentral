@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
@@ -9,7 +10,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.entities import Field, SystemConnection, Table
+from app.ingestion.engine import get_ingestion_connection_params, get_ingestion_engine
+from app.models.entities import ConstructedTable, Field, SystemConnection, Table
 from app.schemas import SystemConnectionType
 from app.schemas.reporting import (
     ReportAggregateFn,
@@ -21,6 +23,10 @@ from app.schemas.reporting import (
     ReportSortDirection,
 )
 from app.services.connection_resolver import UnsupportedConnectionError, resolve_sqlalchemy_url
+from app.services.constructed_data_warehouse import (
+    ConstructedDataWarehouse,
+    ConstructedDataWarehouseError,
+)
 
 
 class ReportPreviewError(Exception):
@@ -32,6 +38,14 @@ class _JoinEdge:
     join: ReportDesignerJoin
     source_table_id: UUID
     target_table_id: UUID
+
+
+@dataclass(frozen=True)
+class _ConnectionHandle:
+    kind: str
+    connection_type: SystemConnectionType | None = None
+    connection_string: str | None = None
+    dialect: str | None = None
 
 
 def _resolve_connection_identity(connection: SystemConnection) -> tuple[SystemConnectionType, str] | None:
@@ -59,7 +73,18 @@ def _resolve_connection_identity(connection: SystemConnection) -> tuple[SystemCo
 class ReportSqlBuilder:
     """Compose a SQL statement for a reporting designer definition."""
 
-    def __init__(self, definition: ReportDesignerDefinition, tables: Dict[UUID, Table], fields: Dict[UUID, Field], limit: int) -> None:
+    def __init__(
+        self,
+        definition: ReportDesignerDefinition,
+        tables: Dict[UUID, Table],
+        fields: Dict[UUID, Field],
+        limit: int,
+        *,
+        quote_char: str = '"',
+        schema_overrides: Dict[UUID, str] | None = None,
+        name_overrides: Dict[UUID, str] | None = None,
+        column_overrides: Dict[UUID, str] | None = None,
+    ) -> None:
         self.definition = definition
         self.tables = tables
         self.fields = fields
@@ -71,6 +96,10 @@ class ReportSqlBuilder:
         self.order_by_clauses: List[str] = []
         self.where_clauses: List[str] = []
         self.bind_params = {"preview_limit": limit}
+        self.quote_char = quote_char
+        self.schema_overrides = schema_overrides or {}
+        self.name_overrides = name_overrides or {}
+        self.column_overrides = column_overrides or {}
 
     def build(self) -> str:
         if not self.definition.tables:
@@ -159,8 +188,8 @@ class ReportSqlBuilder:
 
         right_table = self._require_table(right_table_id)
 
-        left_column = f"{left_alias}.{self._quote_identifier(left_field.name)}"
-        right_column = f"{right_alias}.{self._quote_identifier(right_field.name)}"
+        left_column = self._column_ref(left_alias, left_field)
+        right_column = self._column_ref(right_alias, right_field)
 
         return (
             f"\n       {sql_join} {self._qualify_table(right_table)} AS {right_alias}"
@@ -193,7 +222,7 @@ class ReportSqlBuilder:
                     "Select at least one field from a table that participates in the current joins."
                 )
 
-            base_expression = f"{table_alias}.{self._quote_identifier(field.name)}"
+            base_expression = self._column_ref(table_alias, field)
             aggregate = column.aggregate
             display_label = column.field_name or field.name
 
@@ -260,7 +289,7 @@ class ReportSqlBuilder:
                     raise ReportPreviewError(
                         "Filter criteria reference tables that are not part of the preview joins."
                     )
-                column_ref = f"{alias}.{self._quote_identifier(field.name)}"
+                column_ref = self._column_ref(alias, field)
                 clauses.append(f"({column_ref} {raw})")
             if clauses:
                 row_groups.append(f"({' AND '.join(clauses)})")
@@ -300,15 +329,39 @@ class ReportSqlBuilder:
             raise ReportPreviewError(f"Unable to locate metadata for field {field_id}.")
         return field
 
+    def _column_ref(self, table_alias: str, field: Field) -> str:
+        column_name = self.column_overrides.get(field.id, field.name)
+        return f"{table_alias}.{self._quote_identifier(column_name)}"
+
     def _qualify_table(self, table: Table) -> str:
-        name = self._quote_identifier(table.physical_name)
-        if table.schema_name:
-            return f"{self._quote_identifier(table.schema_name)}.{name}"
+        physical_name = self.name_overrides.get(table.id, table.physical_name)
+        if not physical_name:
+            raise ReportPreviewError(f"Table {table.id} is missing a physical name for preview.")
+
+        name = self._quote_identifier(physical_name)
+        schema_name = self.schema_overrides.get(table.id, table.schema_name)
+        schema_sql = self._format_schema_path(schema_name)
+        if schema_sql:
+            return f"{schema_sql}.{name}"
         return name
 
     def _quote_identifier(self, value: str) -> str:
-        escaped = value.replace('"', '""')
-        return f'"{escaped}"'
+        quote = self.quote_char
+        if quote == '"':
+            escaped = value.replace('"', '""')
+        elif quote == "`":
+            escaped = value.replace("`", "``")
+        else:
+            escaped = value.replace(quote, quote * 2)
+        return f"{quote}{escaped}{quote}"
+
+    def _format_schema_path(self, schema_name: str | None) -> str:
+        if not schema_name:
+            return ""
+        parts = [part.strip() for part in schema_name.split(".") if part and part.strip()]
+        if not parts:
+            return ""
+        return ".".join(self._quote_identifier(part) for part in parts)
 
     def _dedupe_alias(self, base: str, usage: Dict[str, int]) -> str:
         candidate = base or "column"
@@ -361,17 +414,215 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
             + ", ".join(str(item) for item in missing_fields)
         )
 
-    table_sources: List[tuple[Table, str | None, tuple[SystemConnectionType, str] | None]] = []
+    table_sources: List[tuple[Table, str | None, _ConnectionHandle | None]] = []
+    schema_overrides: Dict[UUID, str] = {}
+    name_overrides: Dict[UUID, str] = {}
+    field_column_overrides: Dict[UUID, str] = {}
+    constructed_tables_to_ensure: Dict[UUID, ConstructedTable] = {}
+    managed_handle: _ConnectionHandle | None = None
+    managed_handle_error: ReportPreviewError | None = None
+    managed_schema_path: str | None = None
+    managed_engine_dialect: str | None = None
+    constructed_column_maps: Dict[UUID, Dict[str, str]] = {}
+
+    def _infer_connection_dialect(
+        connection_type: SystemConnectionType | None, connection_string: str | None
+    ) -> str | None:
+        if connection_type is None or not connection_string:
+            return None
+        if connection_type == SystemConnectionType.JDBC:
+            lowered = connection_string.lower()
+            if lowered.startswith("jdbc:databricks:"):
+                return "databricks"
+            if lowered.startswith("jdbc:postgresql:"):
+                return "postgresql"
+            if lowered.startswith("jdbc:mysql:"):
+                return "mysql"
+            if lowered.startswith("jdbc:sqlserver:") or lowered.startswith("jdbc:mssql:"):
+                return "mssql"
+        return None
+
+    def _normalize_constructed_column_name(raw_name: str | None, seen_lower: set[str]) -> str:
+        base = (raw_name or "").strip().lower()
+        if not base:
+            base = "column"
+
+        sanitized = re.sub(r"[^0-9a-z]+", "_", base)
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+
+        if not sanitized:
+            sanitized = "column"
+
+        if sanitized[0].isdigit():
+            sanitized = f"col_{sanitized}"
+
+        candidate = sanitized
+        suffix = 1
+        while candidate.lower() in seen_lower:
+            candidate = f"{sanitized}_{suffix}"
+            suffix += 1
+
+        return candidate
+
+    def _resolve_constructed_column_map(constructed_table: ConstructedTable) -> Dict[str, str]:
+        cached = constructed_column_maps.get(constructed_table.id)
+        if cached is not None:
+            return cached
+
+        seen_lower: set[str] = set()
+        mapping: Dict[str, str] = {}
+        sorted_fields = sorted(
+            constructed_table.fields,
+            key=lambda item: ((getattr(item, "display_order", 0) or 0), item.name or ""),
+        )
+
+        for constructed_field in sorted_fields:
+            column_name = _normalize_constructed_column_name(constructed_field.name, seen_lower)
+            seen_lower.add(column_name.lower())
+            mapping[constructed_field.name] = column_name
+
+        constructed_column_maps[constructed_table.id] = mapping
+        return mapping
+
+    def _collapse_external_connections(connections: Set[_ConnectionHandle]) -> _ConnectionHandle | None:
+        if not connections:
+            return None
+        if len(connections) == 1:
+            return next(iter(connections))
+
+        databricks_connections = [
+            handle for handle in connections if "databricks" in (handle.dialect or "").lower()
+        ]
+        if len(databricks_connections) != len(connections):
+            return None
+
+        try:
+            managed_candidate = _ensure_managed_handle()
+        except ReportPreviewError:
+            return None
+
+        if "databricks" not in (managed_engine_dialect or "").lower():
+            return None
+
+        return managed_candidate
+
+    def _ensure_managed_handle() -> _ConnectionHandle:
+        nonlocal managed_handle, managed_handle_error, managed_engine_dialect
+        if managed_handle is not None:
+            return managed_handle
+        if managed_handle_error is not None:
+            raise managed_handle_error
+        try:
+            engine = get_ingestion_engine()
+            managed_engine_dialect = engine.dialect.name
+        except RuntimeError as exc:
+            managed_handle_error = ReportPreviewError(
+                "Constructed tables require the Databricks SQL warehouse to be configured."
+            )
+            raise managed_handle_error from exc
+        except SQLAlchemyError as exc:  # pragma: no cover - defensive guard
+            managed_handle_error = ReportPreviewError(str(exc))
+            raise managed_handle_error
+
+        managed_handle = _ConnectionHandle(kind="managed", dialect=managed_engine_dialect)
+        return managed_handle
+
+    def _resolve_managed_schema_path() -> str:
+        nonlocal managed_schema_path, managed_handle_error, managed_engine_dialect
+        if managed_schema_path is not None:
+            return managed_schema_path
+
+        if managed_engine_dialect == "sqlite":
+            managed_schema_path = ""
+            return managed_schema_path
+
+        try:
+            params = get_ingestion_connection_params()
+        except RuntimeError as exc:
+            managed_handle_error = ReportPreviewError(
+                "Constructed tables require schema details in the Databricks SQL settings."
+            )
+            raise managed_handle_error from exc
+
+        schema_part = (
+            params.constructed_schema
+            or params.schema_name
+            or ConstructedDataWarehouse.DEFAULT_SCHEMA
+        )
+        schema_part = schema_part.strip() if isinstance(schema_part, str) else schema_part
+        catalog_part = params.catalog.strip() if isinstance(params.catalog, str) else params.catalog
+
+        if not schema_part:
+            managed_handle_error = ReportPreviewError(
+                "Constructed tables require a target schema in the Databricks SQL settings."
+            )
+            raise managed_handle_error
+
+        parts: list[str] = []
+        if catalog_part:
+            parts.append(catalog_part)
+        parts.append(schema_part)
+
+        managed_schema_path = ".".join(parts)
+        return managed_schema_path
+
     for placement in definition.tables:
         table = tables.get(placement.table_id)
         if not table:
             continue
         system = getattr(table, "system", None)
-        connection_identity: tuple[SystemConnectionType, str] | None = None
-        if system is not None:
+        connection_identity: _ConnectionHandle | None = None
+        definition_tables = getattr(table, "definition_tables", []) or []
+        is_constructed = any(getattr(item, "is_construction", False) for item in definition_tables)
+
+        if is_constructed:
+            try:
+                connection_identity = _ensure_managed_handle()
+            except ReportPreviewError as exc:
+                raise ReportPreviewError(
+                    f"Constructed table '{table.name}' cannot be previewed until the Databricks warehouse is configured."
+                ) from exc
+            try:
+                schema_path = _resolve_managed_schema_path()
+            except ReportPreviewError as exc:
+                raise ReportPreviewError(
+                    f"Constructed table '{table.name}' cannot be previewed until the Databricks schema is configured."
+                ) from exc
+            if schema_path:
+                schema_overrides[table.id] = schema_path
+
+            constructed_binding = next(
+                (item for item in definition_tables if getattr(item, "is_construction", False)),
+                None,
+            )
+            constructed_model = getattr(constructed_binding, "constructed_table", None)
+            if constructed_model is None:
+                raise ReportPreviewError(
+                    f"Constructed table '{table.name}' has not been generated. Run the data construction sync before previewing."
+                )
+            constructed_name = getattr(constructed_model, "name", None)
+            if constructed_name:
+                name_overrides[table.id] = constructed_name
+            if constructed_model and constructed_model.id not in constructed_tables_to_ensure:
+                constructed_tables_to_ensure[constructed_model.id] = constructed_model
+                column_map = _resolve_constructed_column_map(constructed_model)
+                if column_map:
+                    for table_field in getattr(table, "fields", []) or []:
+                        override = column_map.get(table_field.name)
+                        if override:
+                            field_column_overrides[table_field.id] = override
+        elif system is not None:
             for connection in getattr(system, "connections", []) or []:
-                connection_identity = _resolve_connection_identity(connection)
-                if connection_identity:
+                resolved = _resolve_connection_identity(connection)
+                if resolved:
+                    connection_type, connection_string = resolved
+                    connection_dialect = _infer_connection_dialect(connection_type, connection_string)
+                    connection_identity = _ConnectionHandle(
+                        kind="system",
+                        connection_type=connection_type,
+                        connection_string=connection_string,
+                        dialect=connection_dialect,
+                    )
                     break
         table_sources.append((table, getattr(system, "name", None), connection_identity))
 
@@ -392,21 +643,69 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
         )
 
     if len(unique_external_connections) > 1:
-        system_names = sorted(
-            {
-                system_name or table.name
-                for table, system_name, identity in table_sources
-                if identity is not None
-            }
-        )
-        raise ReportPreviewError(
-            "Preview currently supports a single source connection. Selected tables span multiple systems: "
-            + ", ".join(system_names)
-        )
+        # Try to collapse multiple external connections into a single handle. First attempt
+        # databricks-specific collapse (existing behavior). If that fails, allow collapsing
+        # when all external connections share the exact same connection string (same remote
+        # source configured multiple times), which is a reasonable convenience for setups
+        # where the same system was registered more than once.
+        collapsed = _collapse_external_connections(unique_external_connections)
+        if collapsed is None:
+            # Check if all external handles have identical connection_string and connection_type
+            connection_strings = { (handle.connection_type, handle.connection_string) for handle in unique_external_connections }
+            if len(connection_strings) == 1:
+                # Safe to treat them as a single external connection
+                collapsed = next(iter(unique_external_connections))
+
+        if collapsed is None:
+            system_names = sorted(
+                {
+                    system_name or table.name
+                    for table, system_name, identity in table_sources
+                    if identity is not None
+                }
+            )
+            raise ReportPreviewError(
+                "Preview currently supports a single source connection. Selected tables span multiple systems: "
+                + ", ".join(system_names)
+            )
+
+        unique_external_connections = {collapsed}
 
     external_connection = next(iter(unique_external_connections)) if unique_external_connections else None
 
-    builder = ReportSqlBuilder(definition, tables, fields, limit)
+    is_managed_connection = (
+        external_connection is not None and external_connection.kind == "managed"
+    )
+    managed_dialect = (external_connection.dialect or "").lower() if is_managed_connection else ""
+    is_databricks_managed = is_managed_connection and managed_dialect.startswith("databricks")
+
+    if (
+        constructed_tables_to_ensure
+        and is_databricks_managed
+    ):
+        try:
+            warehouse = ConstructedDataWarehouse()
+        except ConstructedDataWarehouseError as exc:  # pragma: no cover - defensive guard
+            raise ReportPreviewError(str(exc)) from exc
+
+        for constructed_table in constructed_tables_to_ensure.values():
+            try:
+                warehouse.ensure_table(constructed_table)
+            except ConstructedDataWarehouseError as exc:  # pragma: no cover - defensive guard
+                raise ReportPreviewError(str(exc)) from exc
+
+    quote_char = "`" if is_databricks_managed else '"'
+
+    builder = ReportSqlBuilder(
+        definition,
+        tables,
+        fields,
+        limit,
+        quote_char=quote_char,
+        schema_overrides=schema_overrides,
+        name_overrides=name_overrides,
+        column_overrides=field_column_overrides,
+    )
     sql = builder.build()
 
     records_raw = []
@@ -415,8 +714,18 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
         if external_connection is None:
             result = db.execute(text(sql), builder.bind_params)
             records_raw = result.mappings().all()
+        elif is_managed_connection:
+            engine = get_ingestion_engine()
+            with engine.connect() as connection:
+                result = connection.execute(text(sql), builder.bind_params)
+                records_raw = result.mappings().all()
         else:
-            connection_type, connection_string = external_connection
+            connection_type = external_connection.connection_type
+            connection_string = external_connection.connection_string
+            if not connection_type or not connection_string:
+                raise ReportPreviewError(
+                    "Active system connections require both a connection type and connection string."
+                )
             try:
                 url = resolve_sqlalchemy_url(connection_type, connection_string)
             except UnsupportedConnectionError as exc:

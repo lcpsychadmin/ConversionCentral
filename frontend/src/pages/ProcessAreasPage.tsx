@@ -146,7 +146,7 @@ const ProcessAreasPage = () => {
   const busy = creating || updating || deleting;
   const tableLoading = processAreasLoading;
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
     : null;
   const dataObjectsErrorMessage = dataObjectsError
     ? getErrorMessage(dataObjectsErrorDetails, 'Unable to load data objects.')
@@ -170,17 +170,17 @@ const ProcessAreasPage = () => {
         }}
       >
         <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Process Areas
+          Product Teams
         </Typography>
         <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Manage process areas and review their related data objects.
+          Manage product teams and review their related data objects.
         </Typography>
       </Box>
 
       {canManage && (
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
-            New Process Area
+            New Product Team
           </Button>
         </Box>
       )}
@@ -216,7 +216,7 @@ const ProcessAreasPage = () => {
       {selected && (
         <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
           <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
-            Process Area Details
+            Product Team Details
           </Typography>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
@@ -245,7 +245,7 @@ const ProcessAreasPage = () => {
                   </Typography>
                 </Box>
               ) : assignedDataObjects.length === 0 ? (
-                <Alert severity="info">No data objects are linked to this process area yet.</Alert>
+                <Alert severity="info">No data objects are linked to this product team yet.</Alert>
               ) : (
                 <List dense>
                   {assignedDataObjects.map((obj) => (
@@ -269,7 +269,7 @@ const ProcessAreasPage = () => {
       {canManage && (
         <ProcessAreaForm
           open={formOpen}
-          title={formMode === 'create' ? 'Create Process Area' : 'Edit Process Area'}
+          title={formMode === 'create' ? 'Create Product Team' : 'Edit Product Team'}
           initialValues={formMode === 'edit' ? selected : null}
           loading={busy}
           onClose={handleFormClose}
@@ -279,7 +279,7 @@ const ProcessAreasPage = () => {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete Process Area"
+        title="Delete Product Team"
         description={`Are you sure you want to delete "${selected?.name ?? ''}"? This action cannot be undone.`}
         confirmLabel="Delete"
         onClose={() => setConfirmOpen(false)}

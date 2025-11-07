@@ -9,6 +9,7 @@ from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine
 
 from app.ingestion import get_ingestion_engine
+from app.ingestion.engine import get_ingestion_connection_params
 from app.models import Field, Table as TableModel
 
 _IDENTIFIER_RE = re.compile(r"[^A-Za-z0-9_]")
@@ -24,9 +25,9 @@ class ColumnSpec:
 class DatabricksIngestionStorage:
     """Create and load staging tables inside the configured Databricks SQL warehouse."""
 
-    def __init__(self, *, engine: Engine | None = None, default_schema: str = "default"):
+    def __init__(self, *, engine: Engine | None = None, default_schema: str | None = None):
         self.engine = engine or get_ingestion_engine()
-        self.default_schema = default_schema
+        self.default_schema = self._resolve_default_schema(default_schema)
 
     def ensure_table(self, table_model: TableModel) -> Table:
         schema = table_model.schema_name or self.default_schema
@@ -156,3 +157,13 @@ class DatabricksIngestionStorage:
         if sanitized and sanitized[0].isdigit():
             sanitized = f"_{sanitized}"
         return sanitized or "column"
+
+    def _resolve_default_schema(self, override: str | None) -> str:
+        if override and override.strip():
+            return override.strip()
+        try:
+            params = get_ingestion_connection_params()
+        except RuntimeError:
+            return "default"
+        resolved = params.schema_name or "default"
+        return resolved.strip() or "default"

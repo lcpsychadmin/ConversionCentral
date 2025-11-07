@@ -11,17 +11,17 @@ export const APPLICATION_DATABASE_STATUS_QUERY_KEY = ['application-database', 's
 interface ApplicationDatabaseSettingResponse {
   id: string;
   engine: 'default_postgres' | 'custom_postgres' | 'sqlserver';
-  connection_display?: string | null;
-  applied_at: string;
-  display_name?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  connectionDisplay?: string | null;
+  appliedAt: string;
+  displayName?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ApplicationDatabaseStatusResponse {
   configured: boolean;
   setting: ApplicationDatabaseSettingResponse | null;
-  admin_email?: string | null;
+  adminEmail?: string | null;
 }
 
 interface ApplicationDatabaseTestResponse {
@@ -33,17 +33,17 @@ interface ApplicationDatabaseTestResponse {
 const mapSetting = (payload: ApplicationDatabaseSettingResponse): ApplicationDatabaseSetting => ({
   id: payload.id,
   engine: payload.engine,
-  connectionDisplay: payload.connection_display ?? null,
-  appliedAt: payload.applied_at,
-  displayName: payload.display_name ?? null,
-  createdAt: payload.created_at,
-  updatedAt: payload.updated_at
+  connectionDisplay: payload.connectionDisplay ?? null,
+  appliedAt: payload.appliedAt,
+  displayName: payload.displayName ?? null,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
 });
 
 const mapStatus = (payload: ApplicationDatabaseStatusResponse): ApplicationDatabaseStatus => ({
   configured: payload.configured,
   setting: payload.setting ? mapSetting(payload.setting) : null,
-  adminEmail: payload.admin_email ?? null
+  adminEmail: payload.adminEmail ?? null
 });
 
 const normalizeConnectionPayload = (

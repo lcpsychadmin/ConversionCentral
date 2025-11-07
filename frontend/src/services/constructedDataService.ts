@@ -46,6 +46,8 @@ export interface ValidationError {
   fieldName?: string | null;
   message: string;
   ruleId: string;
+  ruleName?: string;
+  ruleType?: string;
 }
 
 export interface BatchSaveRequest {
@@ -263,9 +265,20 @@ export async function fetchValidationRules(
 export async function createValidationRule(
   data: Omit<ConstructedDataValidationRule, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<ConstructedDataValidationRule> {
+  const payload = {
+    constructed_table_id: data.constructedTableId,
+    name: data.name,
+    description: data.description ?? null,
+    rule_type: data.ruleType,
+    field_id: data.fieldId ?? null,
+    configuration: data.configuration ?? {},
+    error_message: data.errorMessage,
+    is_active: data.isActive,
+    applies_to_new_only: data.appliesTo_NewOnly ?? false,
+  };
   const response = await client.post<ConstructedDataValidationRule>(
     '/constructed-data-validation-rules',
-    data
+    payload
   );
   return response.data;
 }
@@ -277,9 +290,39 @@ export async function updateValidationRule(
   id: string,
   data: Partial<ConstructedDataValidationRule>
 ): Promise<ConstructedDataValidationRule> {
+  const payload: Record<string, unknown> = {};
+
+  if (data.constructedTableId !== undefined) {
+    payload.constructed_table_id = data.constructedTableId;
+  }
+  if (data.name !== undefined) {
+    payload.name = data.name;
+  }
+  if (data.description !== undefined) {
+    payload.description = data.description;
+  }
+  if (data.ruleType !== undefined) {
+    payload.rule_type = data.ruleType;
+  }
+  if (data.fieldId !== undefined) {
+    payload.field_id = data.fieldId;
+  }
+  if (data.configuration !== undefined) {
+    payload.configuration = data.configuration;
+  }
+  if (data.errorMessage !== undefined) {
+    payload.error_message = data.errorMessage;
+  }
+  if (data.isActive !== undefined) {
+    payload.is_active = data.isActive;
+  }
+  if (data.appliesTo_NewOnly !== undefined) {
+    payload.applies_to_new_only = data.appliesTo_NewOnly;
+  }
+
   const response = await client.put<ConstructedDataValidationRule>(
     `/constructed-data-validation-rules/${id}`,
-    data
+    payload
   );
   return response.data;
 }
@@ -292,7 +335,7 @@ export async function deleteValidationRule(id: string): Promise<void> {
 }
 
 /**
- * Fetch all process areas
+ * Fetch all product teams
  */
 export async function fetchProcessAreas(): Promise<ProcessArea[]> {
   const response = await client.get<ProcessArea[]>('/process-areas');
@@ -300,7 +343,7 @@ export async function fetchProcessAreas(): Promise<ProcessArea[]> {
 }
 
 /**
- * Fetch all data objects for a process area
+ * Fetch all data objects for a product team
  */
 export async function fetchDataObjects(processAreaId: string): Promise<DataObject[]> {
   const response = await client.get<DataObject[]>(

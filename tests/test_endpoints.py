@@ -2,7 +2,12 @@ from datetime import datetime
 from http import HTTPStatus
 from uuid import UUID, uuid4
 
-from app.models import ConstructedTable, User
+from app.models import (
+    ConstructedDataValidationRule,
+    ConstructedField,
+    ConstructedTable,
+    User,
+)
 
 
 def test_dashboard_summary(client):
@@ -896,7 +901,7 @@ def test_process_area_role_assignment_crud_flow(client):
         "/roles",
         json={
             "name": "Process Owner",
-            "description": "Owns the process area",
+            "description": "Owns the product team",
         },
     ).json()["id"]
     secondary_role_id = client.post(
@@ -1263,8 +1268,6 @@ def test_data_definition_construction_sync_creates_constructed_table(client, db_
     assert constructed_table.status == "approved"
     assert constructed_table.data_definition_id == definition_id
     audit_field_names = {
-        "Project",
-        "Release",
         "Created By",
         "Created Date",
         "Modified By",
@@ -1896,6 +1899,54 @@ def test_constructed_data_flow_requires_table_approval(client, db_session):
 
     delete_resp = client.delete(f"/constructed-data/{constructed_data_id}")
     assert delete_resp.status_code == HTTPStatus.NO_CONTENT
+
+
+def test_constructed_data_batch_save_returns_rule_metadata(client, db_session):
+    table = ConstructedTable(name="Validation Metadata", status="approved")
+    db_session.add(table)
+    db_session.flush()
+
+    field = ConstructedField(
+        constructed_table_id=table.id,
+        name="Email",
+        data_type="string",
+        is_nullable=False,
+        display_order=0,
+    )
+    table.fields.append(field)
+    db_session.add(field)
+    db_session.flush()
+
+    rule = ConstructedDataValidationRule(
+        constructed_table_id=table.id,
+        field_id=field.id,
+        name="Email must be present",
+        description="Auto rule for email presence",
+        rule_type="required",
+        configuration={"fieldName": field.name},
+        error_message="Email is required.",
+        is_active=True,
+    )
+    table.validation_rules.append(rule)
+    db_session.add(rule)
+    db_session.flush()
+
+    response = client.post(
+        f"/constructed-data/{table.id}/batch-save",
+        json={"rows": [{field.name: ""}], "validateOnly": True},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is False
+    assert body["rowsSaved"] == 0
+    assert len(body["errors"]) == 1
+
+    error = body["errors"][0]
+    assert error["fieldName"] == field.name
+    assert error["message"] == "Email is required."
+    assert error["ruleName"] == "Email must be present"
+    assert error["ruleType"] == "required"
 
 
 def test_constructed_table_approval_crud_flow(client, db_session):

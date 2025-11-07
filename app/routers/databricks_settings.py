@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import DatabricksSqlSetting
+from app.config import get_settings
 from app.schemas import (
     DatabricksSqlSettingCreate,
     DatabricksSqlSettingRead,
@@ -15,6 +16,8 @@ from app.schemas import (
     DatabricksSqlSettingTestResult,
     DatabricksSqlSettingUpdate,
 )
+from app.ingestion import reset_ingestion_engine
+from app.services.databricks_bootstrap import ensure_databricks_connection
 from app.services.databricks_sql import (
     DatabricksConnectionError,
     DatabricksConnectionParams,
@@ -24,7 +27,24 @@ from app.services.databricks_sql import (
 router = APIRouter(prefix="/databricks/settings", tags=["Databricks Settings"])
 
 
-def _serialize(setting: DatabricksSqlSetting) -> DatabricksSqlSettingRead:
+def _serialize(
+    setting: DatabricksSqlSetting,
+    *,
+    constructed_schema_fallback: str | None = None,
+    ingestion_batch_rows_fallback: int | None = None,
+    ingestion_method_fallback: str | None = None,
+) -> DatabricksSqlSettingRead:
+    constructed_schema = setting.constructed_schema
+    if (constructed_schema is None or not constructed_schema.strip()) and constructed_schema_fallback:
+        constructed_schema = constructed_schema_fallback.strip() or None
+
+    ingestion_batch_rows = setting.ingestion_batch_rows
+    if ingestion_batch_rows is None and ingestion_batch_rows_fallback:
+        ingestion_batch_rows = ingestion_batch_rows_fallback
+
+    ingestion_method = setting.ingestion_method or ingestion_method_fallback or "sql"
+    ingestion_method = ingestion_method.strip().lower()
+
     return DatabricksSqlSettingRead(
         id=setting.id,
         display_name=setting.display_name,
@@ -32,6 +52,9 @@ def _serialize(setting: DatabricksSqlSetting) -> DatabricksSqlSettingRead:
         http_path=setting.http_path,
         catalog=setting.catalog,
         schema_name=setting.schema_name,
+        constructed_schema=constructed_schema,
+        ingestion_batch_rows=ingestion_batch_rows,
+        ingestion_method=ingestion_method,
         warehouse_name=setting.warehouse_name,
         is_active=setting.is_active,
         created_at=setting.created_at,
@@ -55,7 +78,13 @@ def get_databricks_setting(db: Session = Depends(get_db)) -> DatabricksSqlSettin
     setting = _get_active_setting(db)
     if not setting:
         return None
-    return _serialize(setting)
+    config = get_settings()
+    return _serialize(
+        setting,
+        constructed_schema_fallback=config.databricks_constructed_schema,
+        ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
+        ingestion_method_fallback=config.databricks_ingestion_method,
+    )
 
 
 @router.post("", response_model=DatabricksSqlSettingRead, status_code=status.HTTP_201_CREATED)
@@ -76,6 +105,9 @@ def create_databricks_setting(
         access_token=payload.access_token,
         catalog=payload.catalog,
         schema_name=payload.schema_name,
+        constructed_schema=payload.constructed_schema,
+        ingestion_batch_rows=payload.ingestion_batch_rows,
+        ingestion_method=payload.ingestion_method,
     )
     try:
         test_databricks_connection(params)
@@ -89,6 +121,9 @@ def create_databricks_setting(
         access_token=payload.access_token,
         catalog=payload.catalog.strip() if payload.catalog else None,
         schema_name=payload.schema_name.strip() if payload.schema_name else None,
+        constructed_schema=payload.constructed_schema.strip() if payload.constructed_schema else None,
+        ingestion_batch_rows=payload.ingestion_batch_rows,
+        ingestion_method=payload.ingestion_method or "sql",
         warehouse_name=payload.warehouse_name.strip() if payload.warehouse_name else None,
         is_active=True,
     )
@@ -97,7 +132,16 @@ def create_databricks_setting(
     db.commit()
     db.refresh(setting)
 
-    return _serialize(setting)
+    config = get_settings()
+    record = _serialize(
+        setting,
+        constructed_schema_fallback=config.databricks_constructed_schema,
+        ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
+        ingestion_method_fallback=config.databricks_ingestion_method,
+    )
+    reset_ingestion_engine()
+    ensure_databricks_connection()
+    return record
 
 
 @router.put("/{setting_id}", response_model=DatabricksSqlSettingRead)
@@ -123,6 +167,14 @@ def update_databricks_setting(
             setting.catalog = data["catalog"].strip() if data["catalog"] else None
         if "schema_name" in data:
             setting.schema_name = data["schema_name"].strip() if data["schema_name"] else None
+        if "constructed_schema" in data:
+            setting.constructed_schema = (
+                data["constructed_schema"].strip() if data["constructed_schema"] else None
+            )
+        if "ingestion_batch_rows" in data:
+            setting.ingestion_batch_rows = data["ingestion_batch_rows"]
+        if "ingestion_method" in data and data["ingestion_method"] is not None:
+            setting.ingestion_method = data["ingestion_method"]
         if "warehouse_name" in data:
             setting.warehouse_name = data["warehouse_name"].strip() if data["warehouse_name"] else None
         if "access_token" in data:
@@ -141,7 +193,17 @@ def update_databricks_setting(
     # Validate the connection if any core parameters changed.
     should_validate = any(
         key in data
-        for key in ("workspace_host", "http_path", "catalog", "schema_name", "warehouse_name", "access_token")
+        for key in (
+            "workspace_host",
+            "http_path",
+            "catalog",
+            "schema_name",
+            "constructed_schema",
+            "ingestion_batch_rows",
+            "warehouse_name",
+            "ingestion_method",
+            "access_token",
+        )
     )
     if should_validate and setting.access_token:
         params = DatabricksConnectionParams(
@@ -150,6 +212,9 @@ def update_databricks_setting(
             access_token=setting.access_token,
             catalog=setting.catalog,
             schema_name=setting.schema_name,
+            constructed_schema=setting.constructed_schema,
+            ingestion_batch_rows=setting.ingestion_batch_rows,
+            ingestion_method=setting.ingestion_method,
         )
         try:
             test_databricks_connection(params)
@@ -158,7 +223,16 @@ def update_databricks_setting(
 
     db.commit()
     db.refresh(setting)
-    return _serialize(setting)
+    config = get_settings()
+    record = _serialize(
+        setting,
+        constructed_schema_fallback=config.databricks_constructed_schema,
+        ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
+        ingestion_method_fallback=config.databricks_ingestion_method,
+    )
+    reset_ingestion_engine()
+    ensure_databricks_connection()
+    return record
 
 
 @router.post("/test", response_model=DatabricksSqlSettingTestResult)
@@ -169,6 +243,9 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         access_token=payload.access_token,
         catalog=payload.catalog.strip() if payload.catalog else None,
         schema_name=payload.schema_name.strip() if payload.schema_name else None,
+        constructed_schema=payload.constructed_schema.strip() if payload.constructed_schema else None,
+        ingestion_batch_rows=payload.ingestion_batch_rows,
+        ingestion_method=payload.ingestion_method or "sql",
     )
     try:
         elapsed_ms, summary = test_databricks_connection(params)

@@ -22,6 +22,9 @@ class DatabricksConnectionParams:
     access_token: str
     catalog: Optional[str] = None
     schema_name: Optional[str] = None
+    constructed_schema: Optional[str] = None
+    ingestion_batch_rows: Optional[int] = None
+    ingestion_method: str = "sql"
 
 
 def build_sqlalchemy_url(params: DatabricksConnectionParams) -> URL:
@@ -33,7 +36,7 @@ def build_sqlalchemy_url(params: DatabricksConnectionParams) -> URL:
         query["schema"] = params.schema_name
 
     return URL.create(
-        drivername="databricks+connector",
+        drivername="databricks",
         username="token",
         password=params.access_token,
         host=params.workspace_host,
@@ -61,8 +64,7 @@ def test_databricks_connection(
 
     if not _HAS_DATABRICKS_DIALECT:
         raise DatabricksConnectionError(
-            "Databricks SQL dependencies are not installed. Install 'databricks-sql-connector' and "
-            "'sqlalchemy-databricks' to enable connection testing."
+            "Databricks SQL dependencies are not installed. Install 'databricks-sql-connector[sqlalchemy]' to enable connection testing."
         )
 
     url = build_sqlalchemy_url(params)

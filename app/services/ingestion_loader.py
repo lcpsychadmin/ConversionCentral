@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha1
-from typing import Mapping, MutableMapping, Sequence
+from typing import Iterator, Mapping, MutableMapping, Sequence
 
 from sqlalchemy import Column, MetaData, Table, insert, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import sqltypes
 
 from app.ingestion import get_ingestion_engine
+from app.ingestion.engine import get_ingestion_connection_params
 
 
 @dataclass(frozen=True)
@@ -22,9 +23,21 @@ class LoadPlan:
 class DatabricksTableLoader:
     """Lightweight loader that mirrors source rows into Databricks staging tables."""
 
-    def __init__(self, *, engine: Engine | None = None, default_schema: str = "default"):
+    def __init__(
+        self,
+        *,
+        engine: Engine | None = None,
+        default_schema: str | None = None,
+        batch_rows: int | None = None,
+    ) -> None:
         self.engine = engine or get_ingestion_engine()
-        self._default_schema = default_schema
+        self._default_schema_override = (
+            default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
+        )
+        self._batch_rows_override = batch_rows if isinstance(batch_rows, int) and batch_rows > 0 else None
+        self._default_schema = "default"
+        self._insert_batch_rows = 1000
+        self._apply_connection_defaults()
 
     def load_rows(
         self,
@@ -35,6 +48,7 @@ class DatabricksTableLoader:
         if not rows:
             return 0
 
+        self._apply_connection_defaults()
         schema = plan.schema or self._default_schema
         table_name = self._normalize_identifier(plan.table_name)
         column_specs = self._infer_column_specs(columns, rows[0])
@@ -46,8 +60,43 @@ class DatabricksTableLoader:
             if plan.replace:
                 qualified = self._qualify(schema, table_name)
                 connection.execute(text(f"DELETE FROM {qualified}"))
-            result = connection.execute(insert(target_table), prepared_rows)
-        return result.rowcount or 0
+            total = 0
+            for chunk in self._iter_chunks(prepared_rows, self._insert_batch_rows):
+                result = connection.execute(insert(target_table), chunk)
+                total += result.rowcount or len(chunk)
+        return total
+
+    @property
+    def default_schema(self) -> str:
+        self._apply_connection_defaults()
+        return self._default_schema
+
+    def _apply_connection_defaults(self) -> None:
+        schema = self._default_schema_override
+        batch_rows = self._batch_rows_override
+        params = None
+        try:
+            params = get_ingestion_connection_params()
+        except RuntimeError:
+            params = None
+
+        if schema is None and params:
+            candidate = params.schema_name or params.constructed_schema
+            if candidate:
+                schema = candidate.strip() or None
+        if schema is None:
+            schema = "default"
+        if isinstance(schema, str):
+            schema = schema.strip() or "default"
+
+        if batch_rows is None and params and isinstance(params.ingestion_batch_rows, int):
+            if params.ingestion_batch_rows > 0:
+                batch_rows = params.ingestion_batch_rows
+        if batch_rows is None:
+            batch_rows = 1000
+
+        self._default_schema = schema
+        self._insert_batch_rows = batch_rows
 
     def _ensure_table(
         self,
@@ -65,6 +114,17 @@ class DatabricksTableLoader:
         self._ensure_schema_exists(schema)
         metadata.create_all(self.engine, tables=[table])
         return table
+
+    @staticmethod
+    def _iter_chunks(
+        rows: Sequence[MutableMapping[str, object]],
+        chunk_size: int,
+    ) -> Iterator[Sequence[MutableMapping[str, object]]]:
+        if chunk_size <= 0:
+            chunk_size = len(rows)
+        chunk_size = max(1, chunk_size)
+        for index in range(0, len(rows), chunk_size):
+            yield rows[index : index + chunk_size]
 
     def _infer_column_specs(
         self,
@@ -162,7 +222,7 @@ def build_loader_plan(
     deduplicate: bool,
 ) -> LoadPlan:
     return LoadPlan(
-        schema or "default",
+        schema or "",
         table_name,
         replace,
         deduplicate,

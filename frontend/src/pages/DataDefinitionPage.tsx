@@ -35,6 +35,7 @@ import {
   DataDefinitionRelationshipInput,
   DataDefinitionRelationshipUpdateInput,
   DataDefinitionTableInput,
+  DataDefinitionField,
   DataObject,
   Field,
   ProcessArea,
@@ -138,9 +139,10 @@ const DataDefinitionsPage = () => {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [fieldEditDialog, setFieldEditDialog] = useState<{
+    definitionTableId: string;
     tableId: string;
     tableName: string;
-    field: Field;
+    definitionField: DataDefinitionField;
   } | null>(null);
   const [fieldEditLoading, setFieldEditLoading] = useState(false);
   const [inlineSavingFields, setInlineSavingFields] = useState<Record<string, boolean>>({});
@@ -305,7 +307,10 @@ const DataDefinitionsPage = () => {
   );
 
   const appendFieldsToDefinition = useCallback(
-    async (tableId: string, additions: { fieldId: string; notes?: string | null }[]) => {
+    async (
+      tableId: string,
+      additions: { fieldId: string; notes?: string | null; isUnique?: boolean }[]
+    ) => {
       if (!definition) {
         toast.showError('Data definition is not available.');
         return false;
@@ -317,18 +322,25 @@ const DataDefinitionsPage = () => {
 
       let additionsApplied = false;
       const tablesPayload: DataDefinitionTableInput[] = definition.tables.map((table) => {
-        const existingFields = table.fields.map((field) => ({
-          fieldId: field.fieldId,
-          notes: field.notes ?? null
-        }));
-        const newEntries = table.tableId === tableId
-          ? additions.filter(
-              (addition) => !existingFields.some((existing) => existing.fieldId === addition.fieldId)
-            )
-          : [];
-        if (table.tableId === tableId && newEntries.length > 0) {
+      let newEntries: { fieldId: string; notes: string | null; isUnique: boolean }[] = [];
+      if (table.tableId === tableId) {
+        const pendingAdditions = additions.filter(
+          (addition) => !table.fields.some((existing) => existing.fieldId === addition.fieldId)
+        );
+        if (pendingAdditions.length > 0) {
           additionsApplied = true;
         }
+        newEntries = pendingAdditions.map((addition) => ({
+          fieldId: addition.fieldId,
+          notes: addition.notes ?? null,
+          isUnique: Boolean(addition.isUnique)
+        }));
+      }
+      const existingFields = table.fields.map((field) => ({
+        fieldId: field.fieldId,
+        notes: field.notes ?? null,
+        isUnique: field.isUnique ?? false
+      }));
         return {
           tableId: table.tableId,
           alias: table.alias ?? null,
@@ -359,7 +371,7 @@ const DataDefinitionsPage = () => {
   );
 
   const handleInlineFieldSubmit = useCallback(
-    async (field: Field, changes: InlineFieldDraft) => {
+    async (field: Field, changes: InlineFieldDraft, options?: { suppressSuccessToast?: boolean }) => {
       if (!canManage) {
         return false;
       }
@@ -493,7 +505,9 @@ const DataDefinitionsPage = () => {
       setInlineSavingFields((prev) => ({ ...prev, [field.id]: true }));
       try {
         await fieldUpdateMutation.mutateAsync({ fieldId: field.id, input: payload });
-        toast.showSuccess('Field updated.');
+        if (!options?.suppressSuccessToast) {
+          toast.showSuccess('Field updated.');
+        }
         return true;
       } catch (error) {
         toast.showError(getErrorMessage(error, 'Unable to update the field.'));
@@ -509,9 +523,66 @@ const DataDefinitionsPage = () => {
     [canManage, fieldUpdateMutation, toast]
   );
 
-  const handleOpenFieldEdit = useCallback((tableId: string, tableName: string, field: Field) => {
-    setFieldEditDialog({ tableId, tableName, field });
-  }, []);
+  const updateDefinitionFieldUnique = useCallback(
+    async (definitionTableId: string, definitionFieldId: string, isUnique: boolean) => {
+      if (!definition) {
+        toast.showError('Data definition is not available.');
+        return false;
+      }
+
+      const targetTable = definition.tables.find((table) => table.id === definitionTableId);
+      if (!targetTable) {
+        toast.showError('Table could not be found in this definition.');
+        return false;
+      }
+
+      const tablesPayload: DataDefinitionTableInput[] = definition.tables.map((table) => ({
+        tableId: table.tableId,
+        alias: table.alias ?? null,
+        description: table.description ?? null,
+        loadOrder: table.loadOrder ?? null,
+        isConstruction: table.isConstruction,
+        fields:
+          table.id === definitionTableId
+            ? table.fields.map((field) => ({
+                fieldId: field.fieldId,
+                notes: field.notes ?? null,
+                isUnique: field.id === definitionFieldId ? isUnique : Boolean(field.isUnique)
+              }))
+            : table.fields.map((field) => ({
+                fieldId: field.fieldId,
+                notes: field.notes ?? null,
+                isUnique: field.isUnique ?? false
+              }))
+      }));
+
+      try {
+        await updateDataDefinitionRequest(definition.id, { tables: tablesPayload });
+        await definitionQuery.refetch();
+        return true;
+      } catch (error) {
+        toast.showError(getErrorMessage(error, 'Unable to update the field.'));
+        return false;
+      }
+    },
+    [definition, definitionQuery, toast]
+  );
+
+  const handleOpenFieldEdit = useCallback(
+    (
+      definitionTableId: string,
+      tableId: string,
+      tableName: string,
+      definitionField: DataDefinitionField
+    ) => {
+      if (!definitionField.field) {
+        toast.showError('Field details are not available for editing.');
+        return;
+      }
+      setFieldEditDialog({ definitionTableId, tableId, tableName, definitionField });
+    },
+    [toast]
+  );
 
   const handleFieldDialogClose = useCallback(() => {
     if (fieldEditLoading) {
@@ -526,33 +597,67 @@ const DataDefinitionsPage = () => {
         return;
       }
 
-      setFieldEditLoading(true);
-      const success = await handleInlineFieldSubmit(fieldEditDialog.field, {
-        name: values.name,
-        description: values.description,
-        applicationUsage: values.applicationUsage,
-        businessDefinition: values.businessDefinition,
-        enterpriseAttribute: values.enterpriseAttribute,
-        fieldType: values.fieldType,
-        fieldLength: values.fieldLength,
-        decimalPlaces: values.decimalPlaces,
-        systemRequired: values.systemRequired,
-        businessProcessRequired: values.businessProcessRequired,
-        suppressedField: values.suppressedField,
-        active: values.active,
-        legalRegulatoryImplications: values.legalRegulatoryImplications,
-        securityClassification: values.securityClassification,
-        dataValidation: values.dataValidation,
-        referenceTable: values.referenceTable,
-        groupingTab: values.groupingTab
-      });
-      setFieldEditLoading(false);
+      const { definitionField, definitionTableId } = fieldEditDialog;
+      if (!definitionField.field) {
+        toast.showError('Field details are not available for editing.');
+        return;
+      }
 
-      if (success) {
+      let saved = false;
+      setFieldEditLoading(true);
+      try {
+        const fieldUpdated = await handleInlineFieldSubmit(
+          definitionField.field,
+          {
+            name: values.name,
+            description: values.description,
+            applicationUsage: values.applicationUsage,
+            businessDefinition: values.businessDefinition,
+            enterpriseAttribute: values.enterpriseAttribute,
+            fieldType: values.fieldType,
+            fieldLength: values.fieldLength,
+            decimalPlaces: values.decimalPlaces,
+            systemRequired: values.systemRequired,
+            businessProcessRequired: values.businessProcessRequired,
+            suppressedField: values.suppressedField,
+            active: values.active,
+            legalRegulatoryImplications: values.legalRegulatoryImplications,
+            securityClassification: values.securityClassification,
+            dataValidation: values.dataValidation,
+            referenceTable: values.referenceTable,
+            groupingTab: values.groupingTab
+          },
+          { suppressSuccessToast: true }
+        );
+
+        if (!fieldUpdated) {
+          return;
+        }
+
+        const desiredIsUnique = values.isUnique;
+        const currentIsUnique = Boolean(definitionField.isUnique);
+        if (desiredIsUnique !== currentIsUnique) {
+          const uniqueUpdated = await updateDefinitionFieldUnique(
+            definitionTableId,
+            definitionField.id,
+            desiredIsUnique
+          );
+          if (!uniqueUpdated) {
+            return;
+          }
+        }
+
+        saved = true;
+      } finally {
+        setFieldEditLoading(false);
+      }
+
+      if (saved) {
+        toast.showSuccess('Field changes saved.');
         setFieldEditDialog(null);
       }
     },
-    [fieldEditDialog, handleInlineFieldSubmit]
+    [fieldEditDialog, handleInlineFieldSubmit, toast, updateDefinitionFieldUnique]
   );
 
   const handleAddExistingFieldInline = useCallback(
@@ -560,7 +665,7 @@ const DataDefinitionsPage = () => {
       setTableSavingState((prev) => ({ ...prev, [tableId]: true }));
       try {
         const updated = await appendFieldsToDefinition(tableId, [
-          { fieldId, notes: sanitizeOptionalString(notes) }
+          { fieldId, notes: sanitizeOptionalString(notes), isUnique: false }
         ]);
         if (updated) {
           toast.showSuccess('Field added to the data definition.');
@@ -675,7 +780,7 @@ const DataDefinitionsPage = () => {
           groupingTab: sanitizeOptionalString(field.groupingTab)
         });
         const updated = await appendFieldsToDefinition(tableId, [
-          { fieldId: newField.id, notes: sanitizeOptionalString(notes) }
+          { fieldId: newField.id, notes: sanitizeOptionalString(notes), isUnique: false }
         ]);
         if (updated && !suppressNotifications) {
           toast.showSuccess('Field created and added to the data definition.');
@@ -729,7 +834,8 @@ const DataDefinitionsPage = () => {
         const definitionField = definitionFieldMap.get(definitionFieldId);
         return {
           fieldId: definitionField!.fieldId,
-          notes: definitionField!.notes ?? null
+          notes: definitionField!.notes ?? null,
+          isUnique: definitionField!.isUnique ?? false
         };
       });
 
@@ -744,7 +850,11 @@ const DataDefinitionsPage = () => {
           fields:
             table.id === definitionTableId
               ? orderedFieldsInput
-              : table.fields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
+              : table.fields.map((field) => ({
+                fieldId: field.fieldId,
+                notes: field.notes ?? null,
+                isUnique: field.isUnique ?? false
+              }))
         }));
 
         await updateDataDefinitionRequest(definition.id, { tables: tablesPayload });
@@ -796,8 +906,16 @@ const DataDefinitionsPage = () => {
           isConstruction: table.isConstruction,
           fields:
             table.id === definitionTableId
-              ? remainingFields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
-              : table.fields.map((field) => ({ fieldId: field.fieldId, notes: field.notes ?? null }))
+              ? remainingFields.map((field) => ({
+                fieldId: field.fieldId,
+                notes: field.notes ?? null,
+                isUnique: field.isUnique ?? false
+              }))
+              : table.fields.map((field) => ({
+                fieldId: field.fieldId,
+                notes: field.notes ?? null,
+                isUnique: field.isUnique ?? false
+              }))
         }));
 
         await updateDataDefinitionRequest(definition.id, { tables: tablesPayload });
@@ -910,7 +1028,7 @@ const DataDefinitionsPage = () => {
     : null;
 
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
     : null;
 
   const theme = useTheme();
@@ -928,10 +1046,10 @@ const DataDefinitionsPage = () => {
         }}
       >
         <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Data Definitions
+          Data Object Definition
         </Typography>
         <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Select a data object and system to review or author its data definition, including tables and fields.
+          Select a data object and system to review or author its definition, including tables and fields.
         </Typography>
       </Box>
 
@@ -958,7 +1076,7 @@ const DataDefinitionsPage = () => {
             fontSize: '1.1rem'
           }}
         >
-          Filter by Process Area, Data Object & System
+          Filter by Product Team, Data Object & System
         </Typography>
         <Stack spacing={2}>
           <Autocomplete
@@ -973,8 +1091,8 @@ const DataDefinitionsPage = () => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Process Area"
-                placeholder={processAreasLoading ? 'Loading…' : 'Select process area'}
+                label="Product Team"
+                placeholder={processAreasLoading ? 'Loading…' : 'Select product team'}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     backgroundColor: 'white',
@@ -1169,6 +1287,7 @@ const DataDefinitionsPage = () => {
                 inlineSavingState={inlineSavingFields}
                 onInlineFieldSubmit={handleInlineFieldSubmit}
                 onEditField={handleOpenFieldEdit}
+                onUpdateFieldUnique={updateDefinitionFieldUnique}
                 onAddExistingFieldInline={handleAddExistingFieldInline}
                 onCreateFieldInline={handleCreateFieldInline}
                 availableFieldsByTable={availableFieldsByTable}
@@ -1223,36 +1342,38 @@ const DataDefinitionsPage = () => {
         />
       )}
 
-      {fieldEditDialog && (
+      {fieldEditDialog?.definitionField.field && (
         <CreateFieldDialog
           open
           mode="edit"
           tableName={fieldEditDialog.tableName}
           loading={fieldEditLoading}
           initialValues={{
-            name: fieldEditDialog.field.name,
-            description: fieldEditDialog.field.description ?? null,
-            applicationUsage: fieldEditDialog.field.applicationUsage ?? null,
-            businessDefinition: fieldEditDialog.field.businessDefinition ?? null,
-            enterpriseAttribute: fieldEditDialog.field.enterpriseAttribute ?? null,
-            fieldType: fieldEditDialog.field.fieldType,
+            name: fieldEditDialog.definitionField.field.name,
+            description: fieldEditDialog.definitionField.field.description ?? null,
+            applicationUsage: fieldEditDialog.definitionField.field.applicationUsage ?? null,
+            businessDefinition: fieldEditDialog.definitionField.field.businessDefinition ?? null,
+            enterpriseAttribute: fieldEditDialog.definitionField.field.enterpriseAttribute ?? null,
+            fieldType: fieldEditDialog.definitionField.field.fieldType,
             fieldLength:
-              fieldEditDialog.field.fieldLength != null
-                ? fieldEditDialog.field.fieldLength.toString()
+              fieldEditDialog.definitionField.field.fieldLength != null
+                ? fieldEditDialog.definitionField.field.fieldLength.toString()
                 : null,
             decimalPlaces:
-              fieldEditDialog.field.decimalPlaces != null
-                ? fieldEditDialog.field.decimalPlaces.toString()
+              fieldEditDialog.definitionField.field.decimalPlaces != null
+                ? fieldEditDialog.definitionField.field.decimalPlaces.toString()
                 : null,
-            systemRequired: fieldEditDialog.field.systemRequired,
-            businessProcessRequired: fieldEditDialog.field.businessProcessRequired,
-            suppressedField: fieldEditDialog.field.suppressedField,
-            active: fieldEditDialog.field.active,
-            legalRegulatoryImplications: fieldEditDialog.field.legalRegulatoryImplications ?? null,
-            securityClassification: fieldEditDialog.field.securityClassification ?? null,
-            dataValidation: fieldEditDialog.field.dataValidation ?? null,
-            referenceTable: fieldEditDialog.field.referenceTable ?? null,
-            groupingTab: fieldEditDialog.field.groupingTab ?? null
+            systemRequired: fieldEditDialog.definitionField.field.systemRequired,
+            businessProcessRequired: fieldEditDialog.definitionField.field.businessProcessRequired,
+            suppressedField: fieldEditDialog.definitionField.field.suppressedField,
+            active: fieldEditDialog.definitionField.field.active,
+            isUnique: Boolean(fieldEditDialog.definitionField.isUnique),
+            legalRegulatoryImplications:
+              fieldEditDialog.definitionField.field.legalRegulatoryImplications ?? null,
+            securityClassification: fieldEditDialog.definitionField.field.securityClassification ?? null,
+            dataValidation: fieldEditDialog.definitionField.field.dataValidation ?? null,
+            referenceTable: fieldEditDialog.definitionField.field.referenceTable ?? null,
+            groupingTab: fieldEditDialog.definitionField.field.groupingTab ?? null
           }}
           onClose={handleFieldDialogClose}
           onSubmit={handleFieldDialogSubmit}

@@ -223,20 +223,23 @@ const ValidationRulesManager: React.FC<Props> = ({
             label="Field"
             select
             value={formData.fieldId || ''}
-            onChange={(e) =>
+            onChange={(e) => {
+              const nextFieldId = e.target.value || null;
+              const selectedField = fields.find((field) => field.id === nextFieldId);
               setFormData({
                 ...formData,
-                fieldId: e.target.value || null,
-                configuration: { fieldName: e.target.value || undefined }
-              })
-            }
+                fieldId: nextFieldId,
+                configuration: { fieldName: selectedField?.name || undefined }
+              });
+            }}
+            InputLabelProps={{ shrink: true }}
             SelectProps={{
               native: true
             }}
           >
             <option value="">Select field</option>
             {fields.map((field) => (
-              <option key={field.id} value={field.name}>
+              <option key={field.id} value={field.id}>
                 {field.name}
               </option>
             ))}
@@ -250,20 +253,23 @@ const ValidationRulesManager: React.FC<Props> = ({
             label="Field"
             select
             value={formData.fieldId || ''}
-            onChange={(e) =>
+            onChange={(e) => {
+              const nextFieldId = e.target.value || null;
+              const selectedField = fields.find((field) => field.id === nextFieldId);
               setFormData({
                 ...formData,
-                fieldId: e.target.value || null,
-                configuration: { fieldName: e.target.value || undefined }
-              })
-            }
+                fieldId: nextFieldId,
+                configuration: { fieldName: selectedField?.name || undefined }
+              });
+            }}
+            InputLabelProps={{ shrink: true }}
             SelectProps={{
               native: true
             }}
           >
             <option value="">Select field</option>
             {fields.map((field) => (
-              <option key={field.id} value={field.name}>
+              <option key={field.id} value={field.id}>
                 {field.name}
               </option>
             ))}
@@ -279,23 +285,26 @@ const ValidationRulesManager: React.FC<Props> = ({
                 label="Field"
                 select
                 value={formData.fieldId || ''}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const nextFieldId = e.target.value || null;
+                  const selectedField = fields.find((field) => field.id === nextFieldId);
                   setFormData({
                     ...formData,
-                    fieldId: e.target.value || null,
+                    fieldId: nextFieldId,
                     configuration: {
                       ...formData.configuration,
-                      fieldName: e.target.value || undefined
+                      fieldName: selectedField?.name || undefined
                     }
-                  })
-                }
+                  });
+                }}
+                InputLabelProps={{ shrink: true }}
                 SelectProps={{
                   native: true
                 }}
               >
                 <option value="">Select field</option>
                 {fields.map((field) => (
-                  <option key={field.id} value={field.name}>
+                  <option key={field.id} value={field.id}>
                     {field.name}
                   </option>
                 ))}
@@ -343,23 +352,26 @@ const ValidationRulesManager: React.FC<Props> = ({
                 label="Field"
                 select
                 value={formData.fieldId || ''}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const nextFieldId = e.target.value || null;
+                  const selectedField = fields.find((field) => field.id === nextFieldId);
                   setFormData({
                     ...formData,
-                    fieldId: e.target.value || null,
+                    fieldId: nextFieldId,
                     configuration: {
                       ...formData.configuration,
-                      fieldName: e.target.value || undefined
+                      fieldName: selectedField?.name || undefined
                     }
-                  })
-                }
+                  });
+                }}
+                InputLabelProps={{ shrink: true }}
                 SelectProps={{
                   native: true
                 }}
               >
                 <option value="">Select field</option>
                 {fields.map((field) => (
-                  <option key={field.id} value={field.name}>
+                  <option key={field.id} value={field.id}>
                     {field.name}
                   </option>
                 ))}
@@ -567,6 +579,7 @@ const ValidationRulesManager: React.FC<Props> = ({
                   fieldId: null
                 })
               }
+              InputLabelProps={{ shrink: true }}
               SelectProps={{
                 native: true
               }}

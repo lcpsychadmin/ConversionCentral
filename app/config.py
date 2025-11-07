@@ -41,6 +41,23 @@ class Settings(BaseSettings):
         env="DATABRICKS_SCHEMA",
         description="Fallback schema to use when no schema is stored in the database settings.",
     )
+    databricks_constructed_schema: str | None = Field(
+        default=None,
+        env="DATABRICKS_CONSTRUCTED_SCHEMA",
+        description="Fallback schema dedicated to constructed data tables when not stored in the database settings.",
+    )
+    databricks_ingestion_method: str | None = Field(
+        default=None,
+        env="DATABRICKS_INGESTION_METHOD",
+        description="Preferred Databricks ingestion method ('sql' or 'spark') when no database setting overrides it.",
+    )
+    databricks_ingestion_batch_rows: int | None = Field(
+        default=None,
+        env="DATABRICKS_INGESTION_BATCH_ROWS",
+        description="Default number of rows to include in each Databricks insert batch when settings do not specify a value.",
+        ge=1,
+        le=100000,
+    )
     databricks_token: str | None = Field(
         default=None,
         env="DATABRICKS_TOKEN",
@@ -53,6 +70,16 @@ class Settings(BaseSettings):
             "When true the application will attempt to mirror constructed tables into the"
             " configured Databricks warehouse."
         ),
+    )
+    ingestion_run_timeout_minutes: int = Field(
+        120,
+        env="INGESTION_RUN_TIMEOUT_MINUTES",
+        description=(
+            "Maximum number of minutes an ingestion run is allowed to remain in the RUNNING"
+            " state before it is marked as failed by the watchdog."
+        ),
+        ge=5,
+        le=1440,
     )
     frontend_origins: List[str] = Field(
         default_factory=lambda: [

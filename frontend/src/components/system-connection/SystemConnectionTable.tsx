@@ -30,7 +30,8 @@ interface SystemConnectionTableProps {
 }
 
 const DATABASE_LABELS: Record<string, string> = {
-  postgresql: 'PostgreSQL'
+  postgresql: 'PostgreSQL',
+  databricks: 'Databricks SQL Warehouse'
 };
 
 const buildColumns = (

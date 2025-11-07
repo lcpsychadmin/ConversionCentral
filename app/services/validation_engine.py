@@ -12,22 +12,32 @@ Supports 6 rule types:
 """
 
 import re
+from collections import Counter
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models import ConstructedData, ConstructedDataValidationRule, ConstructedTable
+from app.models import ConstructedDataValidationRule
+from app.services.constructed_data_store import ConstructedDataStore
 
 
 class ValidationError:
     """Represents a validation error for a row/field."""
 
-    def __init__(self, row_index: int, field_name: str | None, message: str, rule_id: UUID):
+    def __init__(
+        self,
+        row_index: int,
+        field_name: str | None,
+        message: str,
+        rule: ConstructedDataValidationRule,
+    ):
         self.row_index = row_index
         self.field_name = field_name
         self.message = message
-        self.rule_id = rule_id
+        self.rule_id = rule.id
+        self.rule_name = rule.name
+        self.rule_type = rule.rule_type
 
     def dict(self) -> dict[str, Any]:
         return {
@@ -35,14 +45,20 @@ class ValidationError:
             "fieldName": self.field_name,
             "message": self.message,
             "ruleId": str(self.rule_id),
+            "ruleName": self.rule_name,
+            "ruleType": self.rule_type,
         }
 
 
 class ValidationEngine:
     """Engine for evaluating validation rules against constructed data."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, data_store: ConstructedDataStore | None = None):
         self.db = db
+        self.data_store = data_store or ConstructedDataStore()
+        # Track seen values for unique rules across a validation batch
+        self._unique_existing_counts: dict[UUID, Counter] = {}
+        self._unique_batch_counts: dict[UUID, Counter] = {}
 
     def validate_row(
         self,
@@ -130,7 +146,7 @@ class ValidationEngine:
         else:
             return [
                 ValidationError(
-                    row_index, None, f"Unknown rule type: {rule.rule_type}", rule.id
+                    row_index, None, f"Unknown rule type: {rule.rule_type}", rule
                 )
             ]
 
@@ -148,7 +164,7 @@ class ValidationEngine:
         if not field_name:
             return [
                 ValidationError(
-                    row_index, None, "Required rule missing fieldName in configuration", rule.id
+                    row_index, None, "Required rule missing fieldName in configuration", rule
                 )
             ]
 
@@ -157,7 +173,7 @@ class ValidationEngine:
         # Check if value is empty/null
         if value is None or (isinstance(value, str) and value.strip() == ""):
             return [
-                ValidationError(row_index, field_name, rule.error_message, rule.id)
+                ValidationError(row_index, field_name, rule.error_message, rule)
             ]
 
         return []
@@ -176,7 +192,7 @@ class ValidationEngine:
         if not field_name:
             return [
                 ValidationError(
-                    row_index, None, "Unique rule missing fieldName in configuration", rule.id
+                    row_index, None, "Unique rule missing fieldName in configuration", rule
                 )
             ]
 
@@ -186,28 +202,34 @@ class ValidationEngine:
         if value is None:
             return []
 
-        # Count rows with the same value for this field in this table
-        # Query payload field for the given field_name and count matches
-        count = (
-            self.db.query(ConstructedData)
-            .filter(
-                ConstructedData.constructed_table_id == rule.constructed_table_id,
-            )
-            .all()
-        )
+        # Prime cached counts for this rule
+        if rule.id not in self._unique_existing_counts:
+            existing_counter: Counter = Counter()
+            existing_rows = self.data_store.list_rows(rule.constructed_table_id)
+            for row in existing_rows:
+                existing_value = row.payload.get(field_name)
+                if existing_value is None:
+                    continue
+                existing_counter[existing_value] += 1
+            self._unique_existing_counts[rule.id] = existing_counter
+            self._unique_batch_counts[rule.id] = Counter()
 
-        # Count how many rows have this value
-        matching_count = sum(
-            1 for row in count
-            if row.payload.get(field_name) == value
-        )
+        existing_counter = self._unique_existing_counts[rule.id]
+        batch_counter = self._unique_batch_counts[rule.id]
 
-        if matching_count > 1:
+        existing_count = existing_counter.get(value, 0)
+        batch_count = batch_counter.get(value, 0)
+
+        # If this value already exists or has been used earlier in the batch, fail
+        if existing_count + batch_count >= 1:
             return [
                 ValidationError(
-                    row_index, field_name, rule.error_message, rule.id
+                    row_index, field_name, rule.error_message, rule
                 )
             ]
+
+        # Record that we've seen this value in the current batch
+        batch_counter[value] += 1
 
         return []
 
@@ -227,7 +249,7 @@ class ValidationEngine:
         if not field_name:
             return [
                 ValidationError(
-                    row_index, None, "Range rule missing fieldName in configuration", rule.id
+                    row_index, None, "Range rule missing fieldName in configuration", rule
                 )
             ]
 
@@ -243,7 +265,7 @@ class ValidationEngine:
         except (ValueError, TypeError):
             return [
                 ValidationError(
-                    row_index, field_name, f"Value '{value}' is not a valid number", rule.id
+                    row_index, field_name, f"Value '{value}' is not a valid number", rule
                 )
             ]
 
@@ -254,7 +276,7 @@ class ValidationEngine:
                 if num_value < min_num:
                     return [
                         ValidationError(
-                            row_index, field_name, rule.error_message, rule.id
+                            row_index, field_name, rule.error_message, rule
                         )
                     ]
             except (ValueError, TypeError):
@@ -267,7 +289,7 @@ class ValidationEngine:
                 if num_value > max_num:
                     return [
                         ValidationError(
-                            row_index, field_name, rule.error_message, rule.id
+                            row_index, field_name, rule.error_message, rule
                         )
                     ]
             except (ValueError, TypeError):
@@ -290,14 +312,14 @@ class ValidationEngine:
         if not field_name:
             return [
                 ValidationError(
-                    row_index, None, "Pattern rule missing fieldName in configuration", rule.id
+                    row_index, None, "Pattern rule missing fieldName in configuration", rule
                 )
             ]
 
         if not pattern:
             return [
                 ValidationError(
-                    row_index, None, "Pattern rule missing pattern in configuration", rule.id
+                    row_index, None, "Pattern rule missing pattern in configuration", rule
                 )
             ]
 
@@ -315,13 +337,13 @@ class ValidationEngine:
             if not re.match(pattern, str_value):
                 return [
                     ValidationError(
-                        row_index, field_name, rule.error_message, rule.id
+                        row_index, field_name, rule.error_message, rule
                     )
                 ]
         except re.error as e:
             return [
                 ValidationError(
-                    row_index, None, f"Invalid regex pattern: {str(e)}", rule.id
+                    row_index, None, f"Invalid regex pattern: {str(e)}", rule
                 )
             ]
 
@@ -345,7 +367,7 @@ class ValidationEngine:
         if not expression:
             return [
                 ValidationError(
-                    row_index, None, "Custom rule missing expression in configuration", rule.id
+                    row_index, None, "Custom rule missing expression in configuration", rule
                 )
             ]
 
@@ -363,13 +385,13 @@ class ValidationEngine:
             if not result:
                 return [
                     ValidationError(
-                        row_index, None, rule.error_message, rule.id
+                        row_index, None, rule.error_message, rule
                     )
                 ]
         except Exception as e:
             return [
                 ValidationError(
-                    row_index, None, f"Error evaluating custom rule: {str(e)}", rule.id
+                    row_index, None, f"Error evaluating custom rule: {str(e)}", rule
                 )
             ]
 
@@ -392,7 +414,7 @@ class ValidationEngine:
         if not fields or not validation_rule:
             return [
                 ValidationError(
-                    row_index, None, "Cross-field rule missing fields or rule in configuration", rule.id
+                    row_index, None, "Cross-field rule missing fields or rule in configuration", rule
                 )
             ]
 
@@ -407,13 +429,13 @@ class ValidationEngine:
             if not result:
                 return [
                     ValidationError(
-                        row_index, None, rule.error_message, rule.id
+                        row_index, None, rule.error_message, rule
                     )
                 ]
         except Exception as e:
             return [
                 ValidationError(
-                    row_index, None, f"Error evaluating cross-field rule: {str(e)}", rule.id
+                    row_index, None, f"Error evaluating cross-field rule: {str(e)}", rule
                 )
             ]
 

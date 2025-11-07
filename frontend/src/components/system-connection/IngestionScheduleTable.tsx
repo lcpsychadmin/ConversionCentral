@@ -7,10 +7,13 @@ import {
 } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import ListAltIcon from '@mui/icons-material/ListAlt';
 import { Box, Chip, Stack, Switch, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 
-import { IngestionSchedule } from '../../types/data';
+import { DataWarehouseTarget, IngestionSchedule } from '../../types/data';
 import { getDataGridStyles } from '../../utils/tableStyles';
 
 const formatDateTime = (iso: string | null | undefined) => {
@@ -44,9 +47,13 @@ interface IngestionScheduleTableProps {
   selectionLookup: Map<string, SelectionMetadata>;
   loading?: boolean;
   busyIds?: Set<string>;
+  warehouseLabels: Record<DataWarehouseTarget, string>;
   onEdit?: (schedule: IngestionSchedule) => void;
   onRun?: (schedule: IngestionSchedule) => void;
   onToggleActive?: (schedule: IngestionSchedule, isActive: boolean) => void;
+  onDelete?: (schedule: IngestionSchedule) => void;
+  onAbort?: (schedule: IngestionSchedule) => void;
+  onViewRuns?: (schedule: IngestionSchedule) => void;
 }
 
 const IngestionScheduleTable = ({
@@ -54,9 +61,13 @@ const IngestionScheduleTable = ({
   selectionLookup,
   loading = false,
   busyIds,
+  warehouseLabels,
   onEdit,
   onRun,
-  onToggleActive
+  onToggleActive,
+  onDelete,
+  onAbort,
+  onViewRuns
 }: IngestionScheduleTableProps) => {
   const theme = useTheme();
 
@@ -73,6 +84,7 @@ const IngestionScheduleTable = ({
           timezone: schedule.timezone ?? 'UTC',
           loadStrategy: formatStrategy(schedule.loadStrategy),
           targetTable: schedule.targetTableName ?? selection?.targetPreview ?? '—',
+          warehouse: warehouseLabels[schedule.targetWarehouse] ?? schedule.targetWarehouse,
           isActive: schedule.isActive,
           lastStatus: schedule.lastRunStatus ?? '—',
           lastCompleted: schedule.lastRunCompletedAt ?? schedule.lastRunStartedAt ?? null,
@@ -82,7 +94,7 @@ const IngestionScheduleTable = ({
           rawSchedule: schedule
         };
       }),
-    [schedules, selectionLookup]
+    [schedules, selectionLookup, warehouseLabels]
   );
 
   const columns = useMemo<GridColDef[]>(
@@ -121,6 +133,11 @@ const IngestionScheduleTable = ({
         field: 'targetTable',
         headerName: 'Target Table',
         flex: 1
+      },
+      {
+        field: 'warehouse',
+        headerName: 'Warehouse',
+        flex: 0.9
       },
       {
         field: 'isActive',
@@ -191,12 +208,36 @@ const IngestionScheduleTable = ({
               disabled={disabled || !row.isActive}
               onClick={() => onRun?.(row.rawSchedule)}
               showInMenu
+            />,
+            <GridActionsCellItem
+              key="runs"
+              icon={<ListAltIcon fontSize="small" />}
+              label="View runs"
+              disabled={disabled}
+              onClick={() => onViewRuns?.(row.rawSchedule)}
+              showInMenu
+            />,
+            <GridActionsCellItem
+              key="abort"
+              icon={<StopCircleIcon fontSize="small" />}
+              label="Abort run"
+              disabled={disabled || row.lastStatus !== 'running'}
+              onClick={() => onAbort?.(row.rawSchedule)}
+              showInMenu
+            />,
+            <GridActionsCellItem
+              key="delete"
+              icon={<DeleteForeverIcon fontSize="small" />}
+              label="Delete"
+              disabled={disabled}
+              onClick={() => onDelete?.(row.rawSchedule)}
+              showInMenu
             />
           ];
         }
       }
     ],
-    [onEdit, onRun, onToggleActive, busyIds]
+    [onEdit, onRun, onToggleActive, onAbort, onDelete, onViewRuns, busyIds]
   );
 
   return (

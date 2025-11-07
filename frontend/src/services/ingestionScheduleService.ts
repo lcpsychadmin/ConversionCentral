@@ -1,5 +1,6 @@
 import client from './api/client';
 import {
+  DataWarehouseTarget,
   IngestionRun,
   IngestionSchedule,
   IngestionScheduleInput,
@@ -17,6 +18,8 @@ interface IngestionScheduleResponse {
   primaryKeyColumn?: string | null;
   targetSchema?: string | null;
   targetTableName?: string | null;
+  targetWarehouse: DataWarehouseTarget;
+  sapHanaSettingId?: string | null;
   batchSize: number;
   isActive: boolean;
   lastWatermarkTimestamp?: string | null;
@@ -38,6 +41,7 @@ interface IngestionRunResponse {
   startedAt?: string | null;
   completedAt?: string | null;
   rowsLoaded?: number | null;
+  rowsExpected?: number | null;
   watermarkTimestampBefore?: string | null;
   watermarkTimestampAfter?: string | null;
   watermarkIdBefore?: number | null;
@@ -58,6 +62,8 @@ const mapIngestionSchedule = (payload: IngestionScheduleResponse): IngestionSche
   primaryKeyColumn: payload.primaryKeyColumn ?? null,
   targetSchema: payload.targetSchema ?? null,
   targetTableName: payload.targetTableName ?? null,
+  targetWarehouse: payload.targetWarehouse,
+  sapHanaSettingId: payload.sapHanaSettingId ?? null,
   batchSize: payload.batchSize,
   isActive: payload.isActive,
   lastWatermarkTimestamp: payload.lastWatermarkTimestamp ?? null,
@@ -79,6 +85,7 @@ const mapIngestionRun = (payload: IngestionRunResponse): IngestionRun => ({
   startedAt: payload.startedAt ?? null,
   completedAt: payload.completedAt ?? null,
   rowsLoaded: payload.rowsLoaded ?? null,
+  rowsExpected: payload.rowsExpected ?? null,
   watermarkTimestampBefore: payload.watermarkTimestampBefore ?? null,
   watermarkTimestampAfter: payload.watermarkTimestampAfter ?? null,
   watermarkIdBefore: payload.watermarkIdBefore ?? null,
@@ -106,6 +113,8 @@ export const createIngestionSchedule = async (
     primary_key_column: input.primaryKeyColumn ?? null,
     target_schema: input.targetSchema ?? null,
     target_table_name: input.targetTableName ?? null,
+    target_warehouse: input.targetWarehouse,
+    sap_hana_setting_id: input.sapHanaSettingId ?? null,
     batch_size: input.batchSize,
     is_active: input.isActive
   });
@@ -130,6 +139,8 @@ export const updateIngestionSchedule = async (
     ...(input.targetTableName !== undefined
       ? { target_table_name: input.targetTableName }
       : {}),
+    ...(input.targetWarehouse !== undefined ? { target_warehouse: input.targetWarehouse } : {}),
+    ...(input.sapHanaSettingId !== undefined ? { sap_hana_setting_id: input.sapHanaSettingId } : {}),
     ...(input.batchSize !== undefined ? { batch_size: input.batchSize } : {}),
     ...(input.isActive !== undefined ? { is_active: input.isActive } : {})
   });
@@ -140,7 +151,25 @@ export const triggerIngestionSchedule = async (id: string): Promise<void> => {
   await client.post(`/ingestion-schedules/${id}/run`);
 };
 
+export const deleteIngestionSchedule = async (id: string): Promise<void> => {
+  await client.delete(`/ingestion-schedules/${id}`);
+};
+
 export const fetchIngestionRuns = async (scheduleId: string): Promise<IngestionRun[]> => {
   const response = await client.get<IngestionRunResponse[]>(`/ingestion-schedules/${scheduleId}/runs`);
   return response.data.map(mapIngestionRun);
+};
+
+export const abortIngestionRun = async (scheduleId: string, runId: string): Promise<void> => {
+  await client.post(`/ingestion-schedules/${scheduleId}/runs/${runId}/abort`);
+};
+
+export interface CleanupStuckRunsResponse {
+  detail: string;
+  expired_runs: number;
+}
+
+export const cleanupStuckIngestionRuns = async (): Promise<CleanupStuckRunsResponse> => {
+  const response = await client.post<CleanupStuckRunsResponse>('/ingestion-schedules/cleanup-stuck-runs');
+  return response.data;
 };

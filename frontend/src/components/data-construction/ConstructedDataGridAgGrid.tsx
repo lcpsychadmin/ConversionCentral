@@ -13,13 +13,13 @@ import {
   Snackbar,
   Checkbox,
   FormControl,
-  FormControlLabel,
   MenuItem,
   Select,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import SaveIcon from '@mui/icons-material/Save';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { alpha, useTheme } from '@mui/material/styles';
 import { RevoGrid, Template } from '@revolist/react-datagrid';
@@ -84,18 +84,115 @@ interface SaveRowOptions {
   skipRefresh?: boolean;
   suppressSuccessToast?: boolean;
   suppressErrorToast?: boolean;
+  manageSavingState?: boolean;
 }
 
 interface SaveRowResult {
   success: boolean;
   error?: string;
+  persistedId?: string | number;
+  tempId?: string | number;
 }
+
+type ValidationHighlight = {
+  fieldName?: string | null;
+  message: string;
+};
+
+type RowValidationState = {
+  fields: Record<string, string>;
+  rowMessages: string[];
+};
+
+const humanizeRuleType = (ruleType?: string): string | undefined => {
+  if (!ruleType) {
+    return undefined;
+  }
+  return ruleType
+    .split('_')
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+};
+
+const buildValidationRuleLabel = (ruleName?: string, ruleType?: string): string | undefined => {
+  const friendlyType = humanizeRuleType(ruleType);
+    if (ruleName && friendlyType) {
+      return `Validation rule "${ruleName}" (${friendlyType})`;
+    }
+    if (ruleName) {
+      return `Validation rule "${ruleName}"`;
+  }
+  if (friendlyType) {
+    return `Validation rule (${friendlyType})`;
+  }
+  return undefined;
+};
+
+const formatValidationMessage = (
+  message?: string,
+  ruleName?: string,
+  ruleType?: string
+): string => {
+  const trimmedMessage = message?.trim();
+  const label = buildValidationRuleLabel(ruleName, ruleType);
+    if (label && trimmedMessage) {
+      return `${label}: ${trimmedMessage}`;
+    }
+    if (label) {
+      return `${label}: Validation failed.`;
+  }
+  return trimmedMessage ?? 'Validation failed.';
+};
+
+const resolveRowKey = (row: { id?: unknown; rowId?: unknown }): string | undefined => {
+  if (row.id !== undefined && row.id !== null) {
+    return String(row.id);
+  }
+  if (row.rowId !== undefined && row.rowId !== null) {
+    return String(row.rowId);
+  }
+  return undefined;
+};
+
+const auditDateFormatter = new Intl.DateTimeFormat([], {
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+const formatAuditDateValue = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return '—';
+    }
+    return auditDateFormatter.format(value);
+  }
+
+  if (typeof value === 'number' || typeof value === 'string') {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      const stringValue = String(value).trim();
+      return stringValue.length > 0 ? stringValue : '—';
+    }
+    return auditDateFormatter.format(date);
+  }
+
+  return '—';
+};
 
 interface Props {
   constructedTableId: string;
   fields: ConstructedField[];
   rows: ConstructedData[];
   onDataChange: () => void;
+  onDirtyStateChange?: (hasUnsavedChanges: boolean) => void;
 }
 
 const emptyRowIdPrefix = 'new-';
@@ -125,6 +222,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
   fields,
   rows,
   onDataChange,
+  onDirtyStateChange,
 }) => {
   const theme = useTheme();
   const toast = useToast();
@@ -150,7 +248,6 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       })),
     [releases]
   );
-
   const userDisplayName = useMemo(() => {
     if (!user || !user.name) {
       return 'Unknown User';
@@ -192,7 +289,13 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 
       return payload;
     },
-    [auditFieldPresence.createdBy, auditFieldPresence.createdDate, auditFieldPresence.modifiedBy, auditFieldPresence.modifiedDate, userDisplayName]
+    [
+      auditFieldPresence.createdBy,
+      auditFieldPresence.createdDate,
+      auditFieldPresence.modifiedBy,
+      auditFieldPresence.modifiedDate,
+      userDisplayName,
+    ]
   );
 
   const [localRows, setLocalRows] = useState<EditableConstructedRow[]>(() =>
@@ -214,10 +317,184 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     rowId: string;
     fieldName: string;
   } | null>(null);
+  const [dirtyRowIds, setDirtyRowIds] = useState<Set<string>>(new Set());
+  const [validationHighlights, setValidationHighlights] = useState<Record<string, RowValidationState>>({});
+
+  const getValidationMeta = useCallback(
+    (row: { id?: unknown; rowId?: unknown }, fieldName?: string | null) => {
+      const rowKey = resolveRowKey(row);
+      if (!rowKey) {
+        return { rowClass: undefined, cellClass: undefined, message: undefined };
+      }
+
+      const rowState = validationHighlights[rowKey];
+      if (!rowState) {
+        return { rowClass: undefined, cellClass: undefined, message: undefined };
+      }
+
+      const rowMessages = Array.isArray(rowState.rowMessages) ? rowState.rowMessages : [];
+      const cellMessage = fieldName ? rowState.fields?.[fieldName] : undefined;
+      const message = cellMessage ?? (rowMessages.length ? rowMessages.join('\n') : undefined);
+
+      return {
+        rowClass: rowMessages.length ? 'cc-validation-row' : undefined,
+        cellClass: cellMessage ? 'cc-validation-error-cell' : undefined,
+        message,
+      };
+    },
+    [validationHighlights]
+  );
   const gridRef = useRef<HTMLRevoGridElement | null>(null);
+
+  const applyValidationHighlights = useCallback(
+    (rowId: string | number | undefined | null, errors: ValidationHighlight[]) => {
+      if (rowId === undefined || rowId === null) {
+        return;
+      }
+      const normalizedId = String(rowId);
+      setValidationHighlights((prev) => {
+        const fieldMap: Record<string, string> = {};
+        const rowMessages: string[] = [];
+
+        errors.forEach((error) => {
+          if (!error || !error.message) {
+            return;
+          }
+          if (error.fieldName) {
+            const key = String(error.fieldName);
+            fieldMap[key] = fieldMap[key]
+              ? `${fieldMap[key]}
+${error.message}`
+              : error.message;
+          } else {
+            rowMessages.push(error.message);
+          }
+        });
+
+        if (!Object.keys(fieldMap).length && !rowMessages.length) {
+          if (!prev[normalizedId]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[normalizedId];
+          return next;
+        }
+
+        const existing = prev[normalizedId];
+        const existingFieldEntries = existing ? Object.entries(existing.fields) : [];
+        const nextFieldEntries = Object.entries(fieldMap);
+        const hasSameFields =
+          existingFieldEntries.length === nextFieldEntries.length &&
+          existingFieldEntries.every(([key, value]) => fieldMap[key] === value);
+        const hasSameRowMessages = existing
+          ? existing.rowMessages.length === rowMessages.length &&
+            existing.rowMessages.every((message, index) => message === rowMessages[index])
+          : rowMessages.length === 0;
+
+        if (hasSameFields && hasSameRowMessages) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [normalizedId]: {
+            fields: fieldMap,
+            rowMessages,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const clearValidationForRows = useCallback((rowIds: Array<string | number | undefined | null>) => {
+    const keys = rowIds
+      .filter((rowId): rowId is string | number => rowId !== undefined && rowId !== null)
+      .map((rowId) => String(rowId));
+    if (!keys.length) {
+      return;
+    }
+    setValidationHighlights((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      keys.forEach((key) => {
+        if (next[key]) {
+          delete next[key];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const clearValidationFields = useCallback((rowId: string | number | undefined | null, fieldNames: string[]) => {
+    if (!fieldNames.length || rowId === undefined || rowId === null) {
+      return;
+    }
+    const key = String(rowId);
+    setValidationHighlights((prev) => {
+      const existing = prev[key];
+      if (!existing) {
+        return prev;
+      }
+
+      let changed = false;
+      const nextFields = { ...existing.fields };
+      fieldNames.forEach((field) => {
+        if (nextFields[field]) {
+          delete nextFields[field];
+          changed = true;
+        }
+      });
+
+      let nextRowMessages = existing.rowMessages;
+      if (existing.rowMessages.length) {
+        nextRowMessages = [];
+        changed = true;
+      }
+
+      if (!changed) {
+        return prev;
+      }
+
+      const hasFields = Object.keys(nextFields).length > 0;
+      const hasRowMessages = nextRowMessages.length > 0;
+      const next = { ...prev };
+
+      if (!hasFields && !hasRowMessages) {
+        delete next[key];
+      } else {
+        next[key] = {
+          fields: nextFields,
+          rowMessages: nextRowMessages,
+        };
+      }
+
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setLocalRows(rows.map(cloneConstructedRow));
+    setValidationHighlights((prev) => {
+      if (!Object.keys(prev).length) {
+        return prev;
+      }
+      const validIds = new Set(rows.map((row) => String(row.id)));
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(next).forEach((key) => {
+        if (!validIds.has(key)) {
+          delete next[key];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [rows]);
+
+  useEffect(() => {
+    setDirtyRowIds(new Set());
   }, [rows]);
 
   useEffect(() => {
@@ -253,6 +530,28 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     setSelectedRowIds((prev) => {
       let changed = false;
       const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      if (!changed && next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [localRows]);
+
+  useEffect(() => {
+    const validIds = new Set(localRows.map((row) => String(row.id)));
+    setDirtyRowIds((prev) => {
+      if (!prev.size) {
+        return prev;
+      }
+      const next = new Set<string>();
+      let changed = false;
       prev.forEach((id) => {
         if (validIds.has(id)) {
           next.add(id);
@@ -365,14 +664,19 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         skipRefresh = false,
         suppressSuccessToast = false,
         suppressErrorToast = false,
+        manageSavingState = true,
       } = options;
 
       if (!rowData || rowData.__isPlaceholder) {
-        return { success: false, error: 'Nothing to save' };
+        return { success: false, error: 'Nothing to save', tempId: rowData?.id };
       }
 
+      const targetRowKey = resolveRowKey(rowData);
+
       try {
-        setIsSaving(true);
+        if (manageSavingState) {
+          setIsSaving(true);
+        }
 
         const isNewRow = rowData.isNew ?? String(rowData.id).startsWith(emptyRowIdPrefix);
         const targetTableId = rowData.constructedTableId ?? constructedTableId;
@@ -403,12 +707,23 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
             if (!suppressErrorToast) {
               toast.showToast('Validation failed for row. Fix errors before continuing.', 'warning');
             }
+            applyValidationHighlights(
+              targetRowKey,
+              validation.errors.map<ValidationHighlight>((error) => ({
+                fieldName: error.fieldName,
+                message: formatValidationMessage(error.message, error.ruleName, error.ruleType),
+              }))
+            );
             return {
               success: false,
               error: 'Validation failed for row. Fix errors before continuing.',
             };
           }
+
+          clearValidationForRows([targetRowKey]);
         }
+
+        let result: SaveRowResult;
 
         if (isNewRow) {
           const created = await createConstructedData({
@@ -433,6 +748,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           if (!suppressSuccessToast) {
             toast.showToast('Row created', 'success');
           }
+          result = { success: true, persistedId: created.id, tempId: rowData.id };
         } else {
           await updateConstructedData(rowData.id, { payload });
           setLocalRows((prev) =>
@@ -445,19 +761,32 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           if (!suppressSuccessToast) {
             toast.showToast('Row saved', 'success');
           }
+          result = { success: true, persistedId: rowData.id };
         }
+
+        clearValidationForRows([
+          targetRowKey,
+          rowData.id,
+          result.tempId,
+          result.persistedId,
+        ]);
 
         if (!skipRefresh) {
           onDataChange();
         }
 
-        return { success: true };
+        return result;
       } catch (rawError) {
         const axiosError = rawError as AxiosError<
           | string
           | {
               detail?: string;
-              errors?: Array<{ message?: string }>;
+              errors?: Array<{
+                message?: string;
+                fieldName?: string | null;
+                ruleName?: string;
+                ruleType?: string;
+              }>;
             }
         >;
         const responseData = axiosError.response?.data;
@@ -469,7 +798,28 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           } else if (responseData.detail) {
             errorMessage = responseData.detail;
           } else if (Array.isArray(responseData.errors) && responseData.errors.length) {
-            errorMessage = responseData.errors.map((error) => error.message).filter(Boolean).join('\n');
+            const formattedMessages = responseData.errors
+              .map((error) =>
+                formatValidationMessage(error.message, error.ruleName, error.ruleType)
+              )
+              .filter(Boolean);
+            if (formattedMessages.length) {
+              errorMessage = formattedMessages.join('\n');
+            }
+            applyValidationHighlights(
+              targetRowKey,
+              responseData.errors
+                .map<ValidationHighlight | null>((error) => {
+                  if (!error) {
+                    return null;
+                  }
+                  return {
+                    fieldName: error.fieldName ?? undefined,
+                    message: formatValidationMessage(error.message, error.ruleName, error.ruleType),
+                  };
+                })
+                .filter((error): error is ValidationHighlight => Boolean(error))
+            );
           }
         }
 
@@ -486,16 +836,18 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         if (!suppressErrorToast) {
           toast.showToast(errorMessage, 'error');
         }
-        return { success: false, error: errorMessage };
+        return { success: false, error: errorMessage, tempId: rowData.id };
       } finally {
-        setIsSaving(false);
+        if (manageSavingState) {
+          setIsSaving(false);
+        }
       }
     },
-    [constructedTableId, ensureAuditFields, fields, onDataChange, toast]
+    [applyValidationHighlights, clearValidationForRows, constructedTableId, ensureAuditFields, fields, onDataChange, toast]
   );
 
   const handleModelChange = useCallback(
-    async (model: GridModel, saveOptions: SaveRowOptions = {}): Promise<SaveRowResult | null> => {
+    async (model: GridModel): Promise<EditableConstructedRow | null> => {
       if (!model) {
         return null;
       }
@@ -515,7 +867,8 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           ? (model as { rowIndex: number }).rowIndex
           : undefined;
 
-      let pendingRowForSave: EditableConstructedRow | null = null;
+      let changedRow: EditableConstructedRow | null = null;
+      const changedFieldNames: string[] = [];
 
       setLocalRows((prev) => {
         const next = [...prev];
@@ -575,7 +928,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
             updatedAt: model.updatedAt,
             isNew: true,
           };
-          pendingRowForSave = newRow;
+          changedRow = newRow;
           if (rowIndex !== undefined && rowIndex <= next.length) {
             next.splice(Math.max(rowIndex, 0), 0, newRow);
           } else {
@@ -594,6 +947,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           if (updatedPayload[fieldName] !== derived[fieldName]) {
             updatedPayload[fieldName] = derived[fieldName];
             changed = true;
+            changedFieldNames.push(fieldName);
           }
         });
 
@@ -607,20 +961,28 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           isNew: current.isNew ?? String(current.id).startsWith(emptyRowIdPrefix),
         };
         next[index] = updatedRow;
-        pendingRowForSave = updatedRow;
+        changedRow = updatedRow;
         return next;
       });
 
-      if (pendingRowForSave) {
-        return await saveRow(toGridRow(pendingRowForSave), {
-          suppressSuccessToast: true,
-          ...saveOptions,
+      const rowForDirty = changedRow as EditableConstructedRow | null;
+
+      if (rowForDirty) {
+        const targetId = String(rowForDirty.id);
+        setDirtyRowIds((prev) => {
+          const next = new Set(prev);
+          next.add(targetId);
+          return next;
         });
       }
 
-      return null;
+      if (rowForDirty && changedFieldNames.length) {
+        clearValidationFields(rowForDirty.id, changedFieldNames);
+      }
+
+      return rowForDirty;
     },
-    [constructedTableId, ensureAuditFields, fields, saveRow, toGridRow]
+    [clearValidationFields, constructedTableId, ensureAuditFields, fields]
   );
 
   const handleAfterEdit = useCallback(
@@ -647,18 +1009,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           uniqueModels.set(key, model);
         });
         const modelsToProcess = Array.from(uniqueModels.values());
-        const promises = modelsToProcess.map((model) =>
-          handleModelChange(model, { skipRefresh: true, suppressSuccessToast: true })
-        );
-        void Promise.all(promises).then((results) => {
-          const successCount = results.filter((result) => result?.success).length;
-          if (successCount > 0) {
-            onDataChange();
-            if (successCount > 1) {
-              toast.showToast(`${successCount} rows saved`, 'success');
-            }
-          }
-        });
+        void Promise.all(modelsToProcess.map((model) => handleModelChange(model)));
         return;
       }
 
@@ -666,7 +1017,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         void handleModelChange(detail.model);
       }
     },
-    [handleModelChange, onDataChange, toast]
+    [handleModelChange]
   );
 
   const handleAuditFieldChange = useCallback(
@@ -691,21 +1042,10 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 
       (model as Record<string, unknown>)[`payload.${fieldName}`] = value;
 
-      try {
-        const result = await handleModelChange(model, { suppressSuccessToast: false });
-        if (!result?.success) {
-          const message = result?.error ?? 'Failed to save row';
-          toast.showToast(message, 'error');
-          return false;
-        }
-        return true;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to save row';
-        toast.showToast(errorMessage, 'error');
-        return false;
-      }
+      await handleModelChange(model);
+      return true;
     },
-    [handleModelChange, toast]
+    [handleModelChange]
   );
 
   const createSelectCellTemplate = useCallback(
@@ -720,6 +1060,14 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         }
 
         const currentValue = (row.payload?.[fieldName] ?? '') as string;
+        const validation = getValidationMeta(row, fieldName);
+        const className = [validation.rowClass, validation.cellClass]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const validationProps = validation.message
+          ? { title: validation.message, 'data-validation-message': validation.message }
+          : {};
         const hasOptions = options.length > 0;
         const effectiveOptions = hasOptions
           ? options
@@ -780,6 +1128,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 
         return (
           <Box
+            className={className ? className : undefined}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -789,6 +1138,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
             onClick={() => {
               setActiveAuditCell({ rowId, fieldName });
             }}
+            {...validationProps}
           >
             <FormControl
               variant="outlined"
@@ -865,7 +1215,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           </Box>
         );
       }),
-    [handleAuditFieldChange, setActiveAuditCell, setEditingAuditCell]
+    [getValidationMeta, handleAuditFieldChange, setActiveAuditCell, setEditingAuditCell]
   );
   const handleSelectionToggle = useCallback((row: GridRowData, checked: boolean) => {
     if (row.__isPlaceholder) {
@@ -1026,17 +1376,15 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 
           if (models.length) {
             setEditingAuditCell(null);
-            const results = await Promise.all(
-              models.map((model) =>
-                handleModelChange(model, { skipRefresh: true, suppressSuccessToast: true })
-              )
-            );
-            const successCount = results.filter((result) => result?.success).length;
-            if (successCount > 0) {
-              onDataChange();
-              if (successCount > 1) {
-                toast.showToast(`${successCount} rows updated`, 'success');
-              }
+            const results = await Promise.all(models.map((model) => handleModelChange(model)));
+            const changeCount = results.filter(Boolean).length;
+            if (changeCount > 0) {
+              toast.showToast(
+                changeCount === 1
+                  ? 'Row updated. Save to apply changes.'
+                  : `${changeCount} rows updated. Save to apply changes.`,
+                'info'
+              );
             }
             setActiveAuditCell(targetCell);
             return;
@@ -1117,27 +1465,20 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         return next;
       });
 
-      const saveResults: SaveRowResult[] = [];
-      for (const row of rowsToInsert) {
-        const result = await saveRow(toGridRow(row), {
-          skipRefresh: true,
-          suppressSuccessToast: true,
+      setDirtyRowIds((prev) => {
+        const next = new Set(prev);
+        rowsToInsert.forEach((row) => {
+          next.add(String(row.id));
         });
-        if (result) {
-          saveResults.push(result);
-        }
-      }
+        return next;
+      });
 
-      const successCount = saveResults.filter((result) => result.success).length;
-      if (successCount > 0) {
-        onDataChange();
-        toast.showToast(
-          successCount === 1 ? 'Row pasted successfully' : `${successCount} rows pasted successfully`,
-          'success'
-        );
-      } else {
-        toast.showToast('Failed to paste rows', 'error');
-      }
+      toast.showToast(
+        rowsToInsert.length === 1
+          ? 'Row pasted. Save to apply changes.'
+          : `${rowsToInsert.length} rows pasted. Save to apply changes.`,
+        'info'
+      );
     },
     [
       activeAuditCell,
@@ -1146,15 +1487,87 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       fields,
       handleModelChange,
       localRows,
-      onDataChange,
-      saveRow,
       selectedRowIds,
       setActiveAuditCell,
       setEditingAuditCell,
-      toGridRow,
+      setDirtyRowIds,
       toast,
     ]
   );
+
+  const handleSaveDirtyRows = useCallback(async () => {
+    if (!dirtyRowIds.size) {
+      return;
+    }
+
+    const dirtyIds = Array.from(dirtyRowIds);
+    const rowLookup = new Map<string, EditableConstructedRow>(
+      localRows.map((row) => [String(row.id), row])
+    );
+    const rowsToSave = dirtyIds
+      .map((id) => rowLookup.get(id))
+      .filter((row): row is EditableConstructedRow => Boolean(row));
+
+    if (!rowsToSave.length) {
+      setDirtyRowIds(new Set());
+      return;
+    }
+
+    setIsSaving(true);
+    const clearedIds = new Set<string>();
+    const errors: string[] = [];
+    let successCount = 0;
+
+    try {
+      for (const row of rowsToSave) {
+        const originalId = String(row.id);
+        const result = await saveRow(toGridRow(row), {
+          skipRefresh: true,
+          suppressSuccessToast: true,
+          manageSavingState: false,
+        });
+
+        if (result.success) {
+          successCount += 1;
+          [originalId, result.tempId, result.persistedId].forEach((id) => {
+            if (id !== undefined && id !== null) {
+              clearedIds.add(String(id));
+            }
+          });
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+      }
+
+      if (successCount > 0) {
+        onDataChange();
+        toast.showToast(
+          successCount === 1 ? 'Row saved' : `${successCount} rows saved`,
+          'success'
+        );
+      }
+
+      if (errors.length) {
+        const summary =
+          errors.length === 1
+            ? errors[0]
+            : `${errors.length} rows failed to save`;
+        toast.showToast(summary, 'error');
+      }
+    } finally {
+      setIsSaving(false);
+      if (clearedIds.size) {
+        setDirtyRowIds((prev) => {
+          if (!prev.size) {
+            return prev;
+          }
+          const next = new Set(prev);
+          clearedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+    }
+  }, [dirtyRowIds, localRows, onDataChange, saveRow, setDirtyRowIds, toGridRow, toast]);
 
   const handleDeleteRequest = useCallback(
     (row: GridRowData) => {
@@ -1172,12 +1585,21 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           next.delete(String(editableRow.id));
           return next;
         });
+        setDirtyRowIds((prev) => {
+          if (!prev.has(String(editableRow.id))) {
+            return prev;
+          }
+          const next = new Set(prev);
+          next.delete(String(editableRow.id));
+          return next;
+        });
+        clearValidationForRows([editableRow.id]);
         setUndoState({ rows: [editableRow] });
         return;
       }
       setDeleteTarget(editableRow);
     },
-    [toEditableRow]
+    [clearValidationForRows, toEditableRow]
   );
 
   const handleConfirmDelete = useCallback(async () => {
@@ -1202,6 +1624,15 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         next.delete(String(target.id));
         return next;
       });
+      setDirtyRowIds((prev) => {
+        if (!prev.has(String(target.id))) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.delete(String(target.id));
+        return next;
+      });
+      clearValidationForRows([target.id]);
       setUndoState({ rows: [undoRow] });
       toast.showToast('Row deleted', 'success');
       onDataChange();
@@ -1212,7 +1643,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       setIsDeleting(false);
       setDeleteTarget(null);
     }
-  }, [deleteTarget, onDataChange, toast, toUndoRow]);
+  }, [clearValidationForRows, deleteTarget, onDataChange, setDirtyRowIds, toast, toUndoRow]);
 
   const handleCancelDelete = useCallback(() => {
     if (isDeleting) {
@@ -1255,6 +1686,15 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         idsToRemove.forEach((id) => next.delete(id));
         return next;
       });
+      setDirtyRowIds((prev) => {
+        if (!prev.size) {
+          return prev;
+        }
+        const next = new Set(prev);
+        idsToRemove.forEach((id) => next.delete(id));
+        return next;
+      });
+      clearValidationForRows(Array.from(idsToRemove));
 
       if (persistedTargets.length) {
         for (const row of persistedTargets) {
@@ -1285,7 +1725,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       setIsBulkDeleting(false);
       setBulkDeleteTargets([]);
     }
-  }, [bulkDeleteTargets, onDataChange, toast, toUndoRow]);
+  }, [bulkDeleteTargets, clearValidationForRows, onDataChange, setDirtyRowIds, toast, toUndoRow]);
 
   const handleCancelBulkDelete = useCallback(() => {
     if (isBulkDeleting) {
@@ -1316,16 +1756,33 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       );
 
       if (unsavedRows.length) {
+        const restoredRows: EditableConstructedRow[] = [];
         setLocalRows((prev) => {
           const existingIds = new Set(prev.map((row) => String(row.id)));
           const restored = unsavedRows.map((row) => {
             let id = String(row.id);
-            if (existingIds.has(id)) {
-              id = `${emptyRowIdPrefix}${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+            const ensureUniqueId = () =>
+              `${emptyRowIdPrefix}${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+            while (existingIds.has(id) || restoredRows.some((candidate) => String(candidate.id) === id)) {
+              id = ensureUniqueId();
             }
-            return { ...row, id, isNew: true, payload: { ...row.payload } };
+            const restoredRow: EditableConstructedRow = {
+              ...row,
+              id,
+              isNew: true,
+              payload: { ...row.payload },
+            };
+            restoredRows.push(restoredRow);
+            return restoredRow;
           });
           return [...prev, ...restored];
+        });
+        setDirtyRowIds((prev) => {
+          const next = new Set(prev);
+          restoredRows.forEach((row) => {
+            next.add(String(row.id));
+          });
+          return next;
         });
       }
 
@@ -1367,7 +1824,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
       setUndoState(null);
       setIsRestoring(false);
     }
-  }, [undoState, isRestoring, onDataChange, toast]);
+  }, [undoState, isRestoring, onDataChange, setDirtyRowIds, toast]);
 
   const handleSnackbarClose = useCallback(
     (_: Event | React.SyntheticEvent | undefined, reason?: string) => {
@@ -1390,9 +1847,18 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           return null;
         }
         const rowId = String(row.id);
+        const validation = getValidationMeta(row, null);
+        const className = validation.rowClass;
+        const validationProps = validation.message
+          ? { title: validation.message, 'data-validation-message': validation.message }
+          : {};
         const checked = selectedRowIds.has(rowId);
         return (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          <Box
+            className={className}
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
+            {...validationProps}
+          >
             <Checkbox
               size="small"
               checked={checked}
@@ -1402,7 +1868,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           </Box>
         );
       }),
-    [handleSelectionToggle, selectedRowIds]
+    [getValidationMeta, handleSelectionToggle, selectedRowIds]
   );
 
   const deleteCellTemplate = useMemo(
@@ -1415,9 +1881,15 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         if (!row || row.__isPlaceholder) {
           return null;
         }
+        const validation = getValidationMeta(row, null);
+        const className = validation.rowClass;
+        const validationProps = validation.message
+          ? { title: validation.message, 'data-validation-message': validation.message }
+          : {};
         return (
           <Tooltip title="Delete row" arrow>
             <Box
+              className={className}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1429,13 +1901,14 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
                 event.stopPropagation();
                 handleDeleteRequest(row);
               }}
+              {...validationProps}
             >
               <DeleteIcon fontSize="small" />
             </Box>
           </Tooltip>
         );
       }),
-    [handleDeleteRequest]
+    [getValidationMeta, handleDeleteRequest]
   );
 
   const projectSelectCellTemplate = useMemo(() => {
@@ -1452,6 +1925,79 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     return createSelectCellTemplate(AUDIT_RELEASE_FIELD, releaseOptions);
   }, [auditFieldPresence.release, createSelectCellTemplate, releaseOptions]);
 
+  const unsavedCount = dirtyRowIds.size;
+  const hasUnsavedChanges = unsavedCount > 0;
+  const dataRowCount = localRows.length;
+  const selectedRowCount = selectedRowIds.size;
+  const isAllSelected = dataRowCount > 0 && selectedRowCount === dataRowCount;
+  const isIndeterminateSelection = selectedRowCount > 0 && selectedRowCount < dataRowCount;
+
+  const dirtyStateChangeRef = useRef(onDirtyStateChange);
+
+  useEffect(() => {
+    dirtyStateChangeRef.current = onDirtyStateChange;
+  });
+
+  useEffect(() => {
+    dirtyStateChangeRef.current?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    return () => {
+      dirtyStateChangeRef.current?.(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasUnsavedChanges) {
+      return undefined;
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  const selectAllHeaderTemplate = useMemo(
+    () =>
+      Template((templateProps: ColumnDataSchemaModel | ColumnTemplateProp) => {
+        if (isColumnDataSchemaModel(templateProps)) {
+          return null;
+        }
+
+        const columnTemplateProps = templateProps as ColumnTemplateProp;
+        const columnProp = columnTemplateProps.prop;
+
+        return (
+          <Box
+            data-column={columnProp !== undefined ? String(columnProp) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Tooltip title="Select all rows" arrow>
+              <Checkbox
+                size="small"
+                indeterminate={isIndeterminateSelection}
+                checked={isAllSelected}
+                disabled={dataRowCount === 0}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => handleSelectAllChange(event.target.checked)}
+                inputProps={{ 'aria-label': 'Select all rows' }}
+              />
+            </Tooltip>
+          </Box>
+        );
+      }),
+    [dataRowCount, handleSelectAllChange, isAllSelected, isIndeterminateSelection]
+  );
+
   const columns = useMemo<ColumnRegular[]>(() => {
     const base: ColumnRegular[] = [
       {
@@ -1464,6 +2010,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         sortable: false,
         resizable: false,
         pin: 'colPinStart',
+        columnTemplate: selectAllHeaderTemplate,
         cellTemplate: selectCellTemplate,
       },
       {
@@ -1481,6 +2028,7 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 
     fields.forEach((field) => {
       const columnProp = `payload.${field.name}` as const;
+      const fieldName = field.name;
       const column: ColumnRegular = {
         prop: columnProp,
         name: field.isNullable ? field.name : `${field.name} *`,
@@ -1502,16 +2050,80 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
         column.readonly = false;
       }
 
+      if (!column.cellTemplate) {
+        column.cellTemplate = Template((templateProps: ColumnDataSchemaModel | ColumnTemplateProp) => {
+          if (!isColumnDataSchemaModel(templateProps)) {
+            return null;
+          }
+
+          const model = templateProps.model as GridRowData | undefined;
+          if (!model || model.__isPlaceholder) {
+            return null;
+          }
+
+          const validation = getValidationMeta(model, fieldName);
+          const className = [validation.rowClass, validation.cellClass]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          const message = validation.message;
+          const rawValue =
+            model.payload?.[fieldName] ?? (model[columnProp as keyof GridRowData] ?? '');
+          const displayValue = (() => {
+            if (fieldName === AUDIT_CREATED_DATE_FIELD || fieldName === AUDIT_MODIFIED_DATE_FIELD) {
+              return formatAuditDateValue(rawValue);
+            }
+            if (rawValue === null || rawValue === undefined) {
+              return '—';
+            }
+            const stringValue = String(rawValue).trim();
+            return stringValue.length > 0 ? stringValue : '—';
+          })();
+
+          return (
+            <Box
+              className={className ? className : undefined}
+              sx={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                px: 1,
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+              }}
+              {...(message ? { title: message, 'data-validation-message': message } : {})}
+            >
+              <Typography
+                component="span"
+                variant="body2"
+                sx={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  width: '100%',
+                }}
+              >
+                {displayValue}
+              </Typography>
+            </Box>
+          );
+        });
+      }
+
       base.push(column);
     });
 
     return base;
-  }, [deleteCellTemplate, fields, projectSelectCellTemplate, releaseSelectCellTemplate, selectCellTemplate]);
-
-  const dataRowCount = localRows.length;
-  const selectedRowCount = selectedRowIds.size;
-  const isAllSelected = dataRowCount > 0 && selectedRowCount === dataRowCount;
-  const isIndeterminateSelection = selectedRowCount > 0 && selectedRowCount < dataRowCount;
+  }, [
+    deleteCellTemplate,
+    fields,
+    getValidationMeta,
+    projectSelectCellTemplate,
+    releaseSelectCellTemplate,
+    selectAllHeaderTemplate,
+    selectCellTemplate,
+  ]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 2 }}>
@@ -1523,26 +2135,28 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
           <Typography variant="body2" color="text.secondary">
             ({dataRowCount} rows)
           </Typography>
-          <FormControlLabel
-            sx={{ ml: 1, userSelect: 'none' }}
-            control={
-              <Checkbox
-                size="small"
-                indeterminate={isIndeterminateSelection}
-                checked={isAllSelected}
-                onChange={(event) => handleSelectAllChange(event.target.checked)}
-                disabled={dataRowCount === 0}
-              />
-            }
-            label="Select all"
-          />
           {dataRowCount === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
               No rows yet. Use Add Row to get started.
             </Typography>
           )}
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Button
+            size="small"
+            variant="contained"
+            color="primary"
+            startIcon={<SaveIcon />}
+            onClick={handleSaveDirtyRows}
+            disabled={!hasUnsavedChanges || isSaving || isDeleting || isBulkDeleting}
+          >
+            {hasUnsavedChanges ? `Save Changes (${unsavedCount})` : 'Save Changes'}
+          </Button>
+          {hasUnsavedChanges && (
+            <Typography variant="body2" color="warning.main" sx={{ fontWeight: 500 }}>
+              {unsavedCount === 1 ? '1 unsaved change' : `${unsavedCount} unsaved changes`}
+            </Typography>
+          )}
           <Button
             size="small"
             variant="outlined"
@@ -1587,6 +2201,34 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
             '--revo-grid-row-hover': alpha(theme.palette.action.hover, 0.12),
             '--revo-grid-row-selection': alpha(theme.palette.primary.main, 0.08),
             '--revo-grid-border-color': alpha(theme.palette.divider, 0.4),
+          },
+          '& .cc-validation-row': {
+            backgroundColor: alpha(theme.palette.error.light, 0.12),
+          },
+          '& .cc-validation-error-cell': {
+            position: 'relative',
+            backgroundColor: alpha(theme.palette.error.light, 0.2),
+            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.error.main, 0.45)}`,
+            color: theme.palette.error.dark,
+          },
+          '& .cc-validation-error-cell:hover': {
+            backgroundColor: alpha(theme.palette.error.light, 0.26),
+          },
+          '& .cc-validation-error-cell input': {
+            color: theme.palette.error.dark,
+          },
+          '& .cc-validation-error-cell .MuiSelect-select': {
+            color: theme.palette.error.dark,
+          },
+          '& .cc-validation-error-cell::after': {
+            content: '""',
+            position: 'absolute',
+            inset: 0,
+            borderLeft: `3px solid ${theme.palette.error.main}`,
+            pointerEvents: 'none',
+          },
+          '& .cc-validation-row.cc-validation-error-cell': {
+            backgroundColor: alpha(theme.palette.error.light, 0.26),
           },
           }}
           onPasteCapture={handlePaste}

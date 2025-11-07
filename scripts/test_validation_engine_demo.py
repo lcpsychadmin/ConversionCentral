@@ -18,12 +18,6 @@ from sqlalchemy.orm import Session
 # Add parent directory to path to import app modules
 sys.path.insert(0, "/code")
 
-from app.models import (
-    ConstructedData,
-    ConstructedDataValidationRule,
-    ConstructedField,
-    ConstructedTable,
-)
 from app.services.validation_engine import ValidationEngine
 
 

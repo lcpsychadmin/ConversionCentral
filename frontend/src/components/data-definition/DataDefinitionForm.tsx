@@ -6,6 +6,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -69,6 +70,7 @@ type FieldRow = {
   fieldId: string;
   fieldName: string;
   notes: string;
+  isUnique: boolean;
 };
 
 type TableRow = {
@@ -98,7 +100,7 @@ type Snapshot = {
     description: string;
     loadOrder: string;
     isConstruction: boolean;
-    fields: Array<{ fieldId: string; fieldName: string; notes: string }>;
+    fields: Array<{ fieldId: string; fieldName: string; notes: string; isUnique: boolean }>;
   }>;
 };
 
@@ -159,7 +161,8 @@ const snapshotFromDefinition = (definition?: DataDefinition | null): Snapshot =>
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
         fieldName: field.field?.name ?? '',
-        notes: field.notes ?? ''
+        notes: field.notes ?? '',
+        isUnique: field.isUnique ?? false
       }))
     })) ?? []
 });
@@ -175,7 +178,8 @@ const normalizeSnapshot = (snapshot: Snapshot) => ({
     fields: table.fields.map((field) => ({
       fieldId: field.fieldId,
       fieldName: field.fieldName.trim(),
-      notes: field.notes.trim()
+      notes: field.notes.trim(),
+      isUnique: field.isUnique
     }))
   }))
 });
@@ -192,7 +196,8 @@ const buildRows = (tables: Snapshot['tables']): TableRow[] =>
       id: generateId(),
       fieldId: field.fieldId,
       fieldName: field.fieldName,
-      notes: field.notes
+      notes: field.notes,
+      isUnique: field.isUnique
     }))
   }));
 
@@ -224,9 +229,14 @@ const FieldDisplayItem = ({ fieldRow, field }: FieldDisplayItemProps) => {
         <DragIndicatorIcon fontSize="small" />
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-          {displayName}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+            {displayName}
+          </Typography>
+          {fieldRow.isUnique && (
+            <Chip size="small" color="primary" label="Unique" sx={{ height: 20, fontSize: 11 }} />
+          )}
+        </Stack>
         {trimmedDescription && (
           <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
             {trimmedDescription}
@@ -283,9 +293,14 @@ const SortableFieldItem = ({ fieldRow, field, onDelete }: SortableFieldItemProps
         <DragIndicatorIcon fontSize="small" />
       </IconButton>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-          {displayName}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+            {displayName}
+          </Typography>
+          {fieldRow.isUnique && (
+            <Chip size="small" color="primary" label="Unique" sx={{ height: 20, fontSize: 11 }} />
+          )}
+        </Stack>
         {trimmedDescription && (
           <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
             {trimmedDescription}
@@ -489,15 +504,16 @@ const DataDefinitionForm = ({
     () => ({
       description,
       tables: tableRows.map((table) => ({
-          tableId: table.tableId,
+        tableId: table.tableId,
         alias: table.alias,
         description: table.description,
         loadOrder: table.loadOrder,
-          isConstruction: table.isConstruction,
+        isConstruction: table.isConstruction,
         fields: table.fields.map((field) => ({
           fieldId: field.fieldId,
           fieldName: field.fieldName,
-          notes: field.notes
+          notes: field.notes,
+          isUnique: field.isUnique
         }))
       }))
     }),
@@ -777,7 +793,8 @@ const DataDefinitionForm = ({
           id: generateId(),
           fieldId: newField.id,
           fieldName: newField.name,
-          notes: ''
+          notes: '',
+          isUnique: false
         });
       } catch (error) {
         toast.showError(
@@ -1049,7 +1066,8 @@ const DataDefinitionForm = ({
       isConstruction: table.isConstruction,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
-        notes: field.notes.trim() || null
+        notes: field.notes.trim() || null,
+        isUnique: field.isUnique
       }))
     }));
 

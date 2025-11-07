@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from 'react-query';
 import { AxiosError } from 'axios';
 
 import {
+  abortIngestionRun,
+  cleanupStuckIngestionRuns,
   createIngestionSchedule,
+  deleteIngestionSchedule,
   fetchIngestionSchedules,
   triggerIngestionSchedule,
   updateIngestionSchedule
@@ -15,6 +18,16 @@ const INGESTION_SCHEDULES_KEY = ['ingestion-schedules'];
 type UpdateArgs = {
   id: string;
   input: IngestionScheduleUpdateInput;
+};
+
+type AbortArgs = {
+  scheduleId: string;
+  runId: string;
+};
+
+type CleanupResult = {
+  detail: string;
+  expired_runs: number;
 };
 
 const getErrorMessage = (error: unknown) => {
@@ -62,13 +75,47 @@ export const useIngestionSchedules = () => {
     onError: (error) => toast.showError(getErrorMessage(error))
   });
 
+  const deleteMutation = useMutation(deleteIngestionSchedule, {
+    onSuccess: () => {
+      toast.showSuccess('Schedule deleted.');
+      invalidate();
+    },
+    onError: (error) => toast.showError(getErrorMessage(error))
+  });
+
+  const abortMutation = useMutation(({ scheduleId, runId }: AbortArgs) => abortIngestionRun(scheduleId, runId), {
+    onSuccess: () => {
+      toast.showSuccess('Ingestion run aborted.');
+      invalidate();
+    },
+    onError: (error) => toast.showError(getErrorMessage(error))
+  });
+
+  const cleanupMutation = useMutation(cleanupStuckIngestionRuns, {
+    onSuccess: (result: CleanupResult) => {
+      if (result.expired_runs > 0) {
+        toast.showSuccess(result.detail);
+      } else {
+        toast.showInfo(result.detail);
+      }
+      invalidate();
+    },
+    onError: (error) => toast.showError(getErrorMessage(error))
+  });
+
   return {
     schedulesQuery,
     createSchedule: createMutation.mutateAsync,
     updateSchedule: updateMutation.mutateAsync,
     triggerSchedule: triggerMutation.mutateAsync,
+    deleteSchedule: deleteMutation.mutateAsync,
+    abortRun: abortMutation.mutateAsync,
+    cleanupStuckRuns: cleanupMutation.mutateAsync,
     creating: createMutation.isLoading,
     updating: updateMutation.isLoading,
-    triggering: triggerMutation.isLoading
+    triggering: triggerMutation.isLoading,
+    deleting: deleteMutation.isLoading,
+    aborting: abortMutation.isLoading,
+    cleaning: cleanupMutation.isLoading
   };
 };

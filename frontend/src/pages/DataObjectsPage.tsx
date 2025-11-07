@@ -33,7 +33,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback;
 };
 
-const InventoryPage = () => {
+const DataObjectsPage = () => {
   const { hasRole } = useAuth();
   const toast = useToast();
   const canManage = hasRole('admin');
@@ -96,11 +96,11 @@ const InventoryPage = () => {
   const handleCreateClick = () => {
     if (!canManage) return;
     if (processAreasLoading || processAreasFetching || systemsLoading) {
-      toast.showInfo('Process areas or systems are still loading. Try again in a moment.');
+  toast.showInfo('Product teams or systems are still loading. Try again in a moment.');
       return;
     }
     if (processAreasError) {
-      const message = getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.');
+  const message = getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.');
       toast.showError(message);
       return;
     }
@@ -110,7 +110,7 @@ const InventoryPage = () => {
       return;
     }
     if (processAreas.length === 0) {
-      toast.showInfo('Create a process area before adding data objects.');
+  toast.showInfo('Create a product team before adding data objects.');
       return;
     }
 
@@ -181,7 +181,7 @@ const InventoryPage = () => {
     ? getErrorMessage(dataObjectsErrorDetails, 'Unable to load data objects.')
     : null;
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
     : null;
   const systemsErrorMessage = systemsError
     ? getErrorMessage(systemsErrorDetails, 'Unable to load systems.')
@@ -200,10 +200,10 @@ const InventoryPage = () => {
         }}
       >
         <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Inventory
+          Data Objects
         </Typography>
         <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Manage data object inventory, process area alignment, and system ownership.
+          Manage data objects, product team alignment, and system ownership.
         </Typography>
       </Box>
 
@@ -235,7 +235,7 @@ const InventoryPage = () => {
 
       {canManage && noProcessAreasAvailable && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          No process areas are available yet. Create a process area to enable new data objects.
+          No product teams are available yet. Create a product team to enable new data objects.
         </Alert>
       )}
 
@@ -264,7 +264,7 @@ const InventoryPage = () => {
             <Grid item xs={12} md={6}>
               <Stack spacing={2}>
                 <DetailLine label="Name" value={selected.name} />
-                <DetailLine label="Domain" value={selected.processAreaName ?? 'Unassigned'} />
+                <DetailLine label="Product Team" value={selected.processAreaName ?? 'Unassigned'} />
                 <DetailLine label="Description" value={selected.description ?? '—'} />
               </Stack>
             </Grid>
@@ -335,4 +335,4 @@ const DetailLine = ({ label, value }: DetailLineProps) => (
   </Box>
 );
 
-export default InventoryPage;
+export default DataObjectsPage;

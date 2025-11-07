@@ -214,6 +214,7 @@ type InlineRowState = InlineExistingState | InlineCreateState;
 type FieldRow = FieldDraft & {
 	id: string;
 	notes: string;
+	isUnique: boolean;
 	__definitionField?: DataDefinitionField;
 	__isPlaceholder?: boolean;
 };
@@ -522,7 +523,13 @@ type DataDefinitionDetailsProps = {
 	canEdit?: boolean;
 	inlineSavingState?: Record<string, boolean>;
 	onInlineFieldSubmit?: (field: Field, changes: Partial<Record<StringDraftKey, string> & Record<BooleanDraftKey, boolean>>) => Promise<boolean>;
-	onEditField?: (tableId: string, tableName: string, field: Field) => void;
+	onEditField?: (
+	  definitionTableId: string,
+	  tableId: string,
+	  tableName: string,
+	  definitionField: DataDefinitionField
+	) => void;
+	onUpdateFieldUnique?: (definitionTableId: string, definitionFieldId: string, isUnique: boolean) => Promise<boolean>;
 	onAddExistingFieldInline?: (payload: {
 		tableId: string;
 		tableName: string;
@@ -554,6 +561,7 @@ const DataDefinitionDetails = ({
 	inlineSavingState,
 	onInlineFieldSubmit,
 	onEditField,
+	onUpdateFieldUnique,
 	onAddExistingFieldInline,
 	onCreateFieldInline,
 	availableFieldsByTable,
@@ -594,6 +602,8 @@ const DataDefinitionDetails = ({
 	const [dragSource, setDragSource] = useState<{ tableId: string; fieldId: string } | null>(null);
 	const [dropTargetTableId, setDropTargetTableId] = useState<string | null>(null);
 	const [fieldOrderByTable, setFieldOrderByTable] = useState<Record<string, string[]>>({});
+	const [pendingUniqueByField, setPendingUniqueByField] = useState<Record<string, boolean>>({});
+	const [uniqueSavingByField, setUniqueSavingByField] = useState<Record<string, boolean>>({});
 	const auditFieldIdsByTable = useMemo(() => {
 		const map: Record<string, string[]> = {};
 		definition.tables.forEach((table) => {
@@ -740,6 +750,11 @@ const DataDefinitionDetails = ({
 			});
 			return next;
 		});
+	}, [definition.tables]);
+
+	useEffect(() => {
+		setPendingUniqueByField({});
+		setUniqueSavingByField({});
 	}, [definition.tables]);
 
 	useEffect(() => {
@@ -897,6 +912,39 @@ const DataDefinitionDetails = ({
 		},
 		[canEdit, getCommittedForField, onInlineFieldSubmit]
 	);
+
+		const handleUniqueToggle = useCallback(
+			async (definitionTableId: string, definitionField: DataDefinitionField, checked: boolean) => {
+				if (!canEdit || !onUpdateFieldUnique) {
+					return;
+				}
+
+				setPendingUniqueByField((prev) => ({ ...prev, [definitionField.id]: checked }));
+				setUniqueSavingByField((prev) => ({ ...prev, [definitionField.id]: true }));
+
+				try {
+					const success = await onUpdateFieldUnique(definitionTableId, definitionField.id, checked);
+					if (!success) {
+						setPendingUniqueByField((prev) => {
+							const next = { ...prev };
+							if (definitionField.isUnique === undefined || definitionField.isUnique === null) {
+								delete next[definitionField.id];
+							} else {
+								next[definitionField.id] = Boolean(definitionField.isUnique);
+							}
+							return next;
+						});
+					}
+				} finally {
+					setUniqueSavingByField((prev) => {
+						const next = { ...prev };
+						delete next[definitionField.id];
+						return next;
+					});
+				}
+			},
+			[canEdit, onUpdateFieldUnique]
+		);
 
 	const persistReorder = useCallback(
 		async (definitionTableId: string, nextOrder: string[], previousOrder: string[]) => {
@@ -1342,7 +1390,7 @@ const DataDefinitionDetails = ({
 	);
 
 	const exportTableToCsv = useCallback((table: DataDefinitionTable, tableName: string) => {
-		const headers = [...FIELD_COLUMNS.map((column) => column.label), 'Notes'];
+		const headers = [...FIELD_COLUMNS.map((column) => column.label), 'Unique', 'Notes'];
 		const body = table.fields
 			.filter((definitionField) => definitionField.field != null)
 			.map((definitionField) => {
@@ -1357,6 +1405,7 @@ const DataDefinitionDetails = ({
 							return toCsvString(field[column.key] ?? '');
 					}
 				});
+				values.push(toCsvString(definitionField.isUnique ? 'Yes' : 'No'));
 				values.push(toCsvString(definitionField.notes ?? ''));
 				return values.join(',');
 			});
@@ -1511,6 +1560,10 @@ const DataDefinitionDetails = ({
 					.map((definitionField) => ({
 						id: definitionField.id,
 						notes: definitionField.notes ?? '',
+						isUnique:
+							definitionField.id in pendingUniqueByField
+								? pendingUniqueByField[definitionField.id]
+								: Boolean(definitionField.isUnique),
 						__definitionField: definitionField,
 						...getDraftForField(definitionField.field!)
 					}));
@@ -1518,6 +1571,7 @@ const DataDefinitionDetails = ({
 					baseRows.push({
 						id: `__placeholder__-${table.id}`,
 						notes: '',
+						isUnique: false,
 						__isPlaceholder: true,
 						...createEmptyDraft()
 					});
@@ -1735,7 +1789,9 @@ const DataDefinitionDetails = ({
 											component="button"
 											variant="body2"
 											underline="hover"
-											onClick={() => onEditField?.(table.tableId, tableName, definitionField.field)}
+											onClick={() =>
+												onEditField?.(table.id, table.tableId, tableName, definitionField)
+											}
 											sx={{ fontWeight: 600 }}
 										>
 											{displayValue}
@@ -1804,6 +1860,41 @@ const DataDefinitionDetails = ({
 					}
 				};
 
+				const uniqueColumn: GridColDef<FieldRow> = {
+					field: 'isUnique',
+					headerName: 'Unique',
+					minWidth: 120,
+					flex: 0.6,
+					sortable: true,
+					filterable: true,
+					type: 'boolean',
+					align: 'center',
+					headerAlign: 'center',
+					valueGetter: (params) => params.row.isUnique,
+					renderCell: (params) => {
+						if (params.row.__isPlaceholder) {
+							return null;
+						}
+						const definitionField = params.row.__definitionField;
+						const pendingValue = definitionField ? pendingUniqueByField[definitionField.id] : undefined;
+						const displayValue = pendingValue ?? Boolean(params.row.isUnique);
+						if (isGridView && canEdit && definitionField) {
+							const saving = uniqueSavingByField[definitionField.id] ?? false;
+							return (
+								<Checkbox
+									size="small"
+									checked={displayValue}
+									onChange={(_, checked) => {
+										void handleUniqueToggle(table.id, definitionField, checked);
+									}}
+									disabled={fieldActionsDisabled || tableSaving || saving}
+								/>
+							);
+						}
+						return renderBooleanChip(displayValue);
+					}
+				};
+
 				const columns: GridColDef<FieldRow>[] = [
 					{
 						field: '__dragHandle',
@@ -1826,7 +1917,8 @@ const DataDefinitionDetails = ({
 						)
 					},
 					...baseColumns,
-						notesColumn,
+					uniqueColumn,
+					notesColumn,
 						{
 							field: '__actions',
 							headerName: '',

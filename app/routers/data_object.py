@@ -28,7 +28,7 @@ def create_data_object(
     payload: DataObjectCreate, db: Session = Depends(get_db)
 ) -> DataObjectRead:
     if not db.get(ProcessArea, payload.process_area_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product team not found")
 
     system_ids = list(dict.fromkeys(payload.system_ids))
     if system_ids:
@@ -83,7 +83,7 @@ def update_data_object(
     system_ids = update_data.pop("system_ids", None)
     process_area_id = update_data.get("process_area_id")
     if process_area_id and not db.get(ProcessArea, process_area_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product team not found")
 
     for field, value in update_data.items():
         setattr(data_object, field, value)

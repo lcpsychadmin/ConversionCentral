@@ -401,12 +401,34 @@ const ReportingDesignerContent = () => {
 
   const fieldsByTable = useMemo(() => {
     const map = new Map<string, Field[]>();
+    const seenKeyByTable = new Map<string, Set<string>>();
+
     fields.forEach((field) => {
-      if (!map.has(field.tableId)) {
-        map.set(field.tableId, []);
+      const tableId = field.tableId;
+      let list = map.get(tableId);
+      if (!list) {
+        list = [];
+        map.set(tableId, list);
       }
-      map.get(field.tableId)!.push(field);
+
+      let seen = seenKeyByTable.get(tableId);
+      if (!seen) {
+        seen = new Set<string>();
+        seenKeyByTable.set(tableId, seen);
+      }
+
+      const normalizedName = field.name.trim().toLowerCase();
+      const normalizedType = (field.fieldType ?? '').trim().toLowerCase();
+      const dedupeKey = `${normalizedName}|${normalizedType}`;
+
+      if (seen.has(dedupeKey)) {
+        return;
+      }
+
+      seen.add(dedupeKey);
+      list.push(field);
     });
+
     return map;
   }, [fields]);
 
@@ -487,7 +509,18 @@ const ReportingDesignerContent = () => {
   }, [criteriaRowCount, fieldIdSet, groupingEnabled, selectedFieldOrder]);
 
   const createNodeData = useCallback((table: Table, tableFields: Field[]): ReportTableNodeData => {
-    const sortedFields = [...tableFields].sort((a, b) => a.name.localeCompare(b.name));
+    const uniqueFields: Field[] = [];
+    const seen = new Set<string>();
+    tableFields.forEach((field) => {
+      const normalizedName = field.name.trim().toLowerCase();
+      const normalizedType = (field.fieldType ?? '').trim().toLowerCase();
+      const key = `${normalizedName}|${normalizedType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueFields.push(field);
+      }
+    });
+    const sortedFields = uniqueFields.sort((a, b) => a.name.localeCompare(b.name));
     return {
       tableId: table.id,
       label: table.name,

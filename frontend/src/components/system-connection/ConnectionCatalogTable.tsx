@@ -174,14 +174,15 @@ const ConnectionCatalogTable = ({
         <Box sx={{ maxHeight: 600, overflow: 'auto', border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
           {Object.entries(groupedBySchema).map(([schema, tables]) => (
             <Accordion key={schema} defaultExpanded={false}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Checkbox
-                  checked={isSchemaSelected(schema)}
-                  indeterminate={isSchemaIndeterminate(schema)}
-                  onChange={(e) => handleSchemaCheckChange(schema, e.target.checked)}
-                  onClick={(e) => e.stopPropagation()}
-                  sx={{ mr: 1 }}
-                />
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Checkbox
+                      checked={isSchemaSelected(schema)}
+                      indeterminate={isSchemaIndeterminate(schema)}
+                      onChange={(e) => handleSchemaCheckChange(schema, e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      sx={{ mr: 1 }}
+                      disabled={saving}
+                    />
                 <Typography sx={{ fontWeight: 600, flex: 1 }}>
                   {schema} ({getSchemaSelectedCount(schema)}/{tables.length})
                 </Typography>

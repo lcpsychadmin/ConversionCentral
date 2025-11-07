@@ -1,10 +1,12 @@
 import { ReactNode, SyntheticEvent, useCallback, useMemo, useState } from 'react';
 import { AxiosError } from 'axios';
-import { useQuery, useQueryClient } from 'react-query';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
+import { LoadingButton } from '@mui/lab';
 import {
   Autocomplete,
   Box,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
@@ -24,15 +26,18 @@ import {
   IconButton,
   Chip,
   LinearProgress,
-  Tooltip
+  Tooltip,
+  Button
 } from '@mui/material';
 import { SxProps, Theme, alpha, useTheme } from '@mui/material/styles';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../context/AuthContext';
 import {
   fetchProcessAreas,
   fetchDataObjects,
@@ -46,6 +51,7 @@ import {
   System,
   DataDefinitionTable
 } from '../services/constructedDataService';
+import { deleteUploadedTable } from '../services/uploadDataService';
 import ConstructedDataGrid from '../components/data-construction/ConstructedDataGridAgGrid';
 import ValidationRulesManager from '../components/data-construction/ValidationRulesManager';
 
@@ -109,6 +115,11 @@ const DataConstructionPage = () => {
   const theme = useTheme();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const { hasRole } = useAuth();
+
+  const canManage = hasRole('admin');
+
+  const [tablePendingDelete, setTablePendingDelete] = useState<ConstructionTableRow | null>(null);
 
   // Filter State
   const [selectedProcessAreaId, setSelectedProcessAreaId] = useState<string | null>(null);
@@ -121,6 +132,10 @@ const DataConstructionPage = () => {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [detailTabValue, setDetailTabValue] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasUnsavedGridChanges, setHasUnsavedGridChanges] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  const { mutateAsync: deleteTable, isLoading: isDeleting } = useMutation(deleteUploadedTable);
 
   // Queries
   const { data: processAreas = [], isLoading: isLoadingProcessAreas } = useQuery(
@@ -128,7 +143,7 @@ const DataConstructionPage = () => {
     fetchProcessAreas,
     {
       onError: (error) => {
-        toast.showError(getErrorMessage(error, 'Failed to load process areas'));
+        toast.showError(getErrorMessage(error, 'Failed to load product teams'));
       }
     }
   );
@@ -197,7 +212,7 @@ const DataConstructionPage = () => {
   const filteredTables = useMemo(() => {
     let result = allConstructionTables;
 
-    // Filter by Process Area if selected
+    // Filter by Product Team if selected
     if (selectedProcessAreaId) {
       result = result.filter(table =>
         table.processAreaId === selectedProcessAreaId
@@ -299,17 +314,84 @@ const DataConstructionPage = () => {
   const handleOpenTableDetails = useCallback((table: ConstructionTableRow) => {
     setSelectedTableId(table.id);
     setDetailTabValue(0);
+    setHasUnsavedGridChanges(false);
     setDetailDialogOpen(true);
   }, []);
 
   const handleCloseTableDetails = useCallback(() => {
+    if (hasUnsavedGridChanges) {
+      setShowCloseConfirm(true);
+      return;
+    }
     setDetailDialogOpen(false);
     setSelectedTableId(null);
+    setHasUnsavedGridChanges(false);
+  }, [hasUnsavedGridChanges]);
+
+  const handleOpenDeleteDialog = useCallback((table: ConstructionTableRow) => {
+    setTablePendingDelete(table);
   }, []);
+
+  const handleCancelDelete = useCallback(() => {
+    if (isDeleting) {
+      return;
+    }
+    setTablePendingDelete(null);
+  }, [isDeleting]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    const tableToRemove = tablePendingDelete;
+    if (!tableToRemove?.tableId) {
+      return;
+    }
+
+    try {
+      await deleteTable(tableToRemove.tableId);
+
+      if (selectedTableId === tableToRemove.id) {
+        setDetailDialogOpen(false);
+        setSelectedTableId(null);
+        setHasUnsavedGridChanges(false);
+        setShowCloseConfirm(false);
+      }
+
+      const friendlyName = tableToRemove.alias || tableToRemove.constructedTableName || 'table';
+      toast.showSuccess(`Deleted ${friendlyName}.`);
+
+      setTablePendingDelete(null);
+
+      await queryClient.invalidateQueries(['allConstructionDefinitions']);
+
+      if (tableToRemove.constructedTableId) {
+        queryClient.removeQueries(['constructedFields', tableToRemove.constructedTableId]);
+        queryClient.removeQueries(['constructedData', tableToRemove.constructedTableId]);
+        queryClient.removeQueries(['validationRules', tableToRemove.constructedTableId]);
+      }
+    } catch (error) {
+      toast.showError(getErrorMessage(error, 'Failed to delete table.'));
+    }
+  }, [
+    deleteTable,
+    queryClient,
+    selectedTableId,
+    tablePendingDelete,
+    toast
+  ]);
 
   const handleDetailTabChange = (_event: SyntheticEvent, newValue: number) => {
     setDetailTabValue(newValue);
   };
+
+  const handleConfirmCloseDetails = useCallback(() => {
+    setShowCloseConfirm(false);
+    setDetailDialogOpen(false);
+    setSelectedTableId(null);
+    setHasUnsavedGridChanges(false);
+  }, []);
+
+  const handleCancelCloseDetails = useCallback(() => {
+    setShowCloseConfirm(false);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -322,11 +404,12 @@ const DataConstructionPage = () => {
   }, [refetchRows, toast]);
 
   const handleProcessAreaChange = useCallback((_event: SyntheticEvent, value: ProcessArea | null) => {
-    // Only update Process Area - don't reset other filters
+    // Only update Product Team - don't reset other filters
     setSelectedProcessAreaId(value?.id ?? null);
     // Close modal and clear search when changing filters
     setSelectedTableId(null);
     setDetailDialogOpen(false);
+    setHasUnsavedGridChanges(false);
   }, []);
 
   const handleDataObjectChange = useCallback((_event: SyntheticEvent, value: DataObject | null) => {
@@ -335,6 +418,7 @@ const DataConstructionPage = () => {
     // Close modal and clear search when changing filters
     setSelectedTableId(null);
     setDetailDialogOpen(false);
+    setHasUnsavedGridChanges(false);
   }, []);
 
   const handleSystemChange = useCallback((_event: SyntheticEvent, value: System | null) => {
@@ -343,6 +427,7 @@ const DataConstructionPage = () => {
     // Close modal and clear search when changing filters
     setSelectedTableId(null);
     setDetailDialogOpen(false);
+    setHasUnsavedGridChanges(false);
   }, []);
 
   const isLoadingDetails = isLoadingFields || isLoadingRows || isLoadingRules;
@@ -352,7 +437,7 @@ const DataConstructionPage = () => {
       {/* Page Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" component="h1" sx={{ mb: 1, fontWeight: 'bold' }}>
-          Data Construction
+          Manage Data
         </Typography>
         <Typography variant="body2" color="textSecondary">
           Manage and edit construction table data with validation rules
@@ -378,7 +463,7 @@ const DataConstructionPage = () => {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Process Area"
+                  label="Product Team"
                   placeholder="Select..."
                   required
                 />
@@ -465,7 +550,7 @@ const DataConstructionPage = () => {
                 <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.08) }}>
                   <TableCell sx={{ fontWeight: 600 }}>Table Name</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Process Area</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Product Team</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Data Object</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>System</TableCell>
                   <TableCell sx={{ fontWeight: 600 }} align="center">
@@ -488,7 +573,31 @@ const DataConstructionPage = () => {
                     }}
                   >
                     <TableCell sx={{ fontWeight: 500 }}>
-                      {table.alias || 'Unnamed Table'}
+                      {table.constructedTableId ? (
+                        <Button
+                          variant="text"
+                          color="primary"
+                          size="small"
+                          sx={{
+                            fontWeight: 600,
+                            textTransform: 'none',
+                            p: 0,
+                            minWidth: 0,
+                            justifyContent: 'flex-start',
+                            '&:hover': {
+                              textDecoration: 'underline',
+                              backgroundColor: 'transparent'
+                            }
+                          }}
+                          onClick={() => handleOpenTableDetails(table)}
+                        >
+                          {table.alias || table.constructedTableName || '—'}
+                        </Button>
+                      ) : (
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          {table.alias || table.constructedTableName || '—'}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" color="textSecondary" sx={{ maxWidth: 300 }}>
@@ -526,15 +635,22 @@ const DataConstructionPage = () => {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        <Tooltip title="Open table">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleOpenTableDetails(table)}
-                            disabled={!table.constructedTableId}
-                          >
-                            <OpenInNewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {canManage && table.tableId && (
+                          <Tooltip title="Delete table">
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleOpenDeleteDialog(table)}
+                                disabled={
+                                  isDeleting && tablePendingDelete?.id === table.id
+                                }
+                              >
+                                <DeleteOutlineIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        )}
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -619,6 +735,7 @@ const DataConstructionPage = () => {
                         fields={fields}
                         rows={rows}
                         onDataChange={handleRefresh}
+                        onDirtyStateChange={setHasUnsavedGridChanges}
                       />
                     )}
                   </Box>
@@ -646,6 +763,114 @@ const DataConstructionPage = () => {
             </DialogContent>
           </>
         )}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(tablePendingDelete)}
+        onClose={handleCancelDelete}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden'
+          }
+        }}
+      >
+        <DialogTitle sx={{ pb: 0 }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: alpha(theme.palette.error.main, 0.12),
+                color: theme.palette.error.main
+              }}
+            >
+              <WarningAmberIcon />
+            </Box>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Delete constructed table?
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                This will drop the warehouse table and remove it from every linked data definition. The action cannot be undone.
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {tablePendingDelete && (
+            <Stack spacing={2}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 2,
+                  borderColor: alpha(theme.palette.error.main, 0.26),
+                  backgroundColor: alpha(theme.palette.error.main, 0.04)
+                }}
+              >
+                <Stack spacing={0.75}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {tablePendingDelete.alias || tablePendingDelete.constructedTableName || 'Construction Table'}
+                  </Typography>
+                  {tablePendingDelete.description && (
+                    <Typography variant="body2" color="text.secondary">
+                      {tablePendingDelete.description}
+                    </Typography>
+                  )}
+                  <Typography variant="body2" color="text.secondary">
+                    Product Team: {tablePendingDelete.processAreaName || '—'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Data Object: {tablePendingDelete.dataObjectName || '—'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    System: {tablePendingDelete.systemName || '—'}
+                  </Typography>
+                </Stack>
+              </Paper>
+              <Typography variant="caption" color="text.secondary">
+                All constructed rows, validation rules, and warehouse data for this table will be deleted.
+              </Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button variant="outlined" onClick={handleCancelDelete} disabled={isDeleting}>
+            Cancel
+          </Button>
+          <LoadingButton
+            onClick={handleConfirmDelete}
+            color="error"
+            variant="contained"
+            loading={isDeleting}
+            disabled={!tablePendingDelete?.tableId}
+          >
+            Delete table
+          </LoadingButton>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={showCloseConfirm} onClose={handleCancelCloseDetails} maxWidth="xs" fullWidth>
+        <DialogTitle>Discard unsaved changes?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            You have unsaved changes in this table. Closing will discard them. Are you sure you want to
+            close?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleCancelCloseDetails}>Stay on Page</Button>
+          <Button color="error" onClick={handleConfirmCloseDetails} variant="contained">
+            Discard and Close
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

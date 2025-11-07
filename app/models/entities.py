@@ -260,12 +260,6 @@ class ConstructedTable(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ConstructedField.display_order",
     )
-    data_rows: Mapped[list["ConstructedData"]] = relationship(
-        "ConstructedData",
-        back_populates="constructed_table",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
     approvals: Mapped[list["ConstructedTableApproval"]] = relationship(
         "ConstructedTableApproval",
         back_populates="constructed_table",
@@ -274,6 +268,7 @@ class ConstructedTable(Base, TimestampMixin):
     )
     validation_rules: Mapped[list["ConstructedDataValidationRule"]] = relationship(
         "ConstructedDataValidationRule",
+        back_populates="constructed_table",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
@@ -298,24 +293,6 @@ class ConstructedField(Base, TimestampMixin):
     constructed_table: Mapped[ConstructedTable] = relationship(
         "ConstructedTable", back_populates="fields"
     )
-
-
-class ConstructedData(Base, TimestampMixin):
-    __tablename__ = "constructed_data"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    constructed_table_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("constructed_tables.id", ondelete="CASCADE"), nullable=False
-    )
-    row_identifier: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
-
-    constructed_table: Mapped[ConstructedTable] = relationship(
-        "ConstructedTable", back_populates="data_rows"
-    )
-
 
 class ConstructedTableApproval(Base, TimestampMixin):
     __tablename__ = "constructed_table_approvals"
@@ -403,9 +380,10 @@ class ConstructedDataValidationRule(Base, TimestampMixin):
     applies_to_new_only: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     constructed_table: Mapped[ConstructedTable] = relationship(
-        "ConstructedTable", passive_deletes=True
+        "ConstructedTable", back_populates="validation_rules", passive_deletes=True
     )
     field: Mapped[Optional["ConstructedField"]] = relationship(
         "ConstructedField", passive_deletes=True
@@ -755,6 +733,7 @@ class DataDefinitionField(Base, TimestampMixin):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_unique: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     definition_table: Mapped[DataDefinitionTable] = relationship(
         "DataDefinitionTable", back_populates="fields"
@@ -1555,7 +1534,30 @@ class DatabricksSqlSetting(Base, TimestampMixin):
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     catalog: Mapped[str | None] = mapped_column(String(120), nullable=True)
     schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    constructed_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    ingestion_method: Mapped[str] = mapped_column(String(20), nullable=False, default="sql")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SapHanaSetting(Base, TimestampMixin):
+    __tablename__ = "sap_hana_settings"
+    __table_args__ = (
+        sa.UniqueConstraint("is_active", name="uq_sap_hana_settings_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="SAP HANA Warehouse")
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False, default=30015)
+    database_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    username: Mapped[str] = mapped_column(String(120), nullable=False)
+    password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tenant: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    use_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -1626,6 +1628,16 @@ class IngestionSchedule(Base, TimestampMixin):
     primary_key_column: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_table_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    target_warehouse: Mapped[str] = mapped_column(
+        sa.Enum("databricks_sql", "sap_hana", name="data_warehouse_type_enum"),
+        nullable=False,
+        default="databricks_sql",
+    )
+    sap_hana_setting_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sap_hana_settings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=5_000)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_watermark_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1646,6 +1658,7 @@ class IngestionSchedule(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    sap_hana_setting: Mapped["SapHanaSetting | None"] = relationship("SapHanaSetting")
 
 
 class IngestionRun(Base, TimestampMixin):
@@ -1676,6 +1689,7 @@ class IngestionRun(Base, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rows_loaded: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rows_expected: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     watermark_timestamp_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     watermark_timestamp_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     watermark_id_before: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

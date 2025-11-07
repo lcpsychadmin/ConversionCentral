@@ -26,6 +26,7 @@ export type FieldFormValues = {
   businessProcessRequired: boolean;
   suppressedField: boolean;
   active: boolean;
+  isUnique: boolean;
   legalRegulatoryImplications: string;
   securityClassification: string;
   dataValidation: string;
@@ -56,6 +57,7 @@ const defaultValues: FieldFormValues = {
   businessProcessRequired: false,
   suppressedField: false,
   active: true,
+  isUnique: false,
   legalRegulatoryImplications: '',
   securityClassification: '',
   dataValidation: '',
@@ -89,6 +91,7 @@ const CreateFieldDialog = ({
       businessProcessRequired: Boolean(initialValues.businessProcessRequired ?? false),
       suppressedField: Boolean(initialValues.suppressedField ?? false),
       active: initialValues.active === undefined ? true : Boolean(initialValues.active),
+      isUnique: Boolean(initialValues.isUnique ?? false),
       legalRegulatoryImplications:
         (initialValues.legalRegulatoryImplications as string | undefined) ?? '',
       securityClassification: (initialValues.securityClassification as string | undefined) ?? '',
@@ -118,7 +121,7 @@ const CreateFieldDialog = ({
   };
 
   const handleBooleanChange = (
-    field: 'systemRequired' | 'businessProcessRequired' | 'suppressedField' | 'active'
+    field: 'systemRequired' | 'businessProcessRequired' | 'suppressedField' | 'active' | 'isUnique'
   ) => (_: ChangeEvent<HTMLInputElement>, checked: boolean) => {
     setValues((prev) => ({ ...prev, [field]: checked }));
   };
@@ -176,6 +179,7 @@ const CreateFieldDialog = ({
       businessProcessRequired: values.businessProcessRequired,
       suppressedField: values.suppressedField,
       active: values.active,
+  isUnique: values.isUnique,
       legalRegulatoryImplications: values.legalRegulatoryImplications.trim(),
       securityClassification: values.securityClassification.trim(),
       dataValidation: values.dataValidation.trim(),
@@ -286,6 +290,10 @@ const CreateFieldDialog = ({
               <FormControlLabel
                 control={<Switch checked={values.active} onChange={handleBooleanChange('active')} />}
                 label="Active"
+              />
+              <FormControlLabel
+                control={<Switch checked={values.isUnique} onChange={handleBooleanChange('isUnique')} />}
+                label="Unique Field"
               />
             </Stack>
             <TextField

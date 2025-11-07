@@ -1,6 +1,6 @@
 # Conversion Central API
 
-Conversion Central is a FastAPI-powered backend that provides a reusable framework for orchestrating enterprise data migration projects. It models the execution hierarchy (Project → Release → Mock Cycle → Execution Context) alongside the data definition hierarchy (Process Area → Data Object) and exposes fully CRUD-capable REST endpoints for each entity.
+Conversion Central is a FastAPI-powered backend that provides a reusable framework for orchestrating enterprise data migration projects. It models the execution hierarchy (Project → Release → Mock Cycle → Execution Context) alongside the data definition hierarchy (Product Team → Data Object) and exposes fully CRUD-capable REST endpoints for each entity.
 
 ## Features
 
@@ -17,7 +17,7 @@ Conversion Central is a FastAPI-powered backend that provides a reusable framewo
 - Governance approvals tracking for validation sign-off workflows
 - Constructed data workspace for curated supplemental tables, fields, approvals, and row-level payloads
 - Table load sequencing with contiguous order enforcement, optional approvals, and DAG-aware scheduling
-- Security layer with role-based access control at the process area scope
+- Security layer with role-based access control at the product team scope
 
 ## Project Structure
 
@@ -72,7 +72,7 @@ Adjust credentials, host, port, and database name to match your environment.
 alembic upgrade head
 ```
 
-This applies the latest schema changes, including the constructed data domain, table load sequencing with approvals, and the security layer (roles, users, and process area role assignments) alongside the validation and ingestion layers.
+This applies the latest schema changes, including the constructed data domain, table load sequencing with approvals, and the security layer (roles, users, and product team role assignments) alongside the validation and ingestion layers.
 
 ### 5. Launch the API
 
@@ -128,13 +128,13 @@ Each endpoint supports the complete CRUD surface and enforces foreign key integr
 
 ### Security Endpoints
 
-Role-based access can now be enforced per process area to control who may view or edit migration assets.
+Role-based access can now be enforced per product team to control who may view or edit migration assets.
 
-- `POST /roles` – manage reusable RBAC roles such as Process Owner or Data Custodian.
+- `POST /roles` – manage reusable RBAC roles such as Product Team Owner or Data Custodian.
 - `POST /users` – register users who participate in governance workflows (name, email, status).
-- `POST /process-area-role-assignments` – bind a user and role to a process area, optionally capturing who granted access.
+- `POST /process-area-role-assignments` – bind a user and role to a product team (path retained for backward-compatible routing), optionally capturing who granted access.
 
-All security routes support list, update, and delete operations while enforcing uniqueness and referential integrity across process areas, users, and roles.
+All security routes support list, update, and delete operations while enforcing uniqueness and referential integrity across product teams, users, and roles.
 
 ### Ingestion Endpoints
 
@@ -159,19 +159,19 @@ The suite exercises every CRUD router, including metadata, mapping, field load, 
 
 | Entity             | Description                                      | Key Relationships                           |
 |--------------------|--------------------------------------------------|---------------------------------------------|
-| Project            | Top-level migration initiative                   | Has many Releases and Process Areas         |
+| Project            | Top-level migration initiative                   | Has many Releases and Product Teams         |
 | Release            | Delivery tranche within a Project                | Belongs to Project; has many Mock Cycles    |
 | Mock Cycle         | Dress rehearsal iteration for a Release          | Belongs to Release; has many Execution Contexts |
 | Execution Context  | Specific execution instance of a Mock Cycle      | Belongs to Mock Cycle                       |
-| Role               | Named RBAC role that governs access               | Has many Process Area Role Assignments      |
+| Role               | Named RBAC role that governs access               | Has many Product Team Role Assignments      |
 | User               | Individual participant in the migration program   | Has many Role Assignments and Approvals     |
 | Constructed Table   | Curated supplemental dataset used during execution | Belongs to Execution Context; has Fields, Data, Approvals |
 | Constructed Field   | Column metadata describing constructed table structure | Belongs to Constructed Table                  |
 | Constructed Data    | Row-level JSON payload for enrichment/reference use | Belongs to Constructed Table                  |
 | Constructed Table Approval | Governance sign-off for constructed data usage       | Belongs to Constructed Table & User           |
-| Process Area Role Assignment | RBAC link tying users and roles to a process area   | Belongs to Process Area, Role, and User       |
-| Process Area       | Functional domain for migrated data              | Belongs to Project; has many Data Objects   |
-| Data Object        | Logical data set within a Process Area           | Belongs to Process Area; links to Systems   |
+| Product Team Role Assignment | RBAC link tying users and roles to a product team   | Belongs to Product Team, Role, and User       |
+| Product Team       | Functional domain for migrated data              | Belongs to Project; has many Data Objects   |
+| Data Object        | Logical data set within a Product Team           | Belongs to Product Team; links to Systems   |
 | System             | Source or target application or platform         | Has many Tables; links to Data Objects      |
 | Table              | Physical table or view in a System               | Belongs to System; has many Fields          |
 | Table Load Order   | Sequencing metadata for tables within a Data Object | Belongs to Data Object & Table; optionally has Approvals |

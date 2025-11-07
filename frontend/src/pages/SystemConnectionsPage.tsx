@@ -13,7 +13,6 @@ import SystemConnectionDetailModal from '../components/system-connection/SystemC
 import ConnectionCatalogTable from '../components/system-connection/ConnectionCatalogTable';
 import SystemConnectionForm from '../components/system-connection/SystemConnectionForm';
 import ConnectionDataPreviewDialog from '../components/system-connection/ConnectionDataPreviewDialog';
-import ConnectionIngestionPanel from '../components/system-connection/ConnectionIngestionPanel';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { useSystemConnections } from '../hooks/useSystemConnections';
 import { useSystems } from '../hooks/useSystems';
@@ -46,7 +45,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const SystemConnectionsPage = () => {
+const SourceCatalogPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
   const theme = useTheme();
@@ -161,8 +160,13 @@ const SystemConnectionsPage = () => {
     []
   );
 
+  const canBrowseCatalog = useMemo(() => {
+    if (!selected) return false;
+    return selected.connectionType === 'jdbc';
+  }, [selected]);
+
   useEffect(() => {
-    if (!selected) {
+    if (!selected || !canBrowseCatalog) {
       setCatalogRows([]);
       setCatalogError(null);
       setCatalogLoading(false);
@@ -170,7 +174,7 @@ const SystemConnectionsPage = () => {
       return;
     }
     loadCatalog(selected.id);
-  }, [selected, loadCatalog]);
+  }, [selected, canBrowseCatalog, loadCatalog]);
 
   const handleCatalogSelectionChange = useCallback(
     async (nextSelection: string[]) => {
@@ -203,14 +207,14 @@ const SystemConnectionsPage = () => {
   );
 
   const handleCatalogRefresh = useCallback(() => {
-    if (selected) {
+    if (selected && canBrowseCatalog) {
       loadCatalog(selected.id);
     }
-  }, [selected, loadCatalog]);
+  }, [selected, canBrowseCatalog, loadCatalog]);
 
   const handlePreviewRequest = useCallback(
     (row: CatalogRow) => {
-      if (!selected) return;
+      if (!selected || !canBrowseCatalog) return;
       const schemaName = row.schemaName?.trim() ? row.schemaName : null;
       const target = {
         schemaName,
@@ -223,13 +227,13 @@ const SystemConnectionsPage = () => {
       setPreviewConnectionId(selected.id);
       loadPreview(selected.id, target.schemaName, target.tableName);
     },
-    [selected, loadPreview]
+    [selected, canBrowseCatalog, loadPreview]
   );
 
   const handlePreviewRefresh = useCallback(() => {
-    if (!selected || !previewTarget) return;
+    if (!selected || !previewTarget || !canBrowseCatalog) return;
     loadPreview(selected.id, previewTarget.schemaName, previewTarget.tableName);
-  }, [selected, previewTarget, loadPreview]);
+  }, [selected, previewTarget, canBrowseCatalog, loadPreview]);
 
   const handlePreviewClose = useCallback(() => {
     setPreviewOpen(false);
@@ -358,10 +362,10 @@ const SystemConnectionsPage = () => {
         }}
       >
         <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Data Source Connections
+          Source Catalog
         </Typography>
         <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Register JDBC connections for relational sources. Use these connections when ingesting tables.
+          Register JDBC connections for relational sources and curate the catalog of available tables.
         </Typography>
       </Box>
 
@@ -410,40 +414,36 @@ const SystemConnectionsPage = () => {
 
       {selected && (
         <>
-          <Paper
-            elevation={3}
-            sx={{
-              p: 3,
-              mb: 3,
-              background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-            }}
-          >
-            <ConnectionCatalogTable
-              rows={catalogRows}
-              loading={catalogLoading}
-              saving={catalogSaving}
-              error={catalogError}
-              onRefresh={handleCatalogRefresh}
-              onSelectionChange={handleCatalogSelectionChange}
-              onPreview={handlePreviewRequest}
-            />
-          </Paper>
-
-          {selected.ingestionEnabled && (
-            <Paper
-              elevation={3}
-              sx={{
-                p: 3,
-                mb: 3,
-                background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-              }}
-            >
-              <ConnectionIngestionPanel
-                connection={selected}
-                system={detailSystem}
-                catalogRows={catalogRows}
-              />
-            </Paper>
+          {canBrowseCatalog ? (
+            <>
+              {selected && !selected.ingestionEnabled && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  This connection is configured as read-only. Only SELECT access is used when browsing or previewing tables.
+                </Alert>
+              )}
+              <Paper
+                elevation={3}
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+                }}
+              >
+                <ConnectionCatalogTable
+                  rows={catalogRows}
+                  loading={catalogLoading}
+                  saving={catalogSaving}
+                  error={catalogError}
+                  onRefresh={handleCatalogRefresh}
+                  onSelectionChange={handleCatalogSelectionChange}
+                  onPreview={handlePreviewRequest}
+                />
+              </Paper>
+            </>
+          ) : (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Catalog browsing is disabled for this connection.
+            </Alert>
           )}
 
           <ConnectionDataPreviewDialog
@@ -495,4 +495,4 @@ const SystemConnectionsPage = () => {
   );
 };
 
-export default SystemConnectionsPage;
+export default SourceCatalogPage;

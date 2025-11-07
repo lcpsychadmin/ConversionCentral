@@ -2,6 +2,7 @@ import { AppBar, Box, Collapse, Drawer, IconButton, List, ListItem, ListItemButt
 import { alpha, useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import { useState } from 'react';
+import { useQuery } from 'react-query';
 import { Link, Outlet } from 'react-router-dom';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -11,8 +12,14 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ProjectsIcon from '@mui/icons-material/FolderOpen';
 import DataObjectIcon from '@mui/icons-material/Storage';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import TuneIcon from '@mui/icons-material/Tune';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 
 import { useAuth } from '../context/AuthContext';
+import {
+  COMPANY_SETTINGS_QUERY_KEY,
+  fetchCompanySettings
+} from '../services/applicationSettingsService';
 
 import { ReactNode } from 'react';
 
@@ -33,11 +40,29 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <SettingsIcon />,
     children: [
-      { label: 'Systems', path: '/systems' },
-      { label: 'Connections', path: '/application-settings/connections' },
-      { label: 'Application Database', path: '/application-settings/application-database' },
-      { label: 'Databricks Warehouse', path: '/application-settings/databricks' },
-      { label: 'Process Areas', path: '/process-areas' }
+      { label: 'Applications', path: '/applications' },
+      { label: 'Company Settings', path: '/application-settings/company' },
+      { label: 'Product Teams', path: '/process-areas' }
+    ]
+  },
+  {
+    label: 'Data Connections',
+    collapsible: true,
+    icon: <TuneIcon />,
+    children: [
+      { label: 'Source Catalog', path: '/data-configuration/source-catalog' },
+      { label: 'Ingestion Schedules', path: '/data-configuration/ingestion-schedules' },
+      { label: 'Application Database', path: '/data-configuration/application-database' },
+      { label: 'Data Warehouse', path: '/data-configuration/data-warehouse' }
+    ]
+  },
+  {
+    label: 'Data Configuration',
+    collapsible: true,
+    icon: <DataObjectIcon />,
+    children: [
+      { label: 'Data Objects', path: '/data-objects' },
+      { label: 'Data Object Definition', path: '/data-definitions' }
     ]
   },
   {
@@ -50,13 +75,12 @@ const navItems: NavItem[] = [
     ]
   },
   {
-    label: 'Data Objects',
+    label: 'Data Management',
     collapsible: true,
-    icon: <DataObjectIcon />,
+    icon: <ManageAccountsIcon />,
     children: [
-      { label: 'Inventory', path: '/data-objects' },
-      { label: 'Data Definitions', path: '/data-definitions' },
-      { label: 'Data Construction', path: '/data-construction' }
+      { label: 'Upload Data', path: '/data-configuration/upload-data' },
+      { label: 'Manage Data', path: '/data-construction' }
     ]
   },
   {
@@ -64,7 +88,7 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <AssessmentIcon />,
     children: [
-  { label: 'Report Designer', path: '/reporting/designer' },
+      { label: 'Report Designer', path: '/reporting/designer' },
       { label: 'Reports & Outputs', path: '/reporting/catalog' }
     ]
   }
@@ -82,6 +106,17 @@ const MainLayout = () => {
       }, {})
   );
   const { user, logout } = useAuth();
+
+  const { data: companySettings } = useQuery(
+    COMPANY_SETTINGS_QUERY_KEY,
+    fetchCompanySettings,
+    {
+      staleTime: 5 * 60 * 1000
+    }
+  );
+
+  const siteTitle = companySettings?.siteTitle?.trim() || 'Conversion Central';
+  const logoDataUrl = companySettings?.logoDataUrl ?? null;
 
   const handleDrawerToggle = () => {
     setMobileOpen((prev) => !prev);
@@ -250,7 +285,9 @@ const MainLayout = () => {
           background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
           boxShadow: `0 4px 20px ${alpha(theme.palette.primary.main, 0.3)}`,
           borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`,
-          color: theme.palette.primary.contrastText
+          color: theme.palette.primary.contrastText,
+          width: { lg: `calc(100% - ${drawerWidth}px)` },
+          ml: { lg: `${drawerWidth}px` }
         }}
       >
         <Toolbar sx={{ py: 1.5 }}>
@@ -268,21 +305,46 @@ const MainLayout = () => {
           >
             <MenuIcon />
           </IconButton>
-          <Typography
-            variant="h6"
-            noWrap
-            component="div"
+          <Box
             sx={{
               flexGrow: 1,
-              fontWeight: 800,
-              fontSize: '1.4rem',
-              letterSpacing: 0.5,
-              color: theme.palette.common.white,
-              textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.2)}`
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              minWidth: 0
             }}
           >
-            Conversion Central
-          </Typography>
+            {logoDataUrl && (
+              <Box
+                component="img"
+                src={logoDataUrl}
+                alt={`${siteTitle} logo`}
+                sx={{
+                  maxHeight: 40,
+                  width: 'auto',
+                  objectFit: 'contain'
+                }}
+              />
+            )}
+            <Typography
+              variant="h6"
+              noWrap
+              component="div"
+              sx={{
+                fontWeight: 800,
+                fontSize: '1.4rem',
+                letterSpacing: 0.5,
+                color: theme.palette.common.white,
+                textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.2)}`,
+                minWidth: 0,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {siteTitle}
+            </Typography>
+          </Box>
           {user && (
             <IconButton color="inherit" onClick={logout} sx={{ ml: 1 }}>
               <LogoutIcon />
@@ -337,10 +399,9 @@ const MainLayout = () => {
               backgroundColor: alpha(theme.palette.background.default, 0.96),
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
               boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
-              position: 'fixed',
+              position: 'sticky',
               height: '100vh',
-              top: 0,
-              left: 0
+              top: 0
             }
           }}
         >
@@ -351,7 +412,10 @@ const MainLayout = () => {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          pl: { xs: 1.5, sm: 2, lg: 2.5, xl: 3 },
+          pr: { xs: 1.5, sm: 2, lg: 2.5, xl: 3 },
+          pt: { xs: 2, sm: 3 },
+          pb: { xs: 3, sm: 4 },
           width: '100%',
           minWidth: 0
         }}

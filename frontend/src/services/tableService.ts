@@ -82,7 +82,16 @@ export const fetchTables = async (): Promise<Table[]> => {
 
 export const fetchFields = async (): Promise<Field[]> => {
   const response = await client.get<FieldResponse[]>('/fields');
-  return response.data.map(mapField);
+  const seen = new Set<string>();
+  const results: Field[] = [];
+  for (const payload of response.data) {
+    if (seen.has(payload.id)) {
+      continue;
+    }
+    seen.add(payload.id);
+    results.push(mapField(payload));
+  }
+  return results;
 };
 
 export const createTable = async (input: TableInput): Promise<Table> => {

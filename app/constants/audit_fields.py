@@ -1,21 +1,5 @@
 AUDIT_FIELD_DEFINITIONS = (
     {
-        "name": "Project",
-        "field_type": "uuid",
-        "description": "Lookup to the related project.",
-        "reference_table": "projects",
-        "notes": "Auto-generated audit field: Project",
-        "system_required": True,
-    },
-    {
-        "name": "Release",
-        "field_type": "uuid",
-        "description": "Lookup to the related release.",
-        "reference_table": "releases",
-        "notes": "Auto-generated audit field: Release",
-        "system_required": False,
-    },
-    {
         "name": "Created By",
         "field_type": "string",
         "field_length": 255,

@@ -402,6 +402,8 @@ class ValidationErrorDetail(BaseModel):
     fieldName: Optional[str] = None
     message: str
     ruleId: UUID
+    ruleName: Optional[str] = None
+    ruleType: Optional[str] = None
 
 
 class ConstructedDataBatchSaveRequest(BaseModel):
@@ -492,6 +494,7 @@ class ConstructedDataValidationRuleUpdate(BaseModel):
 
 class ConstructedDataValidationRuleRead(ConstructedDataValidationRuleBase, TimestampSchema):
     id: UUID
+    is_system_generated: bool
 
 
 class ProcessAreaBase(BaseModel):
@@ -698,6 +701,7 @@ class DataDefinitionFieldInput(BaseModel):
     field_id: UUID
     notes: Optional[str] = None
     display_order: Optional[int] = None
+    is_unique: Optional[bool] = False
 
 
 class DataDefinitionTableInput(BaseModel):
@@ -727,6 +731,7 @@ class DataDefinitionFieldRead(TimestampSchema):
     field_id: UUID
     notes: Optional[str] = None
     display_order: int
+    is_unique: bool = False
     field: FieldRead
 
 
@@ -970,10 +975,36 @@ class DatabricksSqlSettingBase(BaseModel):
     http_path: str = Field(..., min_length=3, max_length=400)
     catalog: Optional[str] = Field(None, max_length=120)
     schema_name: Optional[str] = Field(None, max_length=120)
+    constructed_schema: Optional[str] = Field(None, max_length=120)
+    ingestion_method: str = Field(
+        "sql",
+        regex=r"^(sql|spark)$",
+        description="Preferred ingestion method for constructed and ingestion data.",
+    )
+    @validator("ingestion_method", pre=True, always=True)
+    def _normalize_ingestion_method(cls, value: str | None) -> str:
+        if not value:
+            return "sql"
+        lowered = value.strip().lower()
+        if lowered not in {"sql", "spark"}:
+            raise ValueError("ingestion method must be 'sql' or 'spark'")
+        return lowered
     warehouse_name: Optional[str] = Field(None, max_length=180)
+    ingestion_batch_rows: Optional[int] = Field(
+        None,
+        ge=1,
+        le=100_000,
+        description="Maximum number of rows to include in each Databricks insert batch.",
+    )
 
     @validator("workspace_host", "http_path", pre=True)
     def _strip_value(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @validator("catalog", "schema_name", "constructed_schema", "warehouse_name", pre=True)
+    def _strip_optional_value(cls, value: str | None) -> str | None:
         if isinstance(value, str):
             return value.strip()
         return value
@@ -990,10 +1021,37 @@ class DatabricksSqlSettingUpdate(BaseModel):
     access_token: Optional[str | None] = Field(None, min_length=10)
     catalog: Optional[str | None] = Field(None, max_length=120)
     schema_name: Optional[str | None] = Field(None, max_length=120)
+    constructed_schema: Optional[str | None] = Field(None, max_length=120)
+    ingestion_method: Optional[str | None] = Field(
+        None,
+        regex=r"^(sql|spark)$",
+    )
+    @validator("ingestion_method")
+    def _normalize_update_method(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lowered = value.strip().lower()
+        if lowered not in {"sql", "spark"}:
+            raise ValueError("ingestion method must be 'sql' or 'spark'")
+        return lowered
     warehouse_name: Optional[str | None] = Field(None, max_length=180)
+    ingestion_batch_rows: Optional[int | None] = Field(
+        None,
+        ge=1,
+        le=100_000,
+    )
     is_active: Optional[bool] = None
 
-    @validator("workspace_host", "http_path", "display_name", pre=True)
+    @validator(
+        "workspace_host",
+        "http_path",
+        "display_name",
+        "catalog",
+        "schema_name",
+        "constructed_schema",
+        "warehouse_name",
+        pre=True,
+    )
     def _strip_optional(cls, value: str | None) -> str | None:
         if isinstance(value, str):
             return value.strip()
@@ -1012,9 +1070,94 @@ class DatabricksSqlSettingTestRequest(BaseModel):
     access_token: str = Field(..., min_length=10)
     catalog: Optional[str] = Field(None, max_length=120)
     schema_name: Optional[str] = Field(None, max_length=120)
+    constructed_schema: Optional[str] = Field(None, max_length=120)
+    ingestion_method: Optional[str] = Field(None, regex=r"^(sql|spark)$")
+    ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
 
 
 class DatabricksSqlSettingTestResult(BaseModel):
+    success: bool
+    message: str
+    duration_ms: float | None = None
+
+
+class SapHanaSettingBase(BaseModel):
+    display_name: str = Field("SAP HANA Warehouse", max_length=120)
+    host: str = Field(..., min_length=3, max_length=255)
+    port: int = Field(30015, ge=1, le=65_535)
+    database_name: str = Field(..., min_length=1, max_length=120)
+    username: str = Field(..., min_length=1, max_length=120)
+    schema_name: Optional[str] = Field(None, max_length=120)
+    tenant: Optional[str] = Field(None, max_length=120)
+    use_ssl: bool = True
+    ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
+
+    @validator(
+        "display_name",
+        "host",
+        "database_name",
+        "username",
+        "schema_name",
+        "tenant",
+        pre=True,
+    )
+    def _strip_strings(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class SapHanaSettingCreate(SapHanaSettingBase):
+    password: str = Field(..., min_length=4)
+
+
+class SapHanaSettingUpdate(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=120)
+    host: Optional[str] = Field(None, min_length=3, max_length=255)
+    port: Optional[int] = Field(None, ge=1, le=65_535)
+    database_name: Optional[str] = Field(None, min_length=1, max_length=120)
+    username: Optional[str] = Field(None, min_length=1, max_length=120)
+    password: Optional[str | None] = Field(None, min_length=4)
+    schema_name: Optional[str | None] = Field(None, max_length=120)
+    tenant: Optional[str | None] = Field(None, max_length=120)
+    use_ssl: Optional[bool] = None
+    ingestion_batch_rows: Optional[int | None] = Field(None, ge=1, le=100_000)
+    is_active: Optional[bool] = None
+
+    @validator(
+        "display_name",
+        "host",
+        "database_name",
+        "username",
+        "schema_name",
+        "tenant",
+        pre=True,
+    )
+    def _strip_optional_strings(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class SapHanaSettingRead(SapHanaSettingBase, TimestampSchema):
+    id: UUID
+    is_active: bool = True
+    has_password: bool = Field(False, description="True when credentials are stored server-side.")
+
+
+class SapHanaSettingTestRequest(BaseModel):
+    host: str = Field(..., min_length=3, max_length=255)
+    port: int = Field(30015, ge=1, le=65_535)
+    database_name: str = Field(..., min_length=1, max_length=120)
+    username: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., min_length=4)
+    schema_name: Optional[str] = Field(None, max_length=120)
+    tenant: Optional[str] = Field(None, max_length=120)
+    use_ssl: bool = True
+    ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
+
+
+class SapHanaSettingTestResult(BaseModel):
     success: bool
     message: str
     duration_ms: float | None = None
@@ -1094,6 +1237,11 @@ class IngestionLoadStrategy(str, Enum):
     FULL = "full"
 
 
+class DataWarehouseTarget(str, Enum):
+    DATABRICKS_SQL = "databricks_sql"
+    SAP_HANA = "sap_hana"
+
+
 class IngestionScheduleBase(BaseModel):
     connection_table_selection_id: UUID
     schedule_expression: str = Field(..., max_length=120)
@@ -1103,6 +1251,8 @@ class IngestionScheduleBase(BaseModel):
     primary_key_column: Optional[str] = Field(None, max_length=120)
     target_schema: Optional[str] = Field(None, max_length=120)
     target_table_name: Optional[str] = Field(None, max_length=200)
+    target_warehouse: DataWarehouseTarget = DataWarehouseTarget.DATABRICKS_SQL
+    sap_hana_setting_id: Optional[UUID] = None
     batch_size: int = Field(5_000, ge=1, le=100_000)
     is_active: bool = True
 
@@ -1119,6 +1269,8 @@ class IngestionScheduleUpdate(BaseModel):
     primary_key_column: Optional[str] = Field(None, max_length=120)
     target_schema: Optional[str] = Field(None, max_length=120)
     target_table_name: Optional[str] = Field(None, max_length=200)
+    target_warehouse: Optional[DataWarehouseTarget] = None
+    sap_hana_setting_id: Optional[UUID | None] = None
     batch_size: Optional[int] = Field(None, ge=1, le=100_000)
     is_active: Optional[bool] = None
 
@@ -1149,6 +1301,7 @@ class IngestionRunRead(TimestampSchema):
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     rows_loaded: Optional[int]
+    rows_expected: Optional[int]
     watermark_timestamp_before: Optional[datetime]
     watermark_timestamp_after: Optional[datetime]
     watermark_id_before: Optional[int]
@@ -1461,3 +1614,42 @@ class AdminEmailSetting(BaseModel):
 
 class AdminEmailUpdate(BaseModel):
     email: EmailStr
+
+
+class CompanySettings(BaseModel):
+    site_title: Optional[str] = Field(None, max_length=120)
+    logo_data_url: Optional[str] = Field(None, max_length=350_000)
+
+    @validator("site_title", pre=True)
+    def _normalize_site_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    @validator("logo_data_url", pre=True)
+    def _normalize_logo(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    @validator("logo_data_url")
+    def _validate_logo(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if len(value) > 350_000:
+            raise ValueError("Logo data exceeds the maximum allowed size (350 KB).")
+        lowered = value.lower()
+        if not lowered.startswith("data:image/"):
+            raise ValueError("Logo must be provided as a data URL for an image (e.g. data:image/png;base64,...).")
+        return value
+
+
+class CompanySettingsRead(CompanySettings):
+    pass
+
+
+class CompanySettingsUpdate(CompanySettings):
+    class Config:
+        extra = "forbid"

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.routers import api_router
 from app.services.scheduled_ingestion import scheduled_ingestion_engine
+from app.services.databricks_bootstrap import ensure_databricks_connection
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -25,6 +26,7 @@ def health_check() -> dict[str, str]:
 
 @app.on_event("startup")
 async def startup_scheduler() -> None:
+    ensure_databricks_connection()
     scheduled_ingestion_engine.start()
 
 

@@ -1,11 +1,41 @@
 import { useMemo, useState } from 'react';
-import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Stack,
+  Typography
+} from '@mui/material';
 
-import { System, SystemConnection, ConnectionCatalogTable, IngestionScheduleInput, IngestionScheduleUpdateInput, IngestionSchedule } from '../../types/data';
+import {
+  System,
+  SystemConnection,
+  ConnectionCatalogTable,
+  IngestionScheduleInput,
+  IngestionScheduleUpdateInput,
+  IngestionSchedule,
+  IngestionRun,
+  DataWarehouseTarget
+} from '../../types/data';
 import { useIngestionSchedules } from '../../hooks/useIngestionSchedules';
-import IngestionScheduleForm, { FormValues as ScheduleFormValues, ScheduleSelectionOption } from './IngestionScheduleForm';
+import { useToast } from '../../hooks/useToast';
+import IngestionScheduleForm, {
+  FormValues as ScheduleFormValues,
+  ScheduleSelectionOption,
+  SapHanaOption,
+  WarehouseOption
+} from './IngestionScheduleForm';
 import IngestionScheduleTable, { SelectionMetadata } from './IngestionScheduleTable';
 import { buildIngestionTargetName } from '../../utils/ingestion';
+import { fetchIngestionRuns } from '../../services/ingestionScheduleService';
+import IngestionRunHistoryDialog from './IngestionRunHistoryDialog';
+import { useDatabricksSettings } from '../../hooks/useDatabricksSettings';
+import { useSapHanaSettings } from '../../hooks/useSapHanaSettings';
 
 interface ConnectionIngestionPanelProps {
   connection: SystemConnection;
@@ -27,14 +57,32 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
     createSchedule,
     updateSchedule,
     triggerSchedule,
+    deleteSchedule,
+    abortRun,
+    cleanupStuckRuns,
     creating,
     updating,
-    triggering
+    triggering,
+    deleting,
+    aborting,
+    cleaning
   } = useIngestionSchedules();
+  const toast = useToast();
+
+  const { settingsQuery: databricksSettingsQuery } = useDatabricksSettings();
+  const { settingsQuery: sapHanaSettingsQuery } = useSapHanaSettings();
+
+  const databricksSettings = databricksSettingsQuery.data;
+  const sapHanaSetting = sapHanaSettingsQuery.data;
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<IngestionSchedule | null>(null);
   const [busyScheduleId, setBusyScheduleId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<IngestionSchedule | null>(null);
+  const [abortTarget, setAbortTarget] = useState<IngestionSchedule | null>(null);
+  const [runsTarget, setRunsTarget] = useState<IngestionSchedule | null>(null);
+  const [runs, setRuns] = useState<IngestionRun[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
 
   const selectionLookup = useMemo(() => {
     const map = new Map<string, SelectionMetadata>();
@@ -69,6 +117,43 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
 
   const { data: schedules = [], isLoading: schedulesLoading } = schedulesQuery;
 
+  const warehouseOptions = useMemo<WarehouseOption[]>(() => {
+    const options: WarehouseOption[] = [
+      {
+        value: 'databricks_sql',
+        label: databricksSettings?.displayName ?? 'Databricks SQL Warehouse',
+        helperText: databricksSettings
+          ? `Loads into ${databricksSettings.catalog ?? 'workspace'} catalog.`
+          : 'Uses the default Databricks SQL warehouse configuration.'
+      }
+    ];
+    options.push({
+      value: 'sap_hana',
+      label: sapHanaSetting?.displayName ?? 'SAP HANA Warehouse',
+      disabled: !sapHanaSetting,
+      helperText: sapHanaSetting ? 'Loads into the configured SAP HANA warehouse.' : 'Configure SAP HANA settings first.'
+    });
+    return options;
+  }, [databricksSettings, sapHanaSetting]);
+
+  const sapHanaOptions = useMemo<SapHanaOption[]>(() => {
+    if (!sapHanaSetting) {
+      return [];
+    }
+    return [
+      {
+        id: sapHanaSetting.id,
+        label: sapHanaSetting.displayName,
+        disabled: !sapHanaSetting.isActive
+      }
+    ];
+  }, [sapHanaSetting]);
+
+  const warehouseLabels = useMemo<Record<DataWarehouseTarget, string>>(() => ({
+    databricks_sql: databricksSettings?.displayName ?? 'Databricks SQL',
+    sap_hana: sapHanaSetting?.displayName ?? 'SAP HANA'
+  }), [databricksSettings, sapHanaSetting]);
+
   const relevantSchedules = useMemo(
     () => schedules.filter((schedule) => selectionIds.has(schedule.connectionTableSelectionId)),
     [schedules, selectionIds]
@@ -98,6 +183,67 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
     }
   };
 
+  const handleDeleteRequest = (schedule: IngestionSchedule) => {
+    setDeleteTarget(schedule);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+    setBusyScheduleId(deleteTarget.id);
+    try {
+      await deleteSchedule(deleteTarget.id);
+    } finally {
+      setDeleteTarget(null);
+      setBusyScheduleId(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    if (busyScheduleId && deleteTarget && busyScheduleId === deleteTarget.id) {
+      return;
+    }
+    setDeleteTarget(null);
+  };
+
+  const handleAbortRequest = (schedule: IngestionSchedule) => {
+    setAbortTarget(schedule);
+  };
+
+  const handleConfirmAbort = async () => {
+    if (!abortTarget) {
+      return;
+    }
+    setBusyScheduleId(abortTarget.id);
+    let runId: string | null = null;
+    try {
+      const runs = await fetchIngestionRuns(abortTarget.id);
+      const runningRun = runs.find((run) => run.status === 'running');
+      if (!runningRun) {
+        toast.showInfo('No active run found to abort.');
+        return;
+      }
+      runId = runningRun.id;
+      await abortRun({ scheduleId: abortTarget.id, runId });
+    } catch (error) {
+      if (runId === null) {
+        const message = error instanceof Error ? error.message : 'Failed to abort run.';
+        toast.showError(message);
+      }
+    } finally {
+      setAbortTarget(null);
+      setBusyScheduleId(null);
+    }
+  };
+
+  const handleCancelAbort = () => {
+    if (busyScheduleId && abortTarget && busyScheduleId === abortTarget.id) {
+      return;
+    }
+    setAbortTarget(null);
+  };
+
   const handleToggleActive = async (schedule: IngestionSchedule, isActive: boolean) => {
     setBusyScheduleId(schedule.id);
     try {
@@ -110,7 +256,51 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
     }
   };
 
+  const loadRuns = async (schedule: IngestionSchedule) => {
+    setRunsLoading(true);
+    try {
+      const data = await fetchIngestionRuns(schedule.id);
+      setRuns(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load run history.';
+      toast.showError(message);
+      setRuns([]);
+    } finally {
+      setRunsLoading(false);
+    }
+  };
+
+  const handleViewRuns = async (schedule: IngestionSchedule) => {
+    setRunsTarget(schedule);
+    await loadRuns(schedule);
+  };
+
+  const handleRefreshRuns = async () => {
+    if (!runsTarget) {
+      return;
+    }
+    await loadRuns(runsTarget);
+  };
+
+  const handleCloseRuns = () => {
+    if (runsLoading) {
+      return;
+    }
+    setRunsTarget(null);
+    setRuns([]);
+  };
+
+  const handleCleanupStuckRuns = async () => {
+    await cleanupStuckRuns();
+  };
+
   const handleFormSubmit = async (values: ScheduleFormValues) => {
+    const normalizedSapHanaId = values.targetWarehouse === 'sap_hana'
+      ? values.sapHanaSettingId && values.sapHanaSettingId.length > 0
+        ? values.sapHanaSettingId
+        : null
+      : null;
+
     if (editing) {
       setBusyScheduleId(editing.id);
       try {
@@ -121,6 +311,8 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
           watermarkColumn: trimOrUndefined(values.watermarkColumn),
           primaryKeyColumn: trimOrUndefined(values.primaryKeyColumn),
           targetSchema: trimOrUndefined(values.targetSchema),
+          targetWarehouse: values.targetWarehouse,
+          sapHanaSettingId: normalizedSapHanaId,
           batchSize: values.batchSize,
           isActive: values.isActive
         };
@@ -143,6 +335,8 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
         primaryKeyColumn: trimOrUndefined(values.primaryKeyColumn) ?? null,
         targetSchema: trimOrUndefined(values.targetSchema) ?? null,
         targetTableName: null,
+         targetWarehouse: values.targetWarehouse,
+         sapHanaSettingId: normalizedSapHanaId,
         batchSize: values.batchSize,
         isActive: values.isActive
       };
@@ -168,9 +362,19 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
             Use cron expressions to ingest selected tables when this connection is enabled.
           </Typography>
         </Box>
-        <Button variant="contained" onClick={handleCreateClick} disabled={!canCreate || creating}>
-          New Schedule
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            color="warning"
+            onClick={handleCleanupStuckRuns}
+            disabled={cleaning}
+          >
+            {cleaning ? 'Cleaning...' : 'Clean up runs'}
+          </Button>
+          <Button variant="contained" onClick={handleCreateClick} disabled={!canCreate || creating}>
+            New Schedule
+          </Button>
+        </Stack>
       </Stack>
 
       {!canCreate && (
@@ -190,17 +394,23 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
       <IngestionScheduleTable
         schedules={relevantSchedules}
         selectionLookup={selectionLookup}
-        loading={schedulesLoading || updating || triggering}
+        loading={schedulesLoading || updating || triggering || deleting || aborting || cleaning}
         busyIds={busyIds}
+        warehouseLabels={warehouseLabels}
         onEdit={handleEdit}
         onRun={handleRun}
         onToggleActive={handleToggleActive}
+        onDelete={handleDeleteRequest}
+        onAbort={handleAbortRequest}
+        onViewRuns={handleViewRuns}
       />
 
       <IngestionScheduleForm
         open={formOpen}
         title={editing ? 'Edit Schedule' : 'Create Schedule'}
         options={selectionOptions}
+        warehouseOptions={warehouseOptions}
+        sapHanaOptions={sapHanaOptions}
         initialValues={editing}
         disableSelectionChange={Boolean(editing)}
         loading={creating || updating}
@@ -209,6 +419,50 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
           setEditing(null);
         }}
         onSubmit={handleFormSubmit}
+        sapHanaSettingsPath="/data-configuration/data-warehouse"
+      />
+
+      <Dialog open={Boolean(deleteTarget)} onClose={handleCancelDelete} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete schedule</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this ingestion schedule? This will remove its run history.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDelete} disabled={Boolean(busyScheduleId)}>
+            Cancel
+          </Button>
+          <Button color="error" onClick={handleConfirmDelete} disabled={Boolean(busyScheduleId)}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(abortTarget)} onClose={handleCancelAbort} maxWidth="xs" fullWidth>
+        <DialogTitle>Abort ingestion run</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Stop the currently running ingestion job for this schedule?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelAbort} disabled={Boolean(busyScheduleId)}>
+            Cancel
+          </Button>
+          <Button color="warning" onClick={handleConfirmAbort} disabled={Boolean(busyScheduleId)}>
+            Abort run
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <IngestionRunHistoryDialog
+        open={Boolean(runsTarget)}
+        schedule={runsTarget}
+        runs={runs}
+        loading={runsLoading}
+        onClose={handleCloseRuns}
+        onRefresh={handleRefreshRuns}
       />
     </Box>
   );

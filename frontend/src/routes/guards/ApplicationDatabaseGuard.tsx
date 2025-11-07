@@ -14,7 +14,7 @@ interface ApplicationDatabaseGuardProps {
 
 export const ApplicationDatabaseGuard = ({ children }: ApplicationDatabaseGuardProps) => {
   const location = useLocation();
-  const setupPath = '/application-settings/application-database';
+  const setupPath = '/data-configuration/application-database';
 
   const statusQuery = useQuery(APPLICATION_DATABASE_STATUS_QUERY_KEY, fetchApplicationDatabaseStatus, {
     staleTime: 30_000

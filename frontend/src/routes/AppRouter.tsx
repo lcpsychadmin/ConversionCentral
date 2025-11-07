@@ -7,16 +7,19 @@ import OverviewPage from '@pages/OverviewPage';
 import DataDefinitionsPage from '@pages/DataDefinitionPage';
 import DataConstructionPage from '@pages/DataConstructionPage';
 import ProcessAreasPage from '@pages/ProcessAreasPage';
-import InventoryPage from '@pages/DataObjectsPage';
-import SystemsPage from '@pages/SystemsPage';
-import SystemConnectionsPage from '@pages/SystemConnectionsPage';
-import DatabricksSettingsPage from '@pages/DatabricksSettingsPage';
+import DataObjectsPage from '@pages/DataObjectsPage';
+import ApplicationsPage from '@pages/ApplicationsPage';
+import SourceCatalogPage from '@pages/SourceCatalogPage';
+import IngestionSchedulesPage from '@pages/IngestionSchedulesPage';
+import DataWarehouseSettingsPage from '@pages/DatabricksSettingsPage';
 import ProjectsPage from '@pages/ProjectsPage';
 import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
 import ReportingDesignerPage from '@pages/ReportingDesignerPage';
 import ReportingCatalogPage from '@pages/ReportingCatalogPage';
 import ApplicationDatabaseSetupPage from '@pages/ApplicationDatabaseSetupPage';
+import CompanySettingsPage from '@pages/CompanySettingsPage';
+import UploadDataPage from '@pages/UploadDataPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
 import { ApplicationDatabaseGuard } from '@routes/guards/ApplicationDatabaseGuard';
@@ -56,11 +59,20 @@ const router = createBrowserRouter([
           { path: 'data-definition', element: <Navigate to="/data-definitions" replace /> },
           { path: 'data-construction', element: <DataConstructionPage /> },
           { path: 'process-areas', element: <ProcessAreasPage /> },
-          { path: 'systems', element: <SystemsPage /> },
-          { path: 'application-settings/connections', element: <SystemConnectionsPage /> },
-          { path: 'application-settings/application-database', element: <ApplicationDatabaseSetupPage /> },
-          { path: 'application-settings/databricks', element: <DatabricksSettingsPage /> },
-          { path: 'data-objects', element: <InventoryPage /> },
+          { path: 'applications', element: <ApplicationsPage /> },
+          { path: 'systems', element: <Navigate to="/applications" replace /> },
+          { path: 'data-configuration/source-catalog', element: <SourceCatalogPage /> },
+          { path: 'data-configuration/ingestion-schedules', element: <IngestionSchedulesPage /> },
+          { path: 'data-configuration/application-database', element: <ApplicationDatabaseSetupPage /> },
+          { path: 'data-configuration/data-warehouse', element: <DataWarehouseSettingsPage /> },
+          { path: 'data-configuration/upload-data', element: <UploadDataPage /> },
+          { path: 'data-configuration/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
+          { path: 'application-settings/connections', element: <Navigate to="/data-configuration/source-catalog" replace /> },
+          { path: 'application-settings/ingestion-schedules', element: <Navigate to="/data-configuration/ingestion-schedules" replace /> },
+          { path: 'application-settings/application-database', element: <Navigate to="/data-configuration/application-database" replace /> },
+          { path: 'application-settings/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
+          { path: 'application-settings/company', element: <CompanySettingsPage /> },
+          { path: 'data-objects', element: <DataObjectsPage /> },
           { path: 'project-settings/projects', element: <ProjectsPage /> },
           { path: 'project-settings/releases', element: <ReleasesPage /> },
           { path: 'reporting/designer', element: <ReportingDesignerPage /> },

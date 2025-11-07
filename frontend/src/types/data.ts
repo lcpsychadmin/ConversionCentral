@@ -123,7 +123,7 @@ export type SystemConnectionAuthMethod =
   | 'oauth'
   | 'key_vault_reference';
 
-export type RelationalDatabaseType = 'postgresql';
+export type RelationalDatabaseType = 'postgresql' | 'databricks';
 
 export interface SystemConnection {
   id: string;
@@ -165,6 +165,9 @@ export interface DatabricksSqlSettings {
   httpPath: string;
   catalog?: string | null;
   schemaName?: string | null;
+  constructedSchema?: string | null;
+  ingestionBatchRows?: number | null;
+  ingestionMethod: 'sql' | 'spark';
   warehouseName?: string | null;
   isActive: boolean;
   hasAccessToken: boolean;
@@ -179,6 +182,9 @@ export interface DatabricksSqlSettingsInput {
   accessToken: string;
   catalog?: string | null;
   schemaName?: string | null;
+  constructedSchema?: string | null;
+  ingestionBatchRows?: number | null;
+  ingestionMethod: 'sql' | 'spark';
   warehouseName?: string | null;
 }
 
@@ -189,11 +195,64 @@ export interface DatabricksSqlSettingsUpdate {
   accessToken?: string | null;
   catalog?: string | null;
   schemaName?: string | null;
+  constructedSchema?: string | null;
+  ingestionBatchRows?: number | null;
+  ingestionMethod?: 'sql' | 'spark';
   warehouseName?: string | null;
   isActive?: boolean;
 }
 
 export interface DatabricksSqlSettingsTestResult {
+  success: boolean;
+  message: string;
+  durationMs?: number | null;
+}
+
+export interface SapHanaSettings {
+  id: string;
+  displayName: string;
+  host: string;
+  port: number;
+  databaseName: string;
+  username: string;
+  schemaName?: string | null;
+  tenant?: string | null;
+  useSsl: boolean;
+  ingestionBatchRows?: number | null;
+  isActive: boolean;
+  hasPassword: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SapHanaSettingsInput {
+  displayName?: string | null;
+  host: string;
+  port: number;
+  databaseName: string;
+  username: string;
+  password: string;
+  schemaName?: string | null;
+  tenant?: string | null;
+  useSsl: boolean;
+  ingestionBatchRows?: number | null;
+}
+
+export interface SapHanaSettingsUpdate {
+  displayName?: string;
+  host?: string;
+  port?: number;
+  databaseName?: string;
+  username?: string;
+  password?: string | null;
+  schemaName?: string | null;
+  tenant?: string | null;
+  useSsl?: boolean;
+  ingestionBatchRows?: number | null;
+  isActive?: boolean;
+}
+
+export interface SapHanaSettingsTestResult {
   success: boolean;
   message: string;
   durationMs?: number | null;
@@ -239,6 +298,13 @@ export interface ApplicationDatabaseStatus {
   adminEmail: string | null;
 }
 
+export interface CompanySettings {
+  siteTitle: string | null;
+  logoDataUrl: string | null;
+}
+
+export interface CompanySettingsUpdateInput extends CompanySettings {}
+
 export interface SystemConnectionFormValues {
   systemId: string;
   databaseType: RelationalDatabaseType;
@@ -279,6 +345,34 @@ export interface ConnectionCatalogSelectionInput {
 
 export type IngestionLoadStrategy = 'timestamp' | 'numeric_key' | 'full';
 
+export type DataWarehouseTarget = 'databricks_sql' | 'sap_hana';
+
+export type UploadTableMode = 'create' | 'replace';
+
+export interface UploadDataColumn {
+  originalName: string;
+  fieldName: string;
+  inferredType: string;
+}
+
+export interface UploadDataPreview {
+  columns: UploadDataColumn[];
+  sampleRows: (string | null)[][];
+  totalRows: number;
+}
+
+export interface UploadDataCreateResponse {
+  tableName: string;
+  schemaName?: string | null;
+  catalog?: string | null;
+  rowsInserted: number;
+  targetWarehouse: DataWarehouseTarget;
+  tableId?: string | null;
+  constructedTableId?: string | null;
+  dataDefinitionId?: string | null;
+  dataDefinitionTableId?: string | null;
+}
+
 export interface IngestionSchedule {
   id: string;
   connectionTableSelectionId: string;
@@ -289,6 +383,8 @@ export interface IngestionSchedule {
   primaryKeyColumn?: string | null;
   targetSchema?: string | null;
   targetTableName?: string | null;
+  targetWarehouse: DataWarehouseTarget;
+  sapHanaSettingId?: string | null;
   batchSize: number;
   isActive: boolean;
   lastWatermarkTimestamp?: string | null;
@@ -312,6 +408,8 @@ export interface IngestionScheduleInput {
   primaryKeyColumn?: string | null;
   targetSchema?: string | null;
   targetTableName?: string | null;
+  targetWarehouse: DataWarehouseTarget;
+  sapHanaSettingId?: string | null;
   batchSize: number;
   isActive: boolean;
 }
@@ -324,6 +422,8 @@ export interface IngestionScheduleUpdateInput {
   primaryKeyColumn?: string | null;
   targetSchema?: string | null;
   targetTableName?: string | null;
+  targetWarehouse?: DataWarehouseTarget;
+  sapHanaSettingId?: string | null;
   batchSize?: number;
   isActive?: boolean;
 }
@@ -335,6 +435,7 @@ export interface IngestionRun {
   startedAt?: string | null;
   completedAt?: string | null;
   rowsLoaded?: number | null;
+  rowsExpected?: number | null;
   watermarkTimestampBefore?: string | null;
   watermarkTimestampAfter?: string | null;
   watermarkIdBefore?: number | null;
@@ -419,6 +520,7 @@ export interface DataDefinitionField {
   fieldId: string;
   notes?: string | null;
   displayOrder: number;
+  isUnique: boolean;
   field: Field;
   createdAt?: string;
   updatedAt?: string;
@@ -485,6 +587,7 @@ export interface DataDefinitionFieldInput {
   fieldId: string;
   notes?: string | null;
   displayOrder?: number | null;
+  isUnique?: boolean;
 }
 
 export interface DataDefinitionTableInput {
