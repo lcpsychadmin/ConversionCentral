@@ -8,7 +8,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 
 import { useAuth } from '../context/AuthContext';
 import ProjectTable, { ProjectRow } from '../components/project/ProjectTable';
@@ -16,6 +16,8 @@ import ProjectForm from '../components/project/ProjectForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { useProjects } from '../hooks/useProjects';
 import { ProjectFormValues } from '../types/data';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 
 const formatStatusLabel = (status: string) =>
   status
@@ -27,6 +29,9 @@ const ProjectsPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const sectionSurface = useMemo(() => getSectionSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+  const panelSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
 
   const {
     projectsQuery,
@@ -106,31 +111,17 @@ const ProjectsPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Projects
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Create high-level projects to organize releases and implementation milestones.
-        </Typography>
-      </Box>
-
-      {canManage && (
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-          <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
-            New Project
-          </Button>
-        </Box>
-      )}
+      <PageHeader
+        title="Projects"
+        subtitle="Create high-level projects to organize releases and implementation milestones."
+        actions={
+          canManage ? (
+            <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
+              New Project
+            </Button>
+          ) : undefined
+        }
+      />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -138,11 +129,15 @@ const ProjectsPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={3} sx={{ 
-        p: 3, 
-        mb: 3,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-      }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 3,
+          borderRadius: 3,
+          ...sectionSurface
+        }}
+      >
         <ProjectTable
           data={rows}
           loading={isLoading}
@@ -155,8 +150,20 @@ const ProjectsPage = () => {
       </Paper>
 
       {selected && (
-        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            mb: 3,
+            borderRadius: 3,
+            ...panelSurface
+          }}
+        >
+          <Typography
+            variant="h5"
+            gutterBottom
+            sx={{ color: isDarkMode ? theme.palette.common.white : theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}
+          >
             Project Details
           </Typography>
           <Stack spacing={2}>

@@ -1,11 +1,9 @@
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
+import PageHeader from '../components/common/PageHeader';
 
 const ValidationDashboardPage = () => (
   <Box>
-    <Typography variant="h4" gutterBottom>
-      Validation Dashboard
-    </Typography>
-    <Typography color="text.secondary">Validation insights will appear here.</Typography>
+    <PageHeader title="Validation Dashboard" subtitle="Validation insights will appear here." />
   </Box>
 );
 

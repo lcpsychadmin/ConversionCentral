@@ -1,3 +1,6 @@
+import base64
+import binascii
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
@@ -1616,9 +1619,20 @@ class AdminEmailUpdate(BaseModel):
     email: EmailStr
 
 
+TRANSPARENT_SAFE_LOGO_MIME_TYPES = {"image/png", "image/svg+xml", "image/webp"}
+MAX_LOGO_BYTES = 350_000
+DEFAULT_THEME_MODE = "light"
+DEFAULT_ACCENT_COLOR = "#1e88e5"
+SUPPORTED_THEME_MODES = {"light", "dark"}
+ACCENT_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
+
+
 class CompanySettings(BaseModel):
     site_title: Optional[str] = Field(None, max_length=120)
-    logo_data_url: Optional[str] = Field(None, max_length=350_000)
+    # Base64-encoded payload expands the raw bytes by roughly 4/3, so allow extra headroom here.
+    logo_data_url: Optional[str] = Field(None, max_length=MAX_LOGO_BYTES * 2)
+    theme_mode: Optional[str] = Field(None)
+    accent_color: Optional[str] = Field(None)
 
     @validator("site_title", pre=True)
     def _normalize_site_title(cls, value: Optional[str]) -> Optional[str]:
@@ -1638,12 +1652,46 @@ class CompanySettings(BaseModel):
     def _validate_logo(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
-        if len(value) > 350_000:
+        match = re.match(r"^data:([^;]+);base64,", value, flags=re.IGNORECASE)
+        if not match:
+            raise ValueError(
+                "Logo must be provided as a base64-encoded data URL (e.g. data:image/png;base64,...)."
+            )
+
+        mime_type = match.group(1).lower()
+        if mime_type not in TRANSPARENT_SAFE_LOGO_MIME_TYPES:
+            allowed = ", ".join(sorted(TRANSPARENT_SAFE_LOGO_MIME_TYPES))
+            raise ValueError(f"Logo image format '{mime_type}' is not supported. Allowed formats: {allowed}.")
+
+        encoded_payload = value[match.end() :]
+        try:
+            decoded_bytes = base64.b64decode(encoded_payload, validate=True)
+        except binascii.Error as exc:  # pragma: no cover - defensive guard
+            raise ValueError("Logo data must contain valid base64 content.") from exc
+
+        if len(decoded_bytes) > MAX_LOGO_BYTES:
             raise ValueError("Logo data exceeds the maximum allowed size (350 KB).")
-        lowered = value.lower()
-        if not lowered.startswith("data:image/"):
-            raise ValueError("Logo must be provided as a data URL for an image (e.g. data:image/png;base64,...).")
+
         return value
+
+    @validator("theme_mode")
+    def _validate_theme_mode(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in SUPPORTED_THEME_MODES:
+            allowed = ", ".join(sorted(SUPPORTED_THEME_MODES))
+            raise ValueError(f"Theme mode must be one of: {allowed}.")
+        return normalized
+
+    @validator("accent_color")
+    def _validate_accent_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not ACCENT_COLOR_PATTERN.match(normalized):
+            raise ValueError("Accent color must be a 6-digit hex code (e.g. #1e88e5).")
+        return normalized
 
 
 class CompanySettingsRead(CompanySettings):

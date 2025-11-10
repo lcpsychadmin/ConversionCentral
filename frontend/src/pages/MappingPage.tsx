@@ -1,11 +1,9 @@
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
+import PageHeader from '../components/common/PageHeader';
 
 const MappingPage = () => (
   <Box>
-    <Typography variant="h4" gutterBottom>
-      Mapping Management
-    </Typography>
-    <Typography color="text.secondary">Mapping workspace coming soon.</Typography>
+    <PageHeader title="Mapping Management" subtitle="Mapping workspace coming soon." />
   </Box>
 );
 

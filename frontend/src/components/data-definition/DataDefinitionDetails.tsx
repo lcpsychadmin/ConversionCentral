@@ -80,6 +80,7 @@ import {
 } from '../../types/data';
 import { fetchTablePreview } from '../../services/tableService';
 import { useToast } from '../../hooks/useToast';
+import { getPanelSurface } from '../../theme/surfaceStyles';
 
 type FieldDraft = {
 	name: string;
@@ -268,6 +269,7 @@ const parseBooleanCell = (value: string | undefined, defaultValue: boolean) => {
 
 const QuickFilterToolbar = () => {
 	const theme = useTheme();
+	const isDarkMode = theme.palette.mode === 'dark';
 	const apiRef = useGridApiContext();
 	const [filterValue, setFilterValue] = useState('');
 
@@ -282,13 +284,14 @@ const QuickFilterToolbar = () => {
 			direction={{ xs: 'column', sm: 'row' }}
 			justifyContent={{ xs: 'flex-start', sm: 'flex-start' }}
 			alignItems={{ xs: 'stretch', sm: 'center' }}
-			sx={{
-				px: 1.5,
-				py: 1,
-				gap: 1,
-				backgroundColor: alpha(theme.palette.info.main, 0.05),
-				borderBottom: `1px solid ${alpha(theme.palette.info.main, 0.15)}`
-			}}
+				sx={{
+					px: 1.5,
+					py: 1,
+					gap: 1,
+					backgroundColor: alpha(theme.palette.primary.main, isDarkMode ? 0.22 : 0.08),
+					borderBottom: `1px solid ${alpha(theme.palette.primary.main, isDarkMode ? 0.35 : 0.18)}`,
+					backdropFilter: isDarkMode ? 'blur(18px)' : undefined
+				}}
 		>
 			<TextField
 				placeholder="Filter list..."
@@ -307,22 +310,30 @@ const QuickFilterToolbar = () => {
 					'& .MuiOutlinedInput-root': {
 						height: 40,
 						borderRadius: 2,
-						backgroundColor: alpha(theme.palette.common.white, 0.95),
-						boxShadow: `0 6px 16px ${alpha(theme.palette.primary.main, 0.12)}`,
+						backgroundColor: isDarkMode
+							? alpha(theme.palette.background.paper, 0.82)
+							: alpha(theme.palette.common.white, 0.95),
+						boxShadow: isDarkMode
+							? `0 10px 24px ${alpha(theme.palette.common.black, 0.5)}`
+							: `0 6px 16px ${alpha(theme.palette.primary.main, 0.12)}`,
 						transition: theme.transitions.create(['box-shadow', 'border-color'], {
 							duration: theme.transitions.duration.shorter
 						}),
 						'&:hover': {
-							boxShadow: `0 8px 20px ${alpha(theme.palette.primary.main, 0.16)}`
+							boxShadow: isDarkMode
+								? `0 14px 32px ${alpha(theme.palette.common.black, 0.55)}`
+								: `0 8px 20px ${alpha(theme.palette.primary.main, 0.16)}`
 						},
 						'&.Mui-focused': {
-							boxShadow: `0 8px 24px ${alpha(theme.palette.primary.main, 0.2)}`
+							boxShadow: isDarkMode
+								? `0 16px 36px ${alpha(theme.palette.common.black, 0.6)}`
+								: `0 10px 28px ${alpha(theme.palette.primary.main, 0.22)}`
 						},
 						'& fieldset': {
-							border: `1.5px solid ${alpha(theme.palette.primary.main, 0.35)}`
+							border: `1.5px solid ${alpha(theme.palette.primary.main, isDarkMode ? 0.6 : 0.35)}`
 						},
 						'&:hover fieldset': {
-							borderColor: alpha(theme.palette.primary.main, 0.5)
+							borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.75 : 0.5)
 						},
 						'&.Mui-focused fieldset': {
 							borderColor: theme.palette.primary.main
@@ -330,7 +341,8 @@ const QuickFilterToolbar = () => {
 					},
 					'& .MuiInputBase-input': {
 						fontSize: 13,
-						padding: theme.spacing(0.5, 1.5)
+						padding: theme.spacing(0.5, 1.5),
+						color: theme.palette.text.primary
 					}
 				}}
 			/>
@@ -338,35 +350,48 @@ const QuickFilterToolbar = () => {
 	);
 };
 
-const GridTextarea = styled(TextareaAutosize)(({ theme }) => ({
-	width: '100%',
-	borderRadius: 6,
-	border: `1px solid ${alpha(theme.palette.divider, 0.45)}`,
-	backgroundColor: alpha(theme.palette.common.white, 0.96),
-	fontFamily: theme.typography.fontFamily,
-	fontSize: 13.5,
-	lineHeight: 1.4,
-	padding: theme.spacing(0.75, 1.1),
-	paddingBottom: theme.spacing(1),
-	resize: 'none',
-	transition: theme.transitions.create(['border-color', 'box-shadow', 'background-color'], {
-		duration: theme.transitions.duration.shortest
-	}),
-	'&:hover': {
-		borderColor: alpha(theme.palette.primary.main, 0.7)
-	},
-	'&:focus': {
-		outline: 'none',
-		borderColor: theme.palette.primary.main,
-		boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.2)}`,
-		backgroundColor: alpha(theme.palette.common.white, 0.98)
-	},
-	'&:disabled': {
-		backgroundColor: alpha(theme.palette.action.disabledBackground, 0.35),
-		color: theme.palette.text.disabled,
-		cursor: 'not-allowed'
-	}
-}));
+const GridTextarea = styled(TextareaAutosize)(({ theme }) => {
+	const isDarkMode = theme.palette.mode === 'dark';
+	const baseBackground = isDarkMode
+		? alpha(theme.palette.background.paper, 0.82)
+		: alpha(theme.palette.common.white, 0.96);
+	const focusBackground = isDarkMode
+		? alpha(theme.palette.background.paper, 0.94)
+		: alpha(theme.palette.common.white, 0.98);
+	const disabledBackground = isDarkMode
+		? alpha(theme.palette.background.paper, 0.45)
+		: alpha(theme.palette.action.disabledBackground, 0.35);
+
+	return {
+		width: '100%',
+		borderRadius: 6,
+		border: `1px solid ${alpha(theme.palette.divider, isDarkMode ? 0.55 : 0.45)}`,
+		backgroundColor: baseBackground,
+		fontFamily: theme.typography.fontFamily,
+		fontSize: 13.5,
+		lineHeight: 1.4,
+		padding: theme.spacing(0.75, 1.1),
+		paddingBottom: theme.spacing(1),
+		resize: 'none',
+		transition: theme.transitions.create(['border-color', 'box-shadow', 'background-color'], {
+			duration: theme.transitions.duration.shortest
+		}),
+		'&:hover': {
+			borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.75 : 0.7)
+		},
+		'&:focus': {
+			outline: 'none',
+			borderColor: theme.palette.primary.main,
+			boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, isDarkMode ? 0.35 : 0.2)}`,
+			backgroundColor: focusBackground
+		},
+		'&:disabled': {
+			backgroundColor: disabledBackground,
+			color: theme.palette.text.disabled,
+			cursor: 'not-allowed'
+		}
+	};
+});
 
 type RowDragContextValue = {
 	attributes: DraggableAttributes;
@@ -631,6 +656,134 @@ const DataDefinitionDetails = ({
 	const [previewLoading, setPreviewLoading] = useState(false);
 	const [previewError, setPreviewError] = useState<string | null>(null);
 	const theme = useTheme();
+	const isDarkMode = theme.palette.mode === 'dark';
+	const tableCardBaseStyles = useMemo(() => {
+		const surface = getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' });
+		return {
+			background: surface.background,
+			boxShadow: surface.boxShadow
+		} as const;
+	}, [isDarkMode, theme]);
+	// relationshipCardBaseStyles was previously an alias but is not used; remove to satisfy linter
+	const tableBorderColor = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.45 : 0.28),
+		[isDarkMode, theme]
+	);
+	const tableBorderHighlight = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.85 : 0.55),
+		[isDarkMode, theme]
+	);
+	const tableAccentBorder = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.95 : 0.75),
+		[isDarkMode, theme]
+	);
+	const headerDividerColor = useMemo(
+		() => alpha(theme.palette.divider, isDarkMode ? 0.5 : 0.18),
+		[isDarkMode, theme]
+	);
+	const tableTitleColor = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.primary.light, 0.9) : theme.palette.primary.dark),
+		[isDarkMode, theme]
+	);
+	const tableSubtitleColor = useMemo(
+		() => alpha(isDarkMode ? theme.palette.common.white : theme.palette.text.secondary, isDarkMode ? 0.7 : 0.75),
+		[isDarkMode, theme]
+	);
+	const calloutBackground = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.primary.main, 0.18) : alpha(theme.palette.primary.light, 0.08)),
+		[isDarkMode, theme]
+	);
+	const calloutBorder = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.35),
+		[isDarkMode, theme]
+	);
+	const gridBackground = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.background.paper, 0.88) : alpha(theme.palette.common.white, 0.98)),
+		[isDarkMode, theme]
+	);
+	const gridShadow = useMemo(
+		() => (isDarkMode ? `0 16px 32px ${alpha(theme.palette.common.black, 0.45)}` : `0 6px 18px ${alpha(theme.palette.common.black, 0.08)}`),
+		[isDarkMode, theme]
+	);
+	const gridBorderColor = useMemo(
+		() => alpha(theme.palette.divider, isDarkMode ? 0.5 : 0.22),
+		[isDarkMode, theme]
+	);
+	const gridHeaderGradient = useMemo(
+		() =>
+			isDarkMode
+				? `linear-gradient(180deg, ${alpha(theme.palette.primary.main, 0.88)} 0%, ${alpha(theme.palette.primary.dark, 0.82)} 100%)`
+				: `linear-gradient(180deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.dark, 0.8)} 100%)`,
+		[isDarkMode, theme]
+	);
+	const gridHeaderShadow = useMemo(
+		() => (isDarkMode ? `inset 0 -2px 4px ${alpha(theme.palette.common.black, 0.4)}` : `inset 0 -2px 4px ${alpha(theme.palette.primary.dark, 0.35)}`),
+		[isDarkMode, theme]
+	);
+	const gridHeaderTextColor = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.common.white, 0.95) : theme.palette.primary.contrastText),
+		[isDarkMode, theme]
+	);
+	const gridEvenRowBackground = useMemo(
+		() => alpha(theme.palette.action.hover, isDarkMode ? 0.25 : 0.08),
+		[isDarkMode, theme]
+	);
+	const gridHoverBackground = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.2 : 0.05),
+		[isDarkMode, theme]
+	);
+	const gridSelectedBackground = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.3 : 0.1),
+		[isDarkMode, theme]
+	);
+	const gridEditableBackground = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.18 : 0.06),
+		[isDarkMode, theme]
+	);
+	const gridEditingBackground = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.background.paper, 0.92) : alpha(theme.palette.common.white, 0.98)),
+		[isDarkMode, theme]
+	);
+	const placeholderRowBackground = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.24 : 0.1),
+		[isDarkMode, theme]
+	);
+	const placeholderRowHover = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.32 : 0.14),
+		[isDarkMode, theme]
+	);
+	const placeholderRowFocus = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.48 : 0.6),
+		[isDarkMode, theme]
+	);
+	const placeholderTextColor = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.common.white, 0.78) : theme.palette.text.secondary),
+		[isDarkMode, theme]
+	);
+	const gridFocusOutline = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.4 : 0.2),
+		[isDarkMode, theme]
+	);
+	const gridFocusBackground = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.14 : 0.02),
+		[isDarkMode, theme]
+	);
+	const inlineInputBackground = useMemo(
+		() => (isDarkMode ? alpha(theme.palette.background.paper, 0.85) : alpha(theme.palette.common.white, 0.97)),
+		[isDarkMode, theme]
+	);
+	const inlineInputBorder = useMemo(
+		() => alpha(theme.palette.divider, isDarkMode ? 0.55 : 0.45),
+		[isDarkMode, theme]
+	);
+	const inlineInputHoverBorder = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.75 : 0.65),
+		[isDarkMode, theme]
+	);
+	const inlineInputFocusShadow = useMemo(
+		() => alpha(theme.palette.primary.main, isDarkMode ? 0.4 : 0.2),
+		[isDarkMode, theme]
+	);
 	const reorderSensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
 		useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -1482,9 +1635,9 @@ const DataDefinitionDetails = ({
 					variant="outlined"
 					sx={{
 						p: 2,
-						bgcolor: alpha(theme.palette.info.main, 0.04),
-						borderColor: alpha(theme.palette.info.main, 0.25),
-						borderWidth: 1.5
+						borderRadius: 2,
+						background: calloutBackground,
+						border: `1px solid ${calloutBorder}`
 					}}
 				>
 					<Typography variant="subtitle2" color="info.dark" sx={{ fontWeight: 600, mb: 1 }}>
@@ -1734,16 +1887,18 @@ const DataDefinitionDetails = ({
 										sx={{
 											'& .MuiOutlinedInput-root': {
 												borderRadius: 0.75,
-												backgroundColor: alpha(theme.palette.common.white, 0.97),
+												backgroundColor: inlineInputBackground,
 												'& fieldset': {
-													borderColor: alpha(theme.palette.divider, 0.45)
+													borderColor: inlineInputBorder
 												},
 												'&:hover fieldset': {
-													borderColor: alpha(theme.palette.primary.main, 0.65)
+													borderColor: inlineInputHoverBorder
 												},
 												'&.Mui-focused fieldset': {
-													borderColor: theme.palette.primary.main,
-													boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.2)}`
+													borderColor: theme.palette.primary.main
+												},
+												'&.Mui-focused': {
+													boxShadow: `0 0 0 2px ${inlineInputFocusShadow}`
 												}
 											},
 											'& .MuiOutlinedInput-input': {
@@ -1959,19 +2114,19 @@ const DataDefinitionDetails = ({
 							slots={dndEnabled ? { toolbar: QuickFilterToolbar, row: DraggableRow } : { toolbar: QuickFilterToolbar }}
 							slotProps={dndEnabled ? { row: { disableDrag: false } } : undefined}
 							sx={{
-								'--DataGrid-rowBorderColor': alpha(theme.palette.divider, 0.22),
-								'--DataGrid-columnSeparatorColor': alpha(theme.palette.divider, 0.22),
-								border: `1px solid ${alpha(theme.palette.divider, 0.45)}`,
+								'--DataGrid-rowBorderColor': gridBorderColor,
+								'--DataGrid-columnSeparatorColor': gridBorderColor,
+								border: `1px solid ${gridBorderColor}`,
 								borderRadius: isGridView ? 1.5 : 2,
-								bgcolor: alpha(theme.palette.background.paper, 0.98),
-								boxShadow: `0 6px 18px ${alpha(theme.palette.common.black, 0.05)}`,
+								background: gridBackground,
+								boxShadow: gridShadow,
 								'& .MuiDataGrid-columnHeaders': {
-									background: `linear-gradient(180deg, ${theme.palette.primary.main} 0%, ${alpha(theme.palette.primary.dark, 0.8)} 100%)`,
-									borderBottom: `1px solid ${theme.palette.primary.dark}`,
-									boxShadow: `inset 0 -2px 4px ${alpha(theme.palette.primary.dark, 0.35)}`,
+									background: gridHeaderGradient,
+									borderBottom: `1px solid ${alpha(theme.palette.primary.dark, isDarkMode ? 0.55 : 0.4)}`,
+									boxShadow: gridHeaderShadow,
 									textTransform: 'uppercase',
 									letterSpacing: 0.35,
-									color: theme.palette.primary.contrastText
+									color: gridHeaderTextColor
 								},
 								'& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
 									outline: 'none'
@@ -1979,17 +2134,19 @@ const DataDefinitionDetails = ({
 								'& .MuiDataGrid-columnHeaderTitle': {
 									fontWeight: 700,
 									fontSize: 12.5,
-									color: theme.palette.primary.contrastText,
-									textShadow: `0 1px 2px ${alpha(theme.palette.primary.dark, 0.4)}`
+									color: gridHeaderTextColor,
+									textShadow: isDarkMode
+										? `0 1px 2px ${alpha(theme.palette.common.black, 0.55)}`
+										: `0 1px 2px ${alpha(theme.palette.primary.dark, 0.4)}`
 								},
 								'& .MuiDataGrid-columnHeader .MuiSvgIcon-root': {
-									color: alpha(theme.palette.primary.contrastText, 0.9)
+									color: alpha(gridHeaderTextColor, 0.9)
 								},
 								'& .MuiDataGrid-cell': {
 									display: 'flex',
 									alignItems: 'center',
-									borderBottom: `1px solid ${alpha(theme.palette.divider, 0.18)}`,
-									borderRight: `1px solid ${alpha(theme.palette.divider, 0.16)}`,
+									borderBottom: `1px solid ${alpha(theme.palette.divider, isDarkMode ? 0.32 : 0.18)}`,
+									borderRight: `1px solid ${alpha(theme.palette.divider, isDarkMode ? 0.28 : 0.16)}`,
 									fontSize: 13.5,
 									color: theme.palette.text.primary,
 									padding: theme.spacing(0.75, 1.25),
@@ -1997,61 +2154,61 @@ const DataDefinitionDetails = ({
 									transition: theme.transitions.create(['background-color', 'box-shadow'], {
 										duration: theme.transitions.duration.shortest
 									})
-								},
-								'& .MuiDataGrid-cell.multiline-cell': {
-									alignItems: 'flex-start',
-									paddingTop: theme.spacing(1.15),
-									paddingBottom: theme.spacing(1.15)
-								},
-								'& .MuiDataGrid-cell.multiline-cell .MuiTypography-root': {
-									width: '100%'
-								},
-								'& .MuiDataGrid-row .MuiDataGrid-cell:last-of-type': {
-									borderRight: 'none'
-								},
-								'& .MuiDataGrid-row:nth-of-type(even) .MuiDataGrid-cell': {
-									backgroundColor: alpha(theme.palette.action.hover, 0.12)
-								},
-								'& .MuiDataGrid-row:hover .MuiDataGrid-cell': {
-									backgroundColor: alpha(theme.palette.primary.main, 0.04)
-								},
-								'& .MuiDataGrid-row.Mui-selected .MuiDataGrid-cell': {
-									backgroundColor: alpha(theme.palette.primary.main, 0.08)
-								},
-								'& .MuiDataGrid-cell:focus-within': {
-									outline: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
-									outlineOffset: -2,
-									backgroundColor: alpha(theme.palette.primary.main, 0.05)
-								},
-								'& .MuiDataGrid-cell.MuiDataGrid-cell--editable': {
-									backgroundColor: alpha(theme.palette.primary.light, 0.05)
-								},
-								'& .MuiDataGrid-cell.MuiDataGrid-cell--editing': {
-									backgroundColor: alpha(theme.palette.common.white, 0.98),
-									boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.45)}`
-								},
-								'& .MuiDataGrid-virtualScroller': {
-									backgroundColor: 'transparent'
-								},
-								'& .placeholder-row .MuiDataGrid-cell': {
-									fontStyle: 'italic',
-									color: theme.palette.text.disabled,
-									backgroundColor: alpha(theme.palette.info.main, 0.08),
-									transition: theme.transitions.create(['background-color', 'box-shadow', 'color'], {
-										duration: theme.transitions.duration.shortest
-									})
-								},
-								'& .placeholder-row .MuiDataGrid-cell:focus-within': {
-									outline: 'none',
-									backgroundColor: alpha(theme.palette.info.main, 0.15),
-									boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.info.main, 0.6)}, 0 0 8px ${alpha(theme.palette.info.main, 0.3)}`,
-									color: theme.palette.info.dark,
-									fontWeight: 500
-								},
-								'& .placeholder-row:hover .MuiDataGrid-cell': {
-									backgroundColor: alpha(theme.palette.info.main, 0.12),
-									color: theme.palette.text.secondary
-								}
+							},
+							'& .MuiDataGrid-cell.multiline-cell': {
+								alignItems: 'flex-start',
+								paddingTop: theme.spacing(1.15),
+								paddingBottom: theme.spacing(1.15)
+							},
+							'& .MuiDataGrid-cell.multiline-cell .MuiTypography-root': {
+								width: '100%'
+							},
+							'& .MuiDataGrid-row .MuiDataGrid-cell:last-of-type': {
+								borderRight: 'none'
+							},
+							'& .MuiDataGrid-row:nth-of-type(even) .MuiDataGrid-cell': {
+								backgroundColor: gridEvenRowBackground
+							},
+							'& .MuiDataGrid-row:hover .MuiDataGrid-cell': {
+								backgroundColor: gridHoverBackground
+							},
+							'& .MuiDataGrid-row.Mui-selected .MuiDataGrid-cell': {
+								backgroundColor: gridSelectedBackground
+							},
+							'& .MuiDataGrid-cell:focus-within': {
+								outline: `2px solid ${gridFocusOutline}`,
+								outlineOffset: -2,
+								backgroundColor: gridFocusBackground
+							},
+							'& .MuiDataGrid-cell.MuiDataGrid-cell--editable': {
+								backgroundColor: gridEditableBackground
+							},
+							'& .MuiDataGrid-cell.MuiDataGrid-cell--editing': {
+								backgroundColor: gridEditingBackground,
+								boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.45)}`
+							},
+							'& .MuiDataGrid-virtualScroller': {
+								backgroundColor: 'transparent'
+							},
+							'& .placeholder-row .MuiDataGrid-cell': {
+								fontStyle: 'italic',
+								color: placeholderTextColor,
+								backgroundColor: placeholderRowBackground,
+								transition: theme.transitions.create(['background-color', 'box-shadow', 'color'], {
+									duration: theme.transitions.duration.shortest
+								})
+							},
+							'& .placeholder-row .MuiDataGrid-cell:focus-within': {
+								outline: 'none',
+								backgroundColor: placeholderRowFocus,
+								boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, isDarkMode ? 0.55 : 0.6)}, 0 0 8px ${alpha(theme.palette.primary.main, isDarkMode ? 0.3 : 0.28)}`,
+								color: theme.palette.primary.contrastText,
+								fontWeight: 500
+							},
+							'& .placeholder-row:hover .MuiDataGrid-cell': {
+								backgroundColor: placeholderRowHover,
+								color: theme.palette.text.secondary
+							}
 							}}
 						/>
 					);
@@ -2071,16 +2228,24 @@ const DataDefinitionDetails = ({
 					);
 
 				return (
-					<Paper 
-						key={table.id} 
-						variant="outlined" 
-						sx={{ 
-							p: 2, 
-							bgcolor: theme.palette.common.white, 
-							borderColor: dropTargetTableId === table.id ? theme.palette.info.main : alpha(theme.palette.info.main, 0.25), 
-							borderLeft: `4px solid ${theme.palette.info.main}`, 
-							boxShadow: `0 4px 12px ${alpha(theme.palette.common.black, 0.05)}`,
-							transition: theme.transitions.create('border-color', { duration: 200 })
+					<Paper
+						key={table.id}
+						variant="outlined"
+						sx={{
+							p: 2,
+							borderRadius: 3,
+							...tableCardBaseStyles,
+							border: `1px solid ${dropTargetTableId === table.id ? tableBorderHighlight : tableBorderColor}`,
+							borderLeft: `4px solid ${dropTargetTableId === table.id ? tableBorderHighlight : tableAccentBorder}`,
+							transition: theme.transitions.create(['border-color', 'box-shadow', 'transform'], {
+								duration: 220,
+								easing: theme.transitions.easing.easeOut
+							}),
+							boxShadow:
+								dropTargetTableId === table.id
+									? `0 12px 30px ${alpha(theme.palette.primary.main, isDarkMode ? 0.28 : 0.16)}`
+									: tableCardBaseStyles.boxShadow,
+							transform: dropTargetTableId === table.id ? 'translateY(-2px)' : 'none'
 						}}
 						onDragOver={(e) => {
 							e.preventDefault();
@@ -2152,21 +2317,21 @@ const DataDefinitionDetails = ({
 								spacing={1.5}
 								sx={{
 									pb: 1.5,
-									borderBottom: `2px solid ${alpha(theme.palette.warning.main, 0.15)}`
+									borderBottom: `1px solid ${headerDividerColor}`
 								}}
 							>
 								<Stack spacing={0.5}>
 									<Typography
 										variant="h6"
 										sx={{
-											color: theme.palette.primary.main,
+											color: tableTitleColor,
 											fontWeight: 700,
 											letterSpacing: 0.3
 										}}
 									>
 										{tableName}
 									</Typography>
-									<Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+									<Typography variant="body2" sx={{ fontStyle: 'italic', color: tableSubtitleColor }}>
 										{table.table.schemaName
 											? `${table.table.schemaName}.${table.table.physicalName}`
 											: table.table.physicalName}
@@ -2290,16 +2455,12 @@ const DataDefinitionDetails = ({
 											outline: 'none',
 											borderRadius: 1.5,
 											transition: theme.transitions.create(['box-shadow', 'background-color'], { duration: 200 }),
-											'&:focus': {
-												boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.25)}, inset 0 0 0 2px ${theme.palette.primary.main}`,
-												backgroundColor: alpha(theme.palette.primary.main, 0.02)
-											},
-											'&:focus-visible': {
-												boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.25)}, inset 0 0 0 2px ${theme.palette.primary.main}`,
-												backgroundColor: alpha(theme.palette.primary.main, 0.02)
+											'&:focus, &:focus-visible': {
+												boxShadow: `0 0 0 3px ${gridFocusOutline}, inset 0 0 0 2px ${alpha(theme.palette.primary.main, isDarkMode ? 0.75 : 0.9)}`,
+												backgroundColor: gridFocusBackground
 											},
 											'&:hover': {
-												boxShadow: `0 0 0 1px ${alpha(theme.palette.primary.main, 0.2)}`
+												boxShadow: `0 0 0 1px ${alpha(theme.palette.primary.main, isDarkMode ? 0.35 : 0.22)}`
 											}
 										}}
 									>

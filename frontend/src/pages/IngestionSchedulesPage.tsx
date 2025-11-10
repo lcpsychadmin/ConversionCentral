@@ -9,11 +9,10 @@ import {
   MenuItem,
   Paper,
   Select,
-  Stack,
-  Typography
+  Stack
 } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 
 import ConnectionIngestionPanel from '../components/system-connection/ConnectionIngestionPanel';
 import { useSystemConnections } from '../hooks/useSystemConnections';
@@ -21,6 +20,8 @@ import { useSystems } from '../hooks/useSystems';
 import { useAuth } from '../context/AuthContext';
 import { ConnectionCatalogTable, System } from '../types/data';
 import { fetchSystemConnectionCatalog } from '../services/systemConnectionService';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (!error) return fallback;
@@ -40,6 +41,9 @@ const IngestionSchedulesPage = () => {
   const theme = useTheme();
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
+  const isDarkMode = theme.palette.mode === 'dark';
+  const sectionSurface = useMemo(() => getSectionSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+  const panelSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
 
   const {
     systemsQuery: { data: systems = [], isLoading: systemsLoading, isError: systemsError, error: systemsErrorObj }
@@ -147,23 +151,10 @@ const IngestionSchedulesPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Ingestion Schedules
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Manage recurring ingestion for JDBC connections. Configure table selections on the Connections page, then schedule loads here.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Ingestion Schedules"
+        subtitle="Manage recurring ingestion for JDBC connections. Configure table selections on the Connections page, then schedule loads here."
+      />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -185,11 +176,12 @@ const IngestionSchedulesPage = () => {
 
       {!loading && schedulableConnections.length > 0 && (
         <Paper
-          elevation={3}
+          elevation={0}
           sx={{
             p: 3,
             mb: 3,
-            background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+            borderRadius: 3,
+            ...sectionSurface
           }}
         >
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'flex-end' }}>
@@ -240,10 +232,11 @@ const IngestionSchedulesPage = () => {
 
           {!catalogLoading && (
             <Paper
-              elevation={3}
+              elevation={0}
               sx={{
                 p: 3,
-                background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+                borderRadius: 3,
+                ...panelSurface
               }}
             >
               {!canManage && (

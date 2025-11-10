@@ -3,6 +3,7 @@ import {
   DataWarehouseTarget,
   UploadDataCreateResponse,
   UploadDataPreview,
+  UploadDataColumnOverrideInput,
   UploadTableMode
 } from '../types/data';
 
@@ -71,6 +72,7 @@ interface CreateTableOptions {
   productTeamId: string;
   dataObjectId: string;
   systemId: string;
+  columnOverrides?: UploadDataColumnOverrideInput[];
 }
 
 export const createTableFromUpload = async (
@@ -94,6 +96,15 @@ export const createTableFromUpload = async (
   }
   if (options.delimiter) {
     formData.append('delimiter', options.delimiter);
+  }
+  if (options.columnOverrides && options.columnOverrides.length > 0) {
+    const serialized = options.columnOverrides.map((override) => ({
+      field_name: override.fieldName,
+      target_name: override.targetName,
+      target_type: override.targetType,
+      exclude: override.exclude
+    }));
+    formData.append('column_overrides', JSON.stringify(serialized));
   }
 
   const response = await client.post<UploadDataCreateResponsePayload>('/upload-data/create-table', formData, {

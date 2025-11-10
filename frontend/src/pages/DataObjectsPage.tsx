@@ -9,7 +9,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 
 import DataObjectTable, { DataObjectRow } from '../components/data-object/DataObjectTable';
 import DataObjectForm from '../components/data-object/DataObjectForm';
@@ -20,6 +20,8 @@ import { useSystems } from '../hooks/useSystems';
 import { DataObjectFormValues, ProcessArea, System } from '../types/data';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../hooks/useToast';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 
 const findProcessAreaName = (processAreas: ProcessArea[], processAreaId: string | null) => {
   if (!processAreaId) return null;
@@ -38,6 +40,9 @@ const DataObjectsPage = () => {
   const toast = useToast();
   const canManage = hasRole('admin');
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const sectionSurface = useMemo(() => getSectionSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+  const panelSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
 
   const {
     dataObjectsQuery,
@@ -189,31 +194,17 @@ const DataObjectsPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Data Objects
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Manage data objects, product team alignment, and system ownership.
-        </Typography>
-      </Box>
-
-      {canManage && (
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-          <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
-            New Data Object
-          </Button>
-        </Box>
-      )}
+      <PageHeader
+        title="Data Objects"
+        subtitle="Manage data objects, product team alignment, and system ownership."
+        actions={
+          canManage ? (
+            <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
+              New Data Object
+            </Button>
+          ) : undefined
+        }
+      />
 
       {dataObjectsErrorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -239,11 +230,15 @@ const DataObjectsPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={3} sx={{ 
-        p: 3, 
-        mb: 3,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-      }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 3,
+          borderRadius: 3,
+          ...sectionSurface
+        }}
+      >
         <DataObjectTable
           data={rows}
           loading={dataObjectsLoading}
@@ -256,8 +251,20 @@ const DataObjectsPage = () => {
       </Paper>
 
       {selected && (
-        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            mb: 3,
+            borderRadius: 3,
+            ...panelSurface
+          }}
+        >
+          <Typography
+            variant="h5"
+            gutterBottom
+            sx={{ color: isDarkMode ? theme.palette.common.white : theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}
+          >
             Data Object Details
           </Typography>
           <Grid container spacing={3}>

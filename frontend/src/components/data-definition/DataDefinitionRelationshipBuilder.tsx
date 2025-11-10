@@ -48,6 +48,7 @@ import type {
 	DataDefinitionRelationshipUpdateInput,
 	DataDefinitionTable
 } from '../../types/data';
+import { getPanelSurface } from '../../theme/surfaceStyles';
 
 const nodeTypes = { dataDefinitionTable: ReportTableNode } as const;
 
@@ -150,6 +151,14 @@ const BuilderContent = ({
 	onInitialRelationshipConsumed
 }: DataDefinitionRelationshipBuilderProps) => {
 	const theme = useTheme();
+	const isDarkMode = theme.palette.mode === 'dark';
+	const relationshipCardSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+	const relationshipBorderColor = useMemo(() => alpha(theme.palette.primary.main, isDarkMode ? 0.45 : 0.28), [isDarkMode, theme]);
+	const relationshipAccentColor = useMemo(() => alpha(theme.palette.primary.main, isDarkMode ? 0.95 : 0.75), [isDarkMode, theme]);
+	const headerDividerColor = useMemo(() => alpha(theme.palette.divider, isDarkMode ? 0.5 : 0.18), [isDarkMode, theme]);
+	const relationshipTitleColor = useMemo(() => (isDarkMode ? alpha(theme.palette.primary.light, 0.9) : theme.palette.primary.dark), [isDarkMode, theme]);
+	const relationshipCalloutBackground = useMemo(() => (isDarkMode ? alpha(theme.palette.primary.main, 0.18) : alpha(theme.palette.primary.light, 0.08)), [isDarkMode, theme]);
+	const relationshipCalloutBorder = useMemo(() => alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.35), [isDarkMode, theme]);
 	const toast = useToast();
 	const [nodes, setNodes, onNodesChange] = useNodesState<ReportTableNodeData>([]);
 	const [edges, setEdges, onEdgesChange] = useEdgesState<RelationshipEdgeData>([]);
@@ -387,14 +396,16 @@ const BuilderContent = ({
 				sourceHandle: `source:${foreignField.id}`,
 				target: primaryField.tableId,
 				targetHandle: `target:${primaryField.id}`,
-				type: 'straight',
+				type: 'smoothstep',
 				style: {
 					stroke: color,
-					strokeWidth: 2
+					strokeWidth: 1.8
 				},
 				markerEnd: {
 					type: MarkerType.ArrowClosed,
-					color
+					color,
+					width: 18,
+					height: 18
 				},
 				data: {
 					relationshipId: relationship.id,
@@ -609,10 +620,15 @@ const BuilderContent = ({
 			variant="outlined"
 			sx={{
 				p: 2,
-				bgcolor: theme.palette.common.white,
-				borderColor: alpha(theme.palette.info.main, 0.25),
-				borderLeft: `4px solid ${theme.palette.info.main}`,
-				boxShadow: `0 4px 12px ${alpha(theme.palette.common.black, 0.05)}`
+				borderRadius: 3,
+				background: relationshipCardSurface.background,
+				boxShadow: relationshipCardSurface.boxShadow,
+				border: `1px solid ${relationshipBorderColor}`,
+				borderLeft: `4px solid ${relationshipAccentColor}`,
+				transition: theme.transitions.create(['border-color', 'box-shadow'], {
+					duration: 220,
+					easing: theme.transitions.easing.easeOut
+				})
 			}}
 		>
 			<Stack spacing={2}>
@@ -623,13 +639,13 @@ const BuilderContent = ({
 					spacing={1.5}
 					sx={{
 						pb: 1.5,
-						borderBottom: `2px solid ${alpha(theme.palette.warning.main, 0.15)}`
+						borderBottom: `1px solid ${headerDividerColor}`
 					}}
 				>
 					<Typography
 						variant="h6"
 						sx={{
-							color: theme.palette.primary.main,
+							color: relationshipTitleColor,
 							fontWeight: 700,
 							letterSpacing: 0.3
 						}}
@@ -651,8 +667,8 @@ const BuilderContent = ({
 								px: 2,
 								py: 1.5,
 								borderRadius: 2,
-								border: `1px dashed ${alpha(theme.palette.primary.main, 0.35)}`,
-								backgroundColor: alpha(theme.palette.primary.light, 0.06)
+								border: `1px dashed ${relationshipCalloutBorder}`,
+								backgroundColor: relationshipCalloutBackground
 							}}
 						>
 							<Typography variant="body2" color="text.secondary">
@@ -669,25 +685,25 @@ const BuilderContent = ({
 							}}
 						>
 						<ReactFlow
-						nodes={nodes}
-						edges={edges}
-						nodeTypes={nodeTypes}
-						onNodesChange={onNodesChange}
-						onEdgesChange={onEdgesChange}
-						onInit={handleFlowInit}
-						onEdgeClick={handleEdgeClick}
-						fitView
-						panOnScroll
-						selectionOnDrag={false}
-						nodesDraggable
-					nodesConnectable={false}
-					edgesFocusable={allowInteractions}
-					zoomOnScroll
-					minZoom={0.25}
-					maxZoom={1.5}
-					proOptions={{ hideAttribution: true }}
-					style={{ width: '100%', height: '100%', background: alpha(theme.palette.background.default, 0.86) }}
-				>
+																	nodes={nodes}
+																	edges={edges}
+																	nodeTypes={nodeTypes}
+																	onNodesChange={onNodesChange}
+																	onEdgesChange={onEdgesChange}
+																	onInit={handleFlowInit}
+																	onEdgeClick={handleEdgeClick}
+																	fitView
+																	panOnScroll={false}
+																	selectionOnDrag={false}
+																	nodesDraggable
+																nodesConnectable={false}
+																edgesFocusable={allowInteractions}
+																	zoomOnScroll
+																	minZoom={0.25}
+																	maxZoom={1.5}
+																	proOptions={{ hideAttribution: true }}
+																	style={{ width: '100%', height: '100%', background: alpha(theme.palette.background.default, 0.86) }}
+																>
 					<Background color={alpha(theme.palette.divider, 0.6)} gap={32} />
 					<Controls showInteractive={false} position="bottom-right" />
 					<MiniMap

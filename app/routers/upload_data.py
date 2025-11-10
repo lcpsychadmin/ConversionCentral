@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import io
 import logging
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Iterable, Optional, Sequence
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -33,8 +34,11 @@ from app.models import (
 )
 from app.routers.data_definition import _ensure_audit_fields_for_definition_table
 from app.schemas.entities import DataWarehouseTarget
+from pydantic import ValidationError
+
 from app.schemas.upload_data import (
     UploadDataColumn,
+    UploadDataColumnOverride,
     UploadDataCreateResponse,
     UploadDataPreviewResponse,
     UploadTableMode,
@@ -82,6 +86,7 @@ async def preview_upload_data(
 
 @router.post("/create-table", response_model=UploadDataCreateResponse)
 async def create_table_from_upload(
+    request: Request,
     table_name: str = Form(...),
     product_team_id: UUID = Form(...),
     data_object_id: UUID = Form(...),
@@ -93,23 +98,46 @@ async def create_table_from_upload(
     schema_name: Optional[str] = Form(None),
     catalog: Optional[str] = Form(None),
     mode: UploadTableMode = Form(UploadTableMode.CREATE),
+    column_overrides: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ) -> UploadDataCreateResponse:
     if target is DataWarehouseTarget.SAP_HANA:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SAP HANA uploads are not supported yet.")
 
+    overrides_raw = column_overrides
+    if overrides_raw is None:
+        try:
+            form_data = await request.form()
+        except Exception:
+            form_data = None
+        else:
+            candidate = form_data.get("column_overrides") if form_data is not None else None
+            if candidate is not None:
+                if isinstance(candidate, UploadFile):
+                    raw_bytes = await candidate.read()
+                    overrides_raw = raw_bytes.decode("utf-8")
+                else:
+                    overrides_raw = str(candidate)
+
     sanitized_table_name = _sanitize_table_name(table_name)
     data = await _read_upload_bytes(file)
     detected_delimiter = _resolve_delimiter(file.filename, delimiter)
     columns, rows = _parse_csv_data(data, delimiter=detected_delimiter, has_header=has_header)
+    included_indexes = list(range(len(columns)))
+    if overrides_raw:
+        overrides = _parse_column_overrides(overrides_raw)
+        if overrides:
+            columns, included_indexes = _apply_column_overrides(columns, overrides)
     await file.close()
+    rows = _filter_row_values(rows, included_indexes)
 
     engine = get_ingestion_engine()
     dialect_name = engine.dialect.name
-    resolved_schema = _resolve_default_schema(target, schema_name)
+    resolved_schema = _resolve_default_schema(target, schema_name, dialect_name)
     effective_catalog = (catalog.strip() if isinstance(catalog, str) else None) or None
     if dialect_name != "databricks":
         effective_catalog = None
+
     qualified_table = _build_qualified_table_name(
         sanitized_table_name,
         resolved_schema,
@@ -117,9 +145,19 @@ async def create_table_from_upload(
         dialect_name,
     )
 
+    logger.info(
+        "upload:create-table:init name=%s rows=%d columns=%d overrides=%d dialect=%s",
+        sanitized_table_name,
+        len(rows),
+        len(columns),
+        len(overrides) if overrides_raw else 0,
+        dialect_name,
+    )
+
     try:
         with engine.begin() as connection:
             _apply_create_table(connection, qualified_table, columns, rows, mode, target, dialect_name)
+        logger.info("upload:create-table:warehouse-created name=%s", sanitized_table_name)
     except SQLAlchemyError as exc:  # pragma: no cover - requires live warehouse dialect for full coverage
         message = str(getattr(exc, "orig", exc)) or str(exc)
         lowered = message.lower()
@@ -147,6 +185,11 @@ async def create_table_from_upload(
                 force_recreate_warehouse=(mode is UploadTableMode.REPLACE),
             )
         db.commit()
+        logger.info(
+            "upload:create-table:metadata-applied name=%s constructed=%s",
+            sanitized_table_name,
+            metadata.constructed_table_id if metadata else None,
+        )
     except HTTPException:
         db.rollback()
         _drop_table_if_exists(engine, qualified_table)
@@ -167,6 +210,7 @@ async def create_table_from_upload(
     ):
         try:
             _drop_table_if_exists(engine, qualified_table)
+            logger.info("upload:create-table:staging-dropped name=%s", sanitized_table_name)
         except Exception:  # pragma: no cover - best-effort cleanup for warehouse staging tables
             logger.warning("Failed to drop staging table '%s' after replication", qualified_table)
 
@@ -324,6 +368,38 @@ def _parse_csv_data(
     return columns, normalized_rows
 
 
+def _parse_column_overrides(payload: str) -> list[UploadDataColumnOverride]:
+    try:
+        raw_data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Column overrides payload must be valid JSON.",
+        ) from exc
+
+    if not isinstance(raw_data, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Column overrides payload must be a list.",
+        )
+
+    overrides: list[UploadDataColumnOverride] = []
+    for entry in raw_data:
+        if not isinstance(entry, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Column override entries must be objects.",
+            )
+        try:
+            overrides.append(UploadDataColumnOverride(**entry))
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid column override entry provided.",
+            ) from exc
+    return overrides
+
+
 def _normalize_row(row: Sequence[str], column_count: int) -> list[Optional[str]]:
     normalized: list[Optional[str]] = []
     for index in range(column_count):
@@ -458,6 +534,96 @@ def _quote_identifier(identifier: str, dialect_name: str) -> str:
     return f"{quote_char}{escaped}{quote_char}"
 
 
+def _apply_column_overrides(
+    columns: Sequence[UploadDataColumn],
+    overrides: Sequence[UploadDataColumnOverride],
+) -> tuple[list[UploadDataColumn], list[int]]:
+    if not overrides:
+        indices = list(range(len(columns)))
+        return list(columns), indices
+
+    valid_fields = {column.field_name.lower() for column in columns}
+    override_map: dict[str, UploadDataColumnOverride] = {}
+    for override in overrides:
+        key = override.field_name.lower()
+        if key not in valid_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Column override references unknown field '{override.field_name}'.",
+            )
+        if key in override_map:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Duplicate column override provided for '{override.field_name}'.",
+            )
+        override_map[key] = override
+
+    seen: set[str] = set()
+    updated: list[UploadDataColumn] = []
+    included_indexes: list[int] = []
+    for index, column in enumerate(columns):
+        override = override_map.get(column.field_name.lower())
+        if override and override.exclude is True:
+            continue
+        fallback_name = f"column_{index + 1}"
+        name_source = override.target_name if override and override.target_name else column.field_name
+        sanitized_name = _sanitize_override_name(name_source, fallback_name)
+        normalized_name = sanitized_name.lower()
+        if normalized_name in seen:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Duplicate column names detected. Adjust the column names to be unique.",
+            )
+        if override and override.target_type:
+            column.inferred_type = _normalize_override_type(override.target_type)
+        column.field_name = sanitized_name
+        seen.add(normalized_name)
+        included_indexes.append(index)
+        updated.append(column)
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one column must be included for upload.",
+        )
+
+    return updated, included_indexes
+
+
+def _filter_row_values(
+    rows: Sequence[Sequence[Optional[str]]],
+    indexes: Sequence[int],
+) -> list[list[Optional[str]]]:
+    if not indexes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No columns selected for upload.")
+    filtered: list[list[Optional[str]]] = []
+    for row in rows:
+        filtered.append([row[index] if index < len(row) else None for index in indexes])
+    return filtered
+
+
+def _sanitize_override_name(source: str, fallback: str) -> str:
+    candidate = IDENTIFIER_SANITIZE_PATTERN.sub("_", (source or "").strip())
+    candidate = re.sub(r"_+", "_", candidate).strip("_")
+    if not candidate:
+        candidate = fallback
+    if candidate[0].isdigit():
+        candidate = f"{fallback}_{candidate}"
+    candidate = candidate.lower()
+    return candidate[:128]
+
+
+def _normalize_override_type(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    allowed = {"boolean", "integer", "float", "timestamp", "string"}
+    if normalized not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported column type override '{value}'.",
+        )
+    return normalized
+
+
 def _apply_create_table(
     connection: Connection,
     qualified_table: str,
@@ -486,7 +652,11 @@ def _apply_create_table(
         _bulk_insert(connection, qualified_table, columns, rows, dialect_name)
 
 
-def _resolve_default_schema(target: DataWarehouseTarget, provided_schema: Optional[str]) -> Optional[str]:
+def _resolve_default_schema(
+    target: DataWarehouseTarget,
+    provided_schema: Optional[str],
+    dialect_name: str,
+) -> Optional[str]:
     if isinstance(provided_schema, str):
         normalized = provided_schema.strip()
         if normalized:
@@ -495,12 +665,15 @@ def _resolve_default_schema(target: DataWarehouseTarget, provided_schema: Option
     if target is not DataWarehouseTarget.DATABRICKS_SQL:
         return None
 
+    if dialect_name != "databricks":
+        return None
+
     try:
         params = get_ingestion_connection_params()
     except Exception:  # pragma: no cover - defensive fallback when warehouse not configured
-        return None
+        return ConstructedDataWarehouse.DEFAULT_SCHEMA
 
-    return params.constructed_schema or params.schema_name
+    return params.constructed_schema or params.schema_name or ConstructedDataWarehouse.DEFAULT_SCHEMA
 
 
 def _register_uploaded_table_metadata(

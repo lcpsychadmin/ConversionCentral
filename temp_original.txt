@@ -21,7 +21,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import SaveIcon from '@mui/icons-material/Save';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
-import { alpha, lighten, useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { RevoGrid, Template } from '@revolist/react-datagrid';
 import type { ColumnDataSchemaModel, ColumnRegular, ColumnTemplateProp } from '@revolist/revogrid';
 import type { SelectChangeEvent } from '@mui/material/Select';
@@ -165,12 +165,12 @@ const auditDateFormatter = new Intl.DateTimeFormat([], {
 
 const formatAuditDateValue = (value: unknown): string => {
   if (value === null || value === undefined) {
-    return 'â€”';
+    return 'GÇö';
   }
 
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) {
-      return 'â€”';
+      return 'GÇö';
     }
     return auditDateFormatter.format(value);
   }
@@ -179,12 +179,12 @@ const formatAuditDateValue = (value: unknown): string => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
       const stringValue = String(value).trim();
-      return stringValue.length > 0 ? stringValue : 'â€”';
+      return stringValue.length > 0 ? stringValue : 'GÇö';
     }
     return auditDateFormatter.format(date);
   }
 
-  return 'â€”';
+  return 'GÇö';
 };
 
 interface Props {
@@ -225,125 +225,6 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
   onDirtyStateChange,
 }) => {
   const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  const modalHeaderColor = useMemo(
-    () => theme.palette.primary.dark ?? theme.palette.primary.main,
-    [theme]
-  );
-  const modalHeaderTextColor = useMemo(
-    () => theme.palette.getContrastText(modalHeaderColor),
-    [modalHeaderColor, theme]
-  );
-  const headerGradient = useMemo(
-    () =>
-      `linear-gradient(180deg, ${alpha(modalHeaderColor, isDarkMode ? 0.96 : 0.98)} 0%, ${modalHeaderColor} 100%)`,
-    [isDarkMode, modalHeaderColor]
-  );
-  const headerBaseColor = useMemo(() => modalHeaderColor, [modalHeaderColor]);
-  const headerColor = useMemo(() => modalHeaderTextColor, [modalHeaderTextColor]);
-  const headerBorderColor = useMemo(
-    () => alpha(modalHeaderColor, isDarkMode ? 0.7 : 0.6),
-    [isDarkMode, modalHeaderColor]
-  );
-  const headerHoverColor = useMemo(
-    () => lighten(modalHeaderColor, isDarkMode ? 0.08 : 0.16),
-    [isDarkMode, modalHeaderColor]
-  );
-  const headerActiveColor = useMemo(
-    () => lighten(modalHeaderColor, isDarkMode ? 0.04 : 0.12),
-    [isDarkMode, modalHeaderColor]
-  );
-  const cellBackground = useMemo(() => {
-    const paper = theme.palette.background.paper;
-    return isDarkMode ? alpha(paper, 0.34) : alpha(theme.palette.common.white, 0.96);
-  }, [isDarkMode, theme]);
-  const zebraBackground = useMemo(() => {
-    const tone = theme.palette.primary.light ?? theme.palette.primary.main;
-    return isDarkMode ? alpha(tone, 0.42) : alpha(tone, 0.12);
-  }, [isDarkMode, theme]);
-  const cellBorderColor = useMemo(
-    () => alpha(theme.palette.divider, isDarkMode ? 0.5 : 0.22),
-    [isDarkMode, theme]
-  );
-  const secondaryCellBorderColor = useMemo(
-    () => alpha(theme.palette.divider, isDarkMode ? 0.32 : 0.15),
-    [isDarkMode, theme]
-  );
-  const rowHoverBackground = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.28 : 0.12),
-    [isDarkMode, theme]
-  );
-  const rowSelectionBackground = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.42 : 0.18),
-    [isDarkMode, theme]
-  );
-  const rowHoverOutline = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.22),
-    [isDarkMode, theme]
-  );
-  const rowSelectionOutline = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.62 : 0.32),
-    [isDarkMode, theme]
-  );
-  const focusRing = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.72 : 0.4),
-    [isDarkMode, theme]
-  );
-  const gridBackground = useMemo(() => {
-    if (isDarkMode) {
-      const topShade = alpha(theme.palette.primary.main, 0.2);
-      const bottomShade = alpha(theme.palette.background.paper, 0.12);
-      return `linear-gradient(180deg, ${topShade} 0%, ${bottomShade} 100%)`;
-    }
-    return alpha(theme.palette.common.white, 0.98);
-  }, [isDarkMode, theme]);
-  const gridBorderColor = useMemo(
-    () => alpha(isDarkMode ? theme.palette.primary.dark ?? theme.palette.divider : theme.palette.primary.light ?? theme.palette.divider, isDarkMode ? 0.32 : 0.2),
-    [isDarkMode, theme]
-  );
-  const gridShadow = useMemo(
-    () =>
-      isDarkMode
-        ? theme.shadows[8]
-        : `0 10px 28px ${alpha(theme.palette.common.black, 0.1)}`,
-    [isDarkMode, theme]
-  );
-  const rowHeaderTextColor = useMemo(() => modalHeaderTextColor, [modalHeaderTextColor]);
-  const rowHeaderDividerColor = useMemo(
-    () => alpha(modalHeaderTextColor, isDarkMode ? 0.25 : 0.18),
-    [isDarkMode, modalHeaderTextColor]
-  );
-  const toolbarGradient = useMemo(
-    () =>
-      isDarkMode
-        ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.88)} 0%, ${alpha(
-            theme.palette.primary.dark ?? theme.palette.primary.main,
-            0.82
-          )} 100%)`
-        : `linear-gradient(135deg, ${alpha(theme.palette.primary.light ?? theme.palette.primary.main, 0.98)} 0%, ${theme.palette.primary.main} 70%, ${theme.palette.primary.dark ?? theme.palette.primary.main} 100%)`,
-    [isDarkMode, theme]
-  );
-  const toolbarBorderColor = useMemo(
-    () =>
-      alpha(
-        isDarkMode
-          ? theme.palette.common.white
-          : theme.palette.primary.dark ?? theme.palette.primary.main,
-        isDarkMode ? 0.35 : 0.25
-      ),
-    [isDarkMode, theme]
-  );
-  const toolbarTextColor = useMemo(
-    () => (isDarkMode ? theme.palette.common.white : theme.palette.common.white),
-    [isDarkMode, theme]
-  );
-  const toolbarShadow = useMemo(
-    () =>
-      isDarkMode
-        ? theme.shadows[6]
-        : `0 12px 32px ${alpha(theme.palette.common.black, 0.18)}`,
-    [isDarkMode, theme]
-  );
   const toast = useToast();
   const { user } = useAuth();
 
@@ -1983,22 +1864,11 @@ ${error.message}`
               checked={checked}
               onClick={(event) => event.stopPropagation()}
               onChange={(event) => handleSelectionToggle(row, event.target.checked)}
-              sx={{
-                color: isDarkMode
-                  ? alpha(theme.palette.common.white, 0.9)
-                  : alpha(theme.palette.text.secondary, 0.7),
-                '&.Mui-checked': {
-                  color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                },
-                '&.MuiCheckbox-indeterminate': {
-                  color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                },
-              }}
             />
           </Box>
         );
       }),
-    [getValidationMeta, handleSelectionToggle, isDarkMode, selectedRowIds, theme]
+    [getValidationMeta, handleSelectionToggle, selectedRowIds]
   );
 
   const deleteCellTemplate = useMemo(
@@ -2120,34 +1990,12 @@ ${error.message}`
                 onClick={(event) => event.stopPropagation()}
                 onChange={(event) => handleSelectAllChange(event.target.checked)}
                 inputProps={{ 'aria-label': 'Select all rows' }}
-                sx={{
-                  color: isDarkMode
-                    ? alpha(theme.palette.common.white, 0.9)
-                    : alpha(theme.palette.text.secondary, 0.7),
-                  '& .MuiSvgIcon-root': {
-                    color: isDarkMode
-                      ? alpha(theme.palette.common.white, 0.9)
-                      : alpha(theme.palette.text.secondary, 0.7),
-                  },
-                  '&.Mui-checked': {
-                    color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                    '& .MuiSvgIcon-root': {
-                      color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                    },
-                  },
-                  '&.MuiCheckbox-indeterminate': {
-                    color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                    '& .MuiSvgIcon-root': {
-                      color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
-                    },
-                  },
-                }}
               />
             </Tooltip>
           </Box>
         );
       }),
-    [dataRowCount, handleSelectAllChange, isAllSelected, isDarkMode, isIndeterminateSelection, theme]
+    [dataRowCount, handleSelectAllChange, isAllSelected, isIndeterminateSelection]
   );
 
   const columns = useMemo<ColumnRegular[]>(() => {
@@ -2226,10 +2074,10 @@ ${error.message}`
               return formatAuditDateValue(rawValue);
             }
             if (rawValue === null || rawValue === undefined) {
-              return 'â€”';
+              return 'GÇö';
             }
             const stringValue = String(rawValue).trim();
-            return stringValue.length > 0 ? stringValue : 'â€”';
+            return stringValue.length > 0 ? stringValue : 'GÇö';
           })();
 
           return (
@@ -2279,30 +2127,16 @@ ${error.message}`
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 2 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          gap: 1,
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 2.5,
-          py: 2,
-          borderRadius: 3,
-          backgroundImage: toolbarGradient,
-          border: `1px solid ${toolbarBorderColor}`,
-          boxShadow: toolbarShadow,
-          color: toolbarTextColor,
-        }}
-      >
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'space-between' }}>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'inherit' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
             Data Rows
           </Typography>
-          <Typography variant="body2" sx={{ color: alpha(toolbarTextColor, 0.82), fontWeight: 500 }}>
+          <Typography variant="body2" color="text.secondary">
             ({dataRowCount} rows)
           </Typography>
           {dataRowCount === 0 && (
-            <Typography variant="body2" sx={{ ml: 1, color: alpha(toolbarTextColor, 0.82) }}>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
               No rows yet. Use Add Row to get started.
             </Typography>
           )}
@@ -2354,148 +2188,37 @@ ${error.message}`
           maxHeight: '70vh',
           mb: 2,
           borderRadius: 3,
-          boxShadow: gridShadow,
-          border: `1px solid ${gridBorderColor}`,
-          background: gridBackground,
+          boxShadow: theme.shadows[1],
+          border: `1px solid ${alpha(theme.palette.divider, 0.25)}`,
+          backgroundColor: alpha(theme.palette.background.default, 0.4),
           overflow: 'hidden',
           '& revo-grid': {
             width: '100%',
             height: '100%',
             fontFamily: theme.typography.fontFamily,
-            color: isDarkMode ? theme.palette.common.white : theme.palette.text.primary,
-            fontSize: theme.typography.pxToRem(16),
-            '--revo-grid-header-bg': headerBaseColor,
-            '--revo-grid-header-color': headerColor,
-            '--revo-grid-row-header-bg': headerBaseColor,
-            '--revo-grid-row-header-color': headerColor,
-            '--revo-grid-row-hover': rowHoverBackground,
-            '--revo-grid-row-selection': rowSelectionBackground,
-            '--revo-grid-border-color': alpha(theme.palette.divider, isDarkMode ? 0.45 : 0.24),
-            '--revo-grid-primary': theme.palette.primary.main,
-            '--revo-grid-text': isDarkMode
-              ? alpha(theme.palette.common.white, 0.95)
-              : theme.palette.text.primary,
-            '--revo-grid-cell-border': cellBorderColor,
-          },
-          '& revo-grid revogr-header, & revo-grid .rowHeaders': {
-            backgroundColor: headerBaseColor,
-            backgroundImage: headerGradient,
-            color: headerColor,
-          },
-          '& revo-grid revogr-header .rgHeaderCell': {
-            borderBottom: `1px solid ${headerBorderColor}`,
-            boxShadow: `-1px 0 0 0 ${alpha(headerBorderColor, 0.75)}`,
-          },
-          '& revo-grid .rgHeader .rgCell': {
-            color: headerColor,
-            textTransform: 'none',
-            letterSpacing: 0.2,
-          },
-          '& revo-grid .rowHeaders revogr-data .rgRow .rgCell': {
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: rowHeaderTextColor,
-            backgroundColor: headerBaseColor,
-            backgroundImage: headerGradient,
-            borderBottom: `1px solid ${rowHeaderDividerColor}`,
-            borderRight: `1px solid ${rowHeaderDividerColor}`,
-            fontWeight: 600,
-            transition: theme.transitions.create(['background-color', 'box-shadow'], {
-              duration: theme.transitions.duration.shortest,
-            }),
-          },
-          '& revo-grid .rowHeaders revogr-data .rgRow:nth-of-type(even) .rgCell': {
-            backgroundColor: headerBaseColor,
-            backgroundImage: headerGradient,
-          },
-          '& revo-grid .rowHeaders revogr-data .rgRow:hover .rgCell': {
-            backgroundColor: headerHoverColor,
-            backgroundImage: 'none',
-            color: rowHeaderTextColor,
-            boxShadow: `inset 0 0 0 1px ${rowHeaderDividerColor}`,
-          },
-          '& revo-grid .rowHeaders revogr-data .rgRow[aria-selected="true"] .rgCell': {
-            backgroundColor: headerActiveColor,
-            backgroundImage: 'none',
-            color: rowHeaderTextColor,
-            boxShadow: `inset 0 0 0 1px ${rowHeaderDividerColor}`,
-          },
-          '& revo-grid revogr-data .rgRow:nth-of-type(even)': {
-            backgroundColor: 'transparent',
-          },
-          '& revo-grid revogr-data .rgRow:nth-of-type(even) .rgCell': {
-            backgroundColor: zebraBackground,
-          },
-          '& revo-grid revogr-data .rgRow:nth-of-type(odd) .rgCell': {
-            backgroundColor: cellBackground,
-          },
-          '& revo-grid revogr-data .rgRow:hover': {
-            backgroundColor: rowHoverBackground,
-            boxShadow: `inset 0 0 0 1px ${rowHoverOutline}`,
-          },
-          '& revo-grid revogr-data .rgRow:hover .rgCell': {
-            backgroundColor: rowHoverBackground,
-          },
-          '& revo-grid revogr-data .rgRow[aria-selected="true"]': {
-            backgroundColor: rowSelectionBackground,
-            boxShadow: `inset 0 0 0 2px ${rowSelectionOutline}`,
-          },
-          '& revo-grid revogr-data .rgRow[aria-selected="true"] .rgCell': {
-            backgroundColor: rowSelectionBackground,
-          },
-          '& revo-grid revogr-data .rgRow[aria-selected="true"]:hover': {
-            backgroundColor: alpha(rowSelectionBackground, isDarkMode ? 1 : 0.92),
-            boxShadow: `inset 0 0 0 2px ${alpha(rowSelectionOutline, 1)}`,
-          },
-          '& revo-grid revogr-data .rgRow[aria-selected="true"]:hover .rgCell': {
-            backgroundColor: alpha(rowSelectionBackground, isDarkMode ? 1 : 0.92),
-          },
-          '& revo-grid revogr-data .rgCell': {
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-start',
-            color: isDarkMode
-              ? alpha(theme.palette.common.white, 0.94)
-              : theme.palette.text.primary,
-            backgroundColor: cellBackground,
-            borderBottom: `1px solid ${cellBorderColor}`,
-            borderRight: `1px solid ${secondaryCellBorderColor}`,
-            padding: theme.spacing(0.75, 1.25),
-            fontSize: theme.typography.pxToRem(16),
-            lineHeight: 1.6,
-            transition: theme.transitions.create(['background-color', 'box-shadow'], {
-              duration: theme.transitions.duration.shortest,
-            }),
-          },
-          '& revo-grid revogr-data .rgRow.cc-placeholder-row .rgCell': {
-            backgroundColor: alpha(theme.palette.action.disabledBackground, 0.12),
-            fontStyle: 'italic',
-          },
-          '& revo-grid revogr-data .rgCell input, & revo-grid revogr-data .rgCell .MuiSelect-select, & revo-grid revogr-data .rgCell .MuiInputBase-input': {
-            color: isDarkMode ? theme.palette.common.white : undefined,
-          },
-          '& revo-grid .focused-cell, & revo-grid .selection-range': {
-            boxShadow: `0 0 0 2px ${focusRing}`,
-            borderColor: focusRing,
+            '--revo-grid-header-bg': alpha(theme.palette.primary.main, 0.06),
+            '--revo-grid-header-color': theme.palette.text.primary,
+            '--revo-grid-row-hover': alpha(theme.palette.action.hover, 0.12),
+            '--revo-grid-row-selection': alpha(theme.palette.primary.main, 0.08),
+            '--revo-grid-border-color': alpha(theme.palette.divider, 0.4),
           },
           '& .cc-validation-row': {
-            backgroundColor: alpha(theme.palette.error.light, isDarkMode ? 0.2 : 0.12),
+            backgroundColor: alpha(theme.palette.error.light, 0.12),
           },
           '& .cc-validation-error-cell': {
             position: 'relative',
-            backgroundColor: alpha(theme.palette.error.light, isDarkMode ? 0.3 : 0.2),
-            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.error.main, 0.55)}`,
-            color: isDarkMode ? theme.palette.common.white : theme.palette.error.dark,
+            backgroundColor: alpha(theme.palette.error.light, 0.2),
+            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.error.main, 0.45)}`,
+            color: theme.palette.error.dark,
           },
           '& .cc-validation-error-cell:hover': {
-            backgroundColor: alpha(theme.palette.error.light, isDarkMode ? 0.38 : 0.26),
+            backgroundColor: alpha(theme.palette.error.light, 0.26),
           },
           '& .cc-validation-error-cell input': {
-            color: isDarkMode ? theme.palette.common.white : theme.palette.error.dark,
+            color: theme.palette.error.dark,
           },
           '& .cc-validation-error-cell .MuiSelect-select': {
-            color: isDarkMode ? theme.palette.common.white : theme.palette.error.dark,
+            color: theme.palette.error.dark,
           },
           '& .cc-validation-error-cell::after': {
             content: '""',
@@ -2505,10 +2228,10 @@ ${error.message}`
             pointerEvents: 'none',
           },
           '& .cc-validation-row.cc-validation-error-cell': {
-            backgroundColor: alpha(theme.palette.error.main, isDarkMode ? 0.32 : 0.26),
+            backgroundColor: alpha(theme.palette.error.light, 0.26),
           },
-        }}
-        onPasteCapture={handlePaste}
+          }}
+          onPasteCapture={handlePaste}
       >
         <RevoGrid
             ref={gridRef}

@@ -36,9 +36,64 @@ export const REPORTING_FIELD_DRAG_TYPE = 'application/reporting-field';
 
 const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => {
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
   const allowSelection = data.allowSelection !== false;
   const selectedFieldSet = useMemo(() => new Set(data.selectedFieldIds ?? []), [data.selectedFieldIds]);
   const [activeDropFieldId, setActiveDropFieldId] = useState<string | null>(null);
+
+  const nodeBorderColor = alpha(
+    theme.palette.primary.main,
+    selected ? (isDarkMode ? 0.9 : 0.75) : isDarkMode ? 0.48 : 0.35
+  );
+  const nodeShadow = selected
+    ? isDarkMode
+      ? `0 22px 46px ${alpha(theme.palette.common.black, 0.55)}`
+      : `0 12px 28px ${alpha(theme.palette.primary.main, 0.22)}`
+    : isDarkMode
+      ? `0 14px 36px ${alpha(theme.palette.common.black, 0.45)}`
+      : `0 6px 18px ${alpha(theme.palette.grey[700], 0.12)}`;
+  const headerGradient = `linear-gradient(90deg, ${alpha(
+    theme.palette.primary.main,
+    isDarkMode ? 0.95 : 0.92
+  )} 0%, ${alpha(theme.palette.primary.dark, isDarkMode ? 0.88 : 0.85)} 100%)`;
+  const headerBorder = alpha(theme.palette.primary.dark, isDarkMode ? 0.62 : 0.55);
+  const dividerColor = alpha(theme.palette.primary.main, isDarkMode ? 0.28 : 0.22);
+  const contentBackground = alpha(
+    theme.palette.background.default,
+    isDarkMode ? 0.82 : 0.85
+  );
+  const fieldBaseBackground = isDarkMode
+    ? alpha(theme.palette.background.paper, 0.9)
+    : alpha(theme.palette.common.white, 0.94);
+  const fieldHoverBackground = isDarkMode
+    ? alpha(theme.palette.primary.main, 0.22)
+    : alpha(theme.palette.primary.light, 0.18);
+  const fieldSelectedBackground = isDarkMode
+    ? alpha(theme.palette.primary.main, 0.32)
+    : alpha(theme.palette.primary.light, 0.28);
+  const fieldDropBackground = isDarkMode
+    ? alpha(theme.palette.secondary.main, 0.4)
+    : alpha(theme.palette.secondary.light, 0.28);
+  const fieldBorderDefault = alpha(theme.palette.primary.main, isDarkMode ? 0.38 : 0.18);
+  const fieldBorderActive = alpha(theme.palette.primary.main, isDarkMode ? 0.92 : 0.65);
+  const fieldShadowDefault = isDarkMode
+    ? `0 12px 26px ${alpha(theme.palette.common.black, 0.38)}`
+    : `0 2px 8px ${alpha(theme.palette.grey[700], 0.08)}`;
+  const fieldShadowSelected = isDarkMode
+    ? `0 16px 34px ${alpha(theme.palette.primary.main, 0.48)}`
+    : `0 4px 14px ${alpha(theme.palette.primary.main, 0.18)}`;
+  const fieldShadowDrop = isDarkMode
+    ? `0 18px 38px ${alpha(theme.palette.secondary.main, 0.5)}`
+    : `0 6px 18px ${alpha(theme.palette.secondary.main, 0.28)}`;
+  const fieldNameColor = isDarkMode
+    ? alpha(theme.palette.common.white, 0.95)
+    : theme.palette.text.primary;
+  const fieldMetaColor = isDarkMode
+    ? alpha(theme.palette.common.white, 0.68)
+    : theme.palette.text.secondary;
+  const handleHalo = isDarkMode
+    ? alpha(theme.palette.common.white, 0.4)
+    : theme.palette.background.paper;
 
   const handleToggle = (fieldId: string) => {
     if (!allowSelection) {
@@ -116,11 +171,11 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
         width: '100%',
         height: '100%',
         borderRadius: 2,
-        border: `1px solid ${alpha(theme.palette.primary.main, selected ? 0.75 : 0.35)}`,
-        boxShadow: selected
-          ? `0 12px 28px ${alpha(theme.palette.primary.main, 0.22)}`
-          : `0 6px 18px ${alpha(theme.palette.grey[700], 0.12)}`,
-        backgroundColor: theme.palette.background.paper,
+        border: `1px solid ${nodeBorderColor}`,
+        boxShadow: nodeShadow,
+        backgroundColor: isDarkMode
+          ? alpha(theme.palette.background.paper, 0.98)
+          : theme.palette.background.paper,
         minWidth: 220,
         minHeight: 200,
         cursor: 'grab',
@@ -131,7 +186,7 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
       }}
     >
       <NodeResizer
-        color={alpha(theme.palette.primary.main, 0.8)}
+        color={alpha(theme.palette.primary.main, isDarkMode ? 0.9 : 0.8)}
         isVisible={selected}
         minWidth={220}
         minHeight={200}
@@ -139,19 +194,19 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
           width: 14,
           height: 14,
           borderRadius: 4,
-          border: `1px solid ${alpha(theme.palette.primary.dark, 0.65)}`,
-          background: alpha(theme.palette.background.paper, 0.95)
+          border: `1px solid ${alpha(theme.palette.primary.dark, isDarkMode ? 0.7 : 0.65)}`,
+          background: alpha(theme.palette.background.paper, isDarkMode ? 0.92 : 0.96)
         }}
         lineStyle={{
           borderWidth: 1,
           borderStyle: 'dashed',
-          borderColor: alpha(theme.palette.primary.main, 0.6)
+          borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.72 : 0.6)
         }}
       />
       <Box
         sx={{
-          background: `linear-gradient(90deg, ${alpha(theme.palette.primary.main, 0.92)} 0%, ${alpha(theme.palette.primary.dark, 0.85)} 100%)`,
-          borderBottom: `1px solid ${alpha(theme.palette.primary.dark, 0.55)}`,
+          background: headerGradient,
+          borderBottom: `1px solid ${headerBorder}`,
           px: 1.6,
           py: 1.2,
           flexShrink: 0
@@ -186,7 +241,7 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
         </Stack>
       </Box>
 
-      <Divider sx={{ borderColor: alpha(theme.palette.primary.main, 0.22), flexShrink: 0 }} />
+  <Divider sx={{ borderColor: dividerColor, flexShrink: 0 }} />
 
       <Box
         sx={{
@@ -194,7 +249,7 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
           py: 1.1,
           flex: 1,
           overflowY: 'auto',
-          backgroundColor: alpha(theme.palette.background.default, 0.85)
+          backgroundColor: contentBackground
         }}
       >
         {data.fields.length === 0 ? (
@@ -227,17 +282,17 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                   sx={{
                     position: 'relative',
                     borderRadius: 1,
-                    border: `1px solid ${alpha(theme.palette.primary.main, isDropTarget || isSelected ? 0.65 : 0.18)}`,
+                    border: `1px solid ${isDropTarget || isSelected ? fieldBorderActive : fieldBorderDefault}`,
                     backgroundColor: isDropTarget
-                      ? alpha(theme.palette.secondary.light, 0.28)
+                      ? fieldDropBackground
                       : isSelected
-                        ? alpha(theme.palette.primary.light, 0.28)
-                        : alpha(theme.palette.common.white, 0.9),
+                        ? fieldSelectedBackground
+                        : fieldBaseBackground,
                     boxShadow: isDropTarget
-                      ? `0 6px 18px ${alpha(theme.palette.secondary.main, 0.28)}`
+                      ? fieldShadowDrop
                       : isSelected
-                        ? `0 4px 14px ${alpha(theme.palette.primary.main, 0.18)}`
-                        : `0 2px 8px ${alpha(theme.palette.grey[700], 0.08)}`,
+                        ? fieldShadowSelected
+                        : fieldShadowDefault,
                     padding: '6px 10px',
                     display: 'flex',
                     alignItems: 'center',
@@ -245,8 +300,8 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                     cursor: 'pointer',
                     transition: 'all 150ms ease',
                     '&:hover': {
-                      borderColor: alpha(theme.palette.primary.main, 0.55),
-                      backgroundColor: alpha(theme.palette.primary.light, 0.18)
+                      borderColor: fieldBorderActive,
+                      backgroundColor: fieldHoverBackground
                     }
                   }}
                 >
@@ -264,7 +319,7 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                       width: 10,
                       height: 10,
                       borderRadius: '50%',
-                      boxShadow: `0 0 0 2px ${theme.palette.background.paper}`
+                      boxShadow: `0 0 0 2px ${handleHalo}`
                     }}
                   />
                   {allowSelection ? (
@@ -280,7 +335,9 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                       }}
                       sx={{
                         p: 0.25,
-                        color: alpha(theme.palette.text.secondary, 0.6),
+                        color: isDarkMode
+                          ? alpha(theme.palette.common.white, 0.65)
+                          : alpha(theme.palette.text.secondary, 0.6),
                         '&.Mui-checked': {
                           color: theme.palette.primary.main
                         }
@@ -290,13 +347,13 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 600, fontSize: 13 }}
+                      sx={{ fontWeight: 600, fontSize: 13, color: fieldNameColor }}
                       noWrap
                     >
                       {field.name}
                     </Typography>
                     {(field.type || field.description) && (
-                      <Typography variant="caption" color="text.secondary" noWrap>
+                      <Typography variant="caption" sx={{ color: fieldMetaColor }} noWrap>
                         {[field.type, field.description].filter(Boolean).join(' · ')}
                       </Typography>
                     )}
@@ -315,7 +372,7 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
                       width: 10,
                       height: 10,
                       borderRadius: '50%',
-                      boxShadow: `0 0 0 2px ${theme.palette.background.paper}`
+                      boxShadow: `0 0 0 2px ${handleHalo}`
                     }}
                   />
                 </Box>

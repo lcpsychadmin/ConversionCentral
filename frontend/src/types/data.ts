@@ -301,6 +301,8 @@ export interface ApplicationDatabaseStatus {
 export interface CompanySettings {
   siteTitle: string | null;
   logoDataUrl: string | null;
+  themeMode: 'light' | 'dark';
+  accentColor: string;
 }
 
 export interface CompanySettingsUpdateInput extends CompanySettings {}
@@ -353,6 +355,13 @@ export interface UploadDataColumn {
   originalName: string;
   fieldName: string;
   inferredType: string;
+}
+
+export interface UploadDataColumnOverrideInput {
+  fieldName: string;
+  targetName?: string;
+  targetType?: string;
+  exclude?: boolean;
 }
 
 export interface UploadDataPreview {

@@ -14,7 +14,7 @@ import {
   Tabs,
   Tab
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { /* alpha, */ /* useTheme */ } from '@mui/material/styles';
 
 import { useDatabricksSettings } from '../hooks/useDatabricksSettings';
 import { useSapHanaSettings } from '../hooks/useSapHanaSettings';
@@ -25,6 +25,7 @@ import {
   SapHanaSettingsUpdate
 } from '../types/data';
 import { useAuth } from '../context/AuthContext';
+import PageHeader from '../components/common/PageHeader';
 
 interface FormState {
   displayName: string;
@@ -81,7 +82,7 @@ const emptySapHanaForm: SapHanaFormState = {
 };
 
 const DataWarehouseSettingsPage = () => {
-  const theme = useTheme();
+  // theme removed as it's not needed here
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
 
@@ -519,30 +520,7 @@ const DataWarehouseSettingsPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography
-          variant="h4"
-          gutterBottom
-          sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}
-        >
-          Data Warehouse
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}
-        >
-          {headerDescription}
-        </Typography>
-      </Box>
+      <PageHeader title="Data Warehouse" subtitle={headerDescription} />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>

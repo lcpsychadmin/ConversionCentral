@@ -5,10 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.models import ApplicationSetting
 from app.schemas import CompanySettingsRead
+from app.schemas.entities import DEFAULT_ACCENT_COLOR, DEFAULT_THEME_MODE
 
 _ADMIN_EMAIL_KEY = "admin_email"
 _SITE_TITLE_KEY = "site_title"
 _SITE_LOGO_KEY = "site_logo"
+_SITE_THEME_MODE_KEY = "site_theme_mode"
+_SITE_ACCENT_COLOR_KEY = "site_accent_color"
 
 
 def _get_setting_record(db: Session, key: str) -> ApplicationSetting | None:
@@ -52,9 +55,13 @@ def set_admin_email(db: Session, email: str) -> str:
 
 
 def get_company_settings(db: Session) -> CompanySettingsRead:
+    theme_mode = _get_setting_value(db, _SITE_THEME_MODE_KEY) or DEFAULT_THEME_MODE
+    accent_color = _get_setting_value(db, _SITE_ACCENT_COLOR_KEY) or DEFAULT_ACCENT_COLOR
     return CompanySettingsRead(
         site_title=_get_setting_value(db, _SITE_TITLE_KEY),
         logo_data_url=_get_setting_value(db, _SITE_LOGO_KEY),
+        theme_mode=theme_mode,
+        accent_color=accent_color,
     )
 
 
@@ -63,11 +70,20 @@ def set_company_settings(
     *,
     site_title: str | None,
     logo_data_url: str | None,
+    theme_mode: str | None,
+    accent_color: str | None,
 ) -> CompanySettingsRead:
     stored_title = _set_setting_value(db, _SITE_TITLE_KEY, site_title)
     stored_logo = _set_setting_value(db, _SITE_LOGO_KEY, logo_data_url)
+    stored_theme_mode = _set_setting_value(db, _SITE_THEME_MODE_KEY, theme_mode)
+    stored_accent_color = _set_setting_value(db, _SITE_ACCENT_COLOR_KEY, accent_color)
     db.commit()
-    return CompanySettingsRead(site_title=stored_title, logo_data_url=stored_logo)
+    return CompanySettingsRead(
+        site_title=stored_title,
+        logo_data_url=stored_logo,
+        theme_mode=stored_theme_mode or DEFAULT_THEME_MODE,
+        accent_color=stored_accent_color or DEFAULT_ACCENT_COLOR,
+    )
 
 
 __all__ = [

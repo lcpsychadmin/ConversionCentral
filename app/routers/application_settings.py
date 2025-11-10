@@ -47,9 +47,17 @@ def update_company_settings(
     current = get_company_settings(db)
     site_title = updates.get("site_title", current.site_title)
     logo_data_url = updates.get("logo_data_url", current.logo_data_url)
+    theme_mode = updates.get("theme_mode", current.theme_mode)
+    accent_color = updates.get("accent_color", current.accent_color)
 
     try:
-        return set_company_settings(db, site_title=site_title, logo_data_url=logo_data_url)
+        return set_company_settings(
+            db,
+            site_title=site_title,
+            logo_data_url=logo_data_url,
+            theme_mode=theme_mode,
+            accent_color=accent_color,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - defensive

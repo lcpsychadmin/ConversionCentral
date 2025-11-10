@@ -3,10 +3,9 @@ import {
   Alert,
   Box,
   Button,
-  Paper,
-  Typography
+  Paper
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 
 import SystemConnectionTable from '../components/system-connection/SystemConnectionTable';
 import SystemConnectionDetailModal from '../components/system-connection/SystemConnectionDetailModal';
@@ -30,6 +29,8 @@ import {
   fetchConnectionTablePreview,
   updateSystemConnectionCatalogSelection
 } from '../services/systemConnectionService';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (!error) return fallback;
@@ -49,6 +50,9 @@ const SourceCatalogPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const sectionSurface = useMemo(() => getSectionSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+  const catalogSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
 
   const {
     systemsQuery: { data: systems = [], isLoading: systemsLoading, isError: systemsError, error: systemsErrorObj }
@@ -351,35 +355,23 @@ const SourceCatalogPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Source Catalog
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Register JDBC connections for relational sources and curate the catalog of available tables.
-        </Typography>
-      </Box>
-
-      {canManage && (
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-          <Button
-            variant="contained"
-            onClick={handleCreateClick}
-            disabled={busy || systems.length === 0}
-          >
-            New Connection
-          </Button>
-        </Box>
-      )}
+      <PageHeader
+        title="Source Catalog"
+        subtitle="Register JDBC connections for relational sources and curate the catalog of available tables."
+        actions={
+          canManage
+            ? (
+              <Button
+                variant="contained"
+                onClick={handleCreateClick}
+                disabled={busy || systems.length === 0}
+              >
+                New Connection
+              </Button>
+            )
+            : undefined
+        }
+      />
 
       {canManage && !loading && systems.length === 0 && (
         <Alert severity="info" sx={{ mb: 3 }}>
@@ -393,11 +385,15 @@ const SourceCatalogPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={3} sx={{ 
-        p: 3, 
-        mb: 3,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-      }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 3,
+          borderRadius: 3,
+          ...sectionSurface
+        }}
+      >
         <SystemConnectionTable
           data={sortedConnections}
           systems={systems}
@@ -422,11 +418,12 @@ const SourceCatalogPage = () => {
                 </Alert>
               )}
               <Paper
-                elevation={3}
+                elevation={0}
                 sx={{
                   p: 3,
                   mb: 3,
-                  background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
+                  borderRadius: 3,
+                  ...catalogSurface
                 }}
               >
                 <ConnectionCatalogTable

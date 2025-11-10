@@ -57,6 +57,15 @@ const navItems: NavItem[] = [
     ]
   },
   {
+    label: 'Data Management',
+    collapsible: true,
+    icon: <ManageAccountsIcon />,
+    children: [
+      { label: 'Upload Data', path: '/data-configuration/upload-data' },
+      { label: 'Manage Data', path: '/data-construction' }
+    ]
+  },
+  {
     label: 'Data Configuration',
     collapsible: true,
     icon: <DataObjectIcon />,
@@ -72,15 +81,6 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Projects', path: '/project-settings/projects' },
       { label: 'Releases', path: '/project-settings/releases' }
-    ]
-  },
-  {
-    label: 'Data Management',
-    collapsible: true,
-    icon: <ManageAccountsIcon />,
-    children: [
-      { label: 'Upload Data', path: '/data-configuration/upload-data' },
-      { label: 'Manage Data', path: '/data-construction' }
     ]
   },
   {
@@ -106,6 +106,12 @@ const MainLayout = () => {
       }, {})
   );
   const { user, logout } = useAuth();
+
+  const isDarkMode = theme.palette.mode === 'dark';
+  const navTextColor = isDarkMode ? theme.palette.common.white : theme.palette.text.primary;
+  const navHeadingColor = isDarkMode ? theme.palette.common.white : theme.palette.primary.dark;
+  const navHoverBackground = alpha(theme.palette.primary.main, isDarkMode ? 0.18 : 0.12);
+  const navIconColor = theme.palette.primary.main;
 
   const { data: companySettings } = useQuery(
     COMPANY_SETTINGS_QUERY_KEY,
@@ -136,7 +142,13 @@ const MainLayout = () => {
           <ListItemButton
             component={Link}
             to={child.path ?? '#'}
-            sx={{ pl: 4 }}
+            sx={{
+              pl: 4,
+              color: navTextColor,
+              '&:hover': {
+                backgroundColor: navHoverBackground
+              }
+            }}
             disabled={!child.path}
             onClick={() => {
               if (child.path) {
@@ -144,7 +156,15 @@ const MainLayout = () => {
               }
             }}
           >
-            <ListItemText primary={child.label} />
+            <ListItemText
+              primary={child.label}
+              primaryTypographyProps={{
+                sx: {
+                  color: navTextColor,
+                  fontWeight: 500
+                }
+              }}
+            />
           </ListItemButton>
         </ListItem>
       ))}
@@ -152,7 +172,16 @@ const MainLayout = () => {
   );
 
   const drawer = (
-    <div style={{ backgroundColor: alpha(theme.palette.primary.main, 0.08), height: '100%' }}>
+    <Box
+      sx={{
+        backgroundColor: alpha(theme.palette.primary.main, 0.08),
+        flexGrow: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: '100vh'
+      }}
+    >
       <Toolbar />
       <List sx={{ px: 1 }}>
         {navItems.map((item) => {
@@ -169,17 +198,17 @@ const MainLayout = () => {
                     sx={{
                       borderRadius: 1,
                       mb: 0.5,
-                      color: theme.palette.primary.dark,
+                      color: navHeadingColor,
                       fontWeight: 600,
                       '&:hover': {
-                        backgroundColor: alpha(theme.palette.primary.main, 0.12)
+                        backgroundColor: navHoverBackground
                       }
                     }}
                   >
                     {item.icon && (
                       <ListItemIcon
                         sx={{
-                          color: 'inherit',
+                          color: navIconColor,
                           minWidth: 40,
                           '& svg': { fontSize: 24 }
                         }}
@@ -192,10 +221,15 @@ const MainLayout = () => {
                       primaryTypographyProps={{
                         fontSize: 16,
                         fontWeight: 600,
-                        letterSpacing: 0.3
+                        letterSpacing: 0.3,
+                        sx: { color: navHeadingColor }
                       }}
                     />
-                    {isOpen ? <ExpandLessIcon sx={{ fontSize: 24 }} /> : <ExpandMoreIcon sx={{ fontSize: 24 }} />}
+                    {isOpen ? (
+                      <ExpandLessIcon sx={{ fontSize: 24, color: navIconColor }} />
+                    ) : (
+                      <ExpandMoreIcon sx={{ fontSize: 24, color: navIconColor }} />
+                    )}
                   </ListItemButton>
                 ) : item.path ? (
                   <ListItemButton
@@ -205,16 +239,16 @@ const MainLayout = () => {
                     sx={{
                       borderRadius: 1,
                       mb: 0.5,
-                      color: theme.palette.text.primary,
+                      color: navTextColor,
                       '&:hover': {
-                        backgroundColor: alpha(theme.palette.primary.main, 0.1)
+                        backgroundColor: navHoverBackground
                       }
                     }}
                   >
                     {item.icon && (
                       <ListItemIcon
                         sx={{
-                          color: 'inherit',
+                          color: navIconColor,
                           minWidth: 40,
                           '& svg': { fontSize: 24 }
                         }}
@@ -226,7 +260,8 @@ const MainLayout = () => {
                       primary={item.label}
                       primaryTypographyProps={{
                         fontSize: 16,
-                        fontWeight: 600
+                        fontWeight: 600,
+                        sx: { color: navTextColor }
                       }}
                     />
                   </ListItemButton>
@@ -236,14 +271,14 @@ const MainLayout = () => {
                     sx={{
                       borderRadius: 1,
                       mb: 0.5,
-                      color: theme.palette.primary.dark,
+                      color: navHeadingColor,
                       fontWeight: 600
                     }}
                   >
                     {item.icon && (
                       <ListItemIcon
                         sx={{
-                          color: 'inherit',
+                          color: navIconColor,
                           minWidth: 40,
                           '& svg': { fontSize: 24 }
                         }}
@@ -255,7 +290,8 @@ const MainLayout = () => {
                       primary={item.label}
                       primaryTypographyProps={{
                         fontSize: 16,
-                        fontWeight: 600
+                        fontWeight: 600,
+                        sx: { color: navHeadingColor }
                       }}
                     />
                   </ListItemButton>
@@ -274,15 +310,15 @@ const MainLayout = () => {
           );
         })}
       </List>
-    </div>
+    </Box>
   );
 
   return (
-    <Box sx={{ display: 'flex' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <AppBar
         position="fixed"
         sx={{
-          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+          background: `linear-gradient(180deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
           boxShadow: `0 4px 20px ${alpha(theme.palette.primary.main, 0.3)}`,
           borderBottom: `3px solid ${alpha(theme.palette.primary.light, 0.4)}`,
           color: theme.palette.primary.contrastText,
@@ -322,7 +358,9 @@ const MainLayout = () => {
                 sx={{
                   maxHeight: 40,
                   width: 'auto',
-                  objectFit: 'contain'
+                  objectFit: 'contain',
+                  display: 'block',
+                  backgroundColor: 'transparent'
                 }}
               />
             )}
@@ -375,9 +413,10 @@ const MainLayout = () => {
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: alpha(theme.palette.background.default, 0.96),
+              backgroundColor: 'transparent',
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
-              boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`
+              boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
+              display: 'flex'
             }
           }}
         >
@@ -396,12 +435,13 @@ const MainLayout = () => {
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: alpha(theme.palette.background.default, 0.96),
+              backgroundColor: 'transparent',
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
               boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
-              position: 'sticky',
-              height: '100vh',
-              top: 0
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              minHeight: '100%'
             }
           }}
         >

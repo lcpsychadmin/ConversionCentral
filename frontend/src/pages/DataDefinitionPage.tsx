@@ -22,6 +22,8 @@ import { useDataDefinition } from '../hooks/useDataDefinition';
 import { useDataObjects } from '../hooks/useDataObjects';
 import { useToast } from '../hooks/useToast';
 import CreateFieldDialog, { FieldFormValues } from '../components/data-definition/CreateFieldDialog';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 import {
   createField,
   fetchFields,
@@ -1032,48 +1034,112 @@ const DataDefinitionsPage = () => {
     : null;
 
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+
+  const filterPanelStyles = useMemo(() => {
+    const surface = getSectionSurface(theme, { shadow: 'subtle' });
+    return {
+      background: surface.background,
+      border: surface.border,
+      boxShadow: surface.boxShadow,
+      borderRadius: 3
+    } as const;
+  }, [theme]);
+
+  const filterInputStyles = useMemo(() => {
+    const labelColor = isDarkMode ? alpha(theme.palette.common.white, 0.88) : alpha(theme.palette.text.primary, 0.88);
+    const inputBackground = isDarkMode ? alpha(theme.palette.background.paper, 0.72) : theme.palette.common.white;
+    const hoverBackground = isDarkMode ? alpha(theme.palette.primary.main, 0.16) : alpha(theme.palette.primary.main, 0.08);
+    const focusRing = alpha(theme.palette.primary.main, isDarkMode ? 0.4 : 0.25);
+
+    return {
+      '& .MuiOutlinedInput-root': {
+        backgroundColor: inputBackground,
+        borderRadius: 2,
+        transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
+        '& fieldset': {
+          borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.45 : 0.25)
+        },
+        '&:hover fieldset': {
+          borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.65 : 0.45)
+        },
+        '&:hover': {
+          backgroundColor: hoverBackground
+        },
+        '&.Mui-focused fieldset': {
+          borderColor: theme.palette.primary.main
+        },
+        '&.Mui-focused': {
+          boxShadow: `0 0 0 3px ${focusRing}`,
+          backgroundColor: isDarkMode ? alpha(theme.palette.background.paper, 0.85) : theme.palette.common.white
+        },
+        '&.Mui-disabled': {
+          opacity: 0.85,
+          backgroundColor: isDarkMode
+            ? alpha(theme.palette.background.paper, 0.4)
+            : alpha(theme.palette.action.disabledBackground, 0.4)
+        }
+      },
+      '& .MuiOutlinedInput-input': {
+        fontSize: '0.95rem'
+      },
+      '& .MuiInputLabel-root': {
+        color: labelColor,
+        fontWeight: 600,
+        fontSize: '1rem',
+        '&.MuiInputLabel-shrink': {
+          fontSize: '0.85rem'
+        }
+      }
+    } as const;
+  }, [isDarkMode, theme]);
+
+  const filterTitleColor = isDarkMode ? alpha(theme.palette.common.white, 0.9) : theme.palette.text.primary;
+
+  const contentPanelStyles = useMemo(() => {
+    const surface = getPanelSurface(theme, { shadow: 'subtle' });
+    return {
+      background: surface.background,
+      border: surface.border,
+      boxShadow: surface.boxShadow,
+      borderRadius: 3
+    } as const;
+  }, [theme]);
+
+  const definitionCardStyles = useMemo(() => {
+    const surface = getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' });
+    return {
+      background: surface.background,
+      border: surface.border,
+      boxShadow: surface.boxShadow
+    } as const;
+  }, [isDarkMode, theme]);
+
+  const definitionHeaderStyles = useMemo(() => {
+    const sectionSurface = getSectionSurface(theme, { shadow: 'none' });
+    return {
+      background: sectionSurface.background,
+      borderBottom: sectionSurface.border,
+      borderLeft: `4px solid ${alpha(theme.palette.primary.main, isDarkMode ? 0.7 : 0.45)}`
+    } as const;
+  }, [isDarkMode, theme]);
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Data Object Definition
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Select a data object and system to review or author its definition, including tables and fields.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Data Object Definition"
+        subtitle="Select a data object and system to review or author its definition, including tables and fields."
+      />
 
-      <Paper
-        elevation={3}
-        sx={{
-          p: 3,
-          mb: 3,
-          backgroundColor: alpha(theme.palette.warning.main, 0.04),
-          borderColor: alpha(theme.palette.warning.main, 0.25),
-          borderWidth: 2,
-          borderStyle: 'solid',
-          borderRadius: 2,
-          boxShadow: `0 2px 8px ${alpha(theme.palette.warning.main, 0.1)}`
-        }}
-      >
+      <Paper elevation={0} sx={{ p: 3, mb: 3, ...filterPanelStyles }}>
         <Typography
           variant="subtitle1"
           sx={{
             fontWeight: 700,
-            color: theme.palette.primary.dark,
+            color: filterTitleColor,
             mb: 2.5,
             letterSpacing: 0.5,
-            fontSize: '1.1rem'
+            fontSize: '1.05rem'
           }}
         >
           Filter by Product Team, Data Object & System
@@ -1093,31 +1159,7 @@ const DataDefinitionsPage = () => {
                 {...params}
                 label="Product Team"
                 placeholder={processAreasLoading ? 'Loading…' : 'Select product team'}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: 'white',
-                    borderColor: alpha(theme.palette.primary.main, 0.3),
-                    '&:hover': {
-                      borderColor: alpha(theme.palette.primary.main, 0.5),
-                      backgroundColor: alpha(theme.palette.primary.main, 0.01)
-                    },
-                    '&.Mui-focused': {
-                      borderColor: theme.palette.primary.main,
-                      boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.1)}`
-                    }
-                  },
-                  '& .MuiOutlinedInput-input': {
-                    fontSize: '0.95rem'
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: theme.palette.primary.dark,
-                    fontWeight: 600,
-                    fontSize: '1.1rem',
-                    '&.MuiInputLabel-shrink': {
-                      fontSize: '0.85rem'
-                    }
-                  }
-                }}
+                sx={filterInputStyles}
               />
             )}
           />
@@ -1136,31 +1178,7 @@ const DataDefinitionsPage = () => {
                 {...params}
                 label="Data Object"
                 placeholder={dataObjectsLoading ? 'Loading…' : 'Select data object'}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: 'white',
-                    borderColor: alpha(theme.palette.primary.main, 0.3),
-                    '&:hover': {
-                      borderColor: alpha(theme.palette.primary.main, 0.5),
-                      backgroundColor: alpha(theme.palette.primary.main, 0.01)
-                    },
-                    '&.Mui-focused': {
-                      borderColor: theme.palette.primary.main,
-                      boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.1)}`
-                    }
-                  },
-                  '& .MuiOutlinedInput-input': {
-                    fontSize: '0.95rem'
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: theme.palette.primary.dark,
-                    fontWeight: 600,
-                    fontSize: '1.1rem',
-                    '&.MuiInputLabel-shrink': {
-                      fontSize: '0.85rem'
-                    }
-                  }
-                }}
+                sx={filterInputStyles}
               />
             )}
           />
@@ -1178,31 +1196,7 @@ const DataDefinitionsPage = () => {
                 label="System"
                 placeholder={systemOptions.length ? 'Select system' : 'No systems assigned'}
                 disabled={!selectedDataObject}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: 'white',
-                    borderColor: alpha(theme.palette.primary.main, 0.3),
-                    '&:hover': {
-                      borderColor: alpha(theme.palette.primary.main, 0.5),
-                      backgroundColor: alpha(theme.palette.primary.main, 0.01)
-                    },
-                    '&.Mui-focused': {
-                      borderColor: theme.palette.primary.main,
-                      boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.1)}`
-                    }
-                  },
-                  '& .MuiOutlinedInput-input': {
-                    fontSize: '0.95rem'
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: theme.palette.primary.dark,
-                    fontWeight: 600,
-                    fontSize: '1.1rem',
-                    '&.MuiInputLabel-shrink': {
-                      fontSize: '0.85rem'
-                    }
-                  }
-                }}
+                sx={filterInputStyles}
               />
             )}
           />
@@ -1222,7 +1216,7 @@ const DataDefinitionsPage = () => {
         )}
       </Stack>
 
-      <Paper elevation={1} sx={{ p: 3 }}>
+  <Paper elevation={0} sx={{ p: 3, ...contentPanelStyles }}>
         {!selectedDataObject || !selectedSystemId ? (
           <Typography variant="body2" color="text.secondary">
             Select a data object and system to view its data definition.
@@ -1239,15 +1233,14 @@ const DataDefinitionsPage = () => {
             <Paper
               elevation={0}
               sx={{
-                backgroundColor: alpha(theme.palette.primary.main, 0.06),
                 borderRadius: 2,
-                overflow: 'hidden'
+                overflow: 'hidden',
+                ...definitionCardStyles
               }}
             >
               <Box
                 sx={{
-                  background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.1)} 0%, ${alpha(theme.palette.info.main, 0.06)} 100%)`,
-                  borderLeft: `4px solid ${theme.palette.info.main}`,
+                  ...definitionHeaderStyles,
                   p: 2.5
                 }}
               >
@@ -1256,7 +1249,7 @@ const DataDefinitionsPage = () => {
                     variant="h6"
                     component="div"
                     sx={{
-                      color: theme.palette.primary.dark,
+                      color: isDarkMode ? theme.palette.common.white : theme.palette.text.primary,
                       fontWeight: 700,
                       fontSize: '1.1rem',
                       letterSpacing: 0.3

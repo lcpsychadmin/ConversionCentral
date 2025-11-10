@@ -4,8 +4,10 @@ import {
   Box,
   Button,
   CircularProgress,
+  FormControlLabel,
   Paper,
   Stack,
+  Switch,
   TextField,
   Typography
 } from '@mui/material';
@@ -13,8 +15,21 @@ import { alpha, useTheme } from '@mui/material/styles';
 
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useAuth } from '../context/AuthContext';
+import { DEFAULT_ACCENT_COLOR, DEFAULT_THEME_MODE } from '../theme/theme';
+import PageHeader from '../components/common/PageHeader';
 
 const MAX_LOGO_SIZE_BYTES = 350_000;
+const ALLOWED_LOGO_MIME_TYPES = new Set(['image/png', 'image/svg+xml', 'image/webp']);
+
+const isAllowedLogoFile = (file: File) => {
+  const normalizedType = file.type?.toLowerCase();
+  if (normalizedType && ALLOWED_LOGO_MIME_TYPES.has(normalizedType)) {
+    return true;
+  }
+
+  const extensionMatch = file.name.toLowerCase().match(/\.(png|svg|webp)$/);
+  return Boolean(extensionMatch);
+};
 
 const CompanySettingsPage = () => {
   const theme = useTheme();
@@ -28,15 +43,21 @@ const CompanySettingsPage = () => {
   const [siteTitle, setSiteTitle] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(DEFAULT_THEME_MODE);
+  const [accentColor, setAccentColor] = useState<string>(DEFAULT_ACCENT_COLOR);
 
   useEffect(() => {
     if (!settings) {
       setSiteTitle('');
       setLogoDataUrl(null);
+      setThemeMode(DEFAULT_THEME_MODE);
+      setAccentColor(DEFAULT_ACCENT_COLOR);
       return;
     }
     setSiteTitle(settings.siteTitle ?? '');
     setLogoDataUrl(settings.logoDataUrl ?? null);
+    setThemeMode(settings.themeMode ?? DEFAULT_THEME_MODE);
+    setAccentColor(settings.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings]);
 
   const normalizedSiteTitle = useMemo(() => {
@@ -47,10 +68,19 @@ const CompanySettingsPage = () => {
   const normalizedLogoDataUrl = logoDataUrl ?? null;
   const originalSiteTitle = settings?.siteTitle ?? null;
   const originalLogo = settings?.logoDataUrl ?? null;
+  const originalThemeMode = settings?.themeMode ?? DEFAULT_THEME_MODE;
+  const originalAccentColor = (settings?.accentColor ?? DEFAULT_ACCENT_COLOR).toLowerCase();
+  const normalizedAccentColor = accentColor.toLowerCase();
 
   const hasChanges = settings
-    ? normalizedSiteTitle !== originalSiteTitle || normalizedLogoDataUrl !== originalLogo
-    : normalizedSiteTitle !== null || normalizedLogoDataUrl !== null;
+    ? normalizedSiteTitle !== originalSiteTitle ||
+      normalizedLogoDataUrl !== originalLogo ||
+      themeMode !== originalThemeMode ||
+      normalizedAccentColor !== originalAccentColor
+    : normalizedSiteTitle !== null ||
+      normalizedLogoDataUrl !== null ||
+      themeMode !== DEFAULT_THEME_MODE ||
+      normalizedAccentColor !== DEFAULT_ACCENT_COLOR.toLowerCase();
 
   const disableInputs = !canManage || updating;
 
@@ -66,8 +96,8 @@ const CompanySettingsPage = () => {
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
-      setLogoError('Please select a valid image file (PNG, JPG, or SVG).');
+    if (!isAllowedLogoFile(file)) {
+      setLogoError('Please select a PNG, SVG, or WebP image to preserve transparency.');
       return;
     }
 
@@ -101,6 +131,8 @@ const CompanySettingsPage = () => {
     setSiteTitle(settings?.siteTitle ?? '');
     setLogoDataUrl(settings?.logoDataUrl ?? null);
     setLogoError(null);
+    setThemeMode(settings?.themeMode ?? DEFAULT_THEME_MODE);
+    setAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -114,8 +146,18 @@ const CompanySettingsPage = () => {
 
     await updateSettings({
       siteTitle: normalizedSiteTitle,
-      logoDataUrl: normalizedLogoDataUrl
+      logoDataUrl: normalizedLogoDataUrl,
+      themeMode,
+      accentColor: normalizedAccentColor
     });
+  };
+
+  const handleThemeToggle = (event: ChangeEvent<HTMLInputElement>) => {
+    setThemeMode(event.target.checked ? 'dark' : 'light');
+  };
+
+  const handleAccentColorChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setAccentColor(event.target.value.toLowerCase());
   };
 
   if (isLoading && !settings) {
@@ -128,30 +170,10 @@ const CompanySettingsPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography
-          variant="h4"
-          gutterBottom
-          sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}
-        >
-          Company Settings
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}
-        >
-          Update the site title and upload a logo to customize the Conversion Central experience.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Company Settings"
+        subtitle="Update the site title and upload a logo to customize the Conversion Central experience."
+      />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -194,12 +216,12 @@ const CompanySettingsPage = () => {
               Company Logo
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Upload a PNG, JPG, or SVG image up to 350 KB. The image is automatically scaled to fit next to the site title.
+              Upload a PNG, SVG, or WebP image up to 350 KB. The image is automatically scaled to fit next to the site title.
             </Typography>
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/svg+xml"
+              accept="image/png,image/svg+xml,image/webp"
               style={{ display: 'none' }}
               onChange={handleFileChange}
               disabled={disableInputs}
@@ -232,7 +254,7 @@ const CompanySettingsPage = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: alpha(theme.palette.primary.light, 0.05)
+                backgroundColor: 'transparent'
               }}
             >
               {logoDataUrl ? (
@@ -250,12 +272,49 @@ const CompanySettingsPage = () => {
             </Box>
           </Stack>
 
+          <Stack spacing={2}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Theme
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Control the default appearance for all users. The accent color updates primary navigation elements and buttons.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={themeMode === 'dark'}
+                  onChange={handleThemeToggle}
+                  disabled={disableInputs}
+                  color="primary"
+                />
+              }
+              label="Enable dark mode"
+            />
+            <TextField
+              label="Accent Color"
+              type="color"
+              value={accentColor}
+              onChange={handleAccentColorChange}
+              disabled={disableInputs}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 160 }}
+              helperText="Pick a 6-digit hex color to match your brand."
+            />
+          </Stack>
+
           <Stack direction="row" spacing={2} justifyContent="flex-end" alignItems="center">
             <Button
               type="button"
               variant="outlined"
               onClick={handleReset}
-              disabled={disableInputs || (!settings && !siteTitle && !logoDataUrl)}
+              disabled={
+                disableInputs ||
+                (!settings &&
+                  !siteTitle &&
+                  !logoDataUrl &&
+                  themeMode === DEFAULT_THEME_MODE &&
+                  normalizedAccentColor === DEFAULT_ACCENT_COLOR.toLowerCase())
+              }
             >
               Reset
             </Button>

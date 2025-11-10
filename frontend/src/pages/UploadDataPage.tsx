@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, useCallback, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -7,8 +7,11 @@ import {
   FormControl,
   FormControlLabel,
   FormHelperText,
+  IconButton,
   InputLabel,
+  ListItemIcon,
   MenuItem,
+  Menu,
   Paper,
   Select,
   Stack,
@@ -19,19 +22,28 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import FunctionsIcon from '@mui/icons-material/Functions';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import NumbersIcon from '@mui/icons-material/Numbers';
+import TextFieldsIcon from '@mui/icons-material/TextFields';
 import { useMutation, useQuery } from 'react-query';
 import { isAxiosError } from 'axios';
 import type { SelectChangeEvent } from '@mui/material/Select';
+import PageHeader from '../components/common/PageHeader';
 
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../hooks/useToast';
 import {
   DataWarehouseTarget,
+  UploadDataColumnOverrideInput,
   UploadDataPreview,
   UploadTableMode
 } from '../types/data';
@@ -84,6 +96,49 @@ const TARGET_OPTIONS: Array<{ value: DataWarehouseTarget; label: string; disable
   { value: 'sap_hana', label: 'SAP HANA (coming soon)', disabled: true }
 ];
 
+type UploadColumnType = 'string' | 'integer' | 'float' | 'timestamp' | 'boolean';
+
+const COLUMN_TYPE_OPTIONS: Array<{ value: UploadColumnType; label: string }> = [
+  { value: 'string', label: 'String' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'float', label: 'Decimal' },
+  { value: 'timestamp', label: 'Timestamp' },
+  { value: 'boolean', label: 'Boolean' }
+];
+
+const normalizeColumnType = (value: string): UploadColumnType => {
+  const normalized = value.toLowerCase() as UploadColumnType;
+  return ['string', 'integer', 'float', 'timestamp', 'boolean'].includes(normalized)
+    ? normalized
+    : 'string';
+};
+
+const sanitizeColumnName = (value: string, fallback: string): string => {
+  let candidate = value.replace(/[^0-9a-zA-Z_]/g, '_');
+  candidate = candidate.replace(/_+/g, '_');
+  candidate = candidate.replace(/^_+|_+$/g, '');
+  if (!candidate) {
+    candidate = fallback;
+  }
+  if (/^\d/.test(candidate)) {
+    candidate = `${fallback}_${candidate}`;
+  }
+  candidate = candidate.toLowerCase();
+  if (candidate.length > 128) {
+    candidate = candidate.slice(0, 128);
+  }
+  return candidate;
+};
+
+interface UploadColumnConfig {
+  sourceFieldName: string;
+  originalName: string;
+  inferredType: UploadColumnType;
+  displayName: string;
+  selectedType: UploadColumnType;
+  included: boolean;
+}
+
 const UploadDataPage = () => {
   const theme = useTheme();
   const toast = useToast();
@@ -93,9 +148,8 @@ const UploadDataPage = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<UploadDataPreview | null>(null);
+  const [columnConfigs, setColumnConfigs] = useState<UploadColumnConfig[]>([]);
   const [tableName, setTableName] = useState('');
-  const [schemaName, setSchemaName] = useState('');
-  const [catalog, setCatalog] = useState('');
   const [productTeamId, setProductTeamId] = useState<string>('');
   const [dataObjectId, setDataObjectId] = useState<string>('');
   const [systemId, setSystemId] = useState<string>('');
@@ -103,6 +157,12 @@ const UploadDataPage = () => {
   const [delimiter, setDelimiter] = useState('');
   const [targetWarehouse, setTargetWarehouse] = useState<DataWarehouseTarget>('databricks_sql');
   const [mode, setMode] = useState<UploadTableMode>('create');
+  const [typeMenuAnchorEl, setTypeMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [typeMenuColumnIndex, setTypeMenuColumnIndex] = useState<number | null>(null);
+  const [columnMenuAnchorEl, setColumnMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [columnMenuIndex, setColumnMenuIndex] = useState<number | null>(null);
+  const [editingColumnIndex, setEditingColumnIndex] = useState<number | null>(null);
+  const [editingColumnValue, setEditingColumnValue] = useState('');
 
   const { data: processAreas = [], isLoading: isLoadingProcessAreas } = useQuery(
     ['upload-data-process-areas'],
@@ -202,14 +262,13 @@ const UploadDataPage = () => {
         file: selectedFile,
         tableName,
         targetWarehouse,
-        schemaName: schemaName.trim() || undefined,
-        catalog: catalog.trim() || undefined,
         mode,
         hasHeader,
         delimiter: delimiter.trim() ? delimiter : null,
         productTeamId,
         dataObjectId,
-        systemId
+        systemId,
+        columnOverrides
       });
     },
     {
@@ -219,9 +278,8 @@ const UploadDataPage = () => {
         );
         setSelectedFile(null);
         setPreview(null);
+        setColumnConfigs([]);
         setTableName('');
-        setSchemaName('');
-        setCatalog('');
         setDelimiter('');
         setMode('create');
         if (fileInputRef.current) {
@@ -282,30 +340,149 @@ const UploadDataPage = () => {
     });
   };
 
+  const handleColumnNameChange = useCallback((index: number, value: string) => {
+    setColumnConfigs((previous) =>
+      previous.map((column, columnIndex) => {
+        if (columnIndex !== index) {
+          return column;
+        }
+        const fallback = `column_${index + 1}`;
+        return {
+          ...column,
+          displayName: sanitizeColumnName(value, fallback)
+        };
+      })
+    );
+  }, []);
+
+  const handleColumnTypeChange = useCallback((index: number, value: UploadColumnType) => {
+    setColumnConfigs((previous) =>
+      previous.map((column, columnIndex) =>
+        columnIndex === index
+          ? {
+              ...column,
+              selectedType: value
+            }
+          : column
+      )
+    );
+  }, []);
+
+  const handleColumnIncludeToggle = useCallback((index: number, included: boolean) => {
+    setColumnConfigs((previous) =>
+      previous.map((column, columnIndex) =>
+        columnIndex === index
+          ? {
+              ...column,
+              included
+            }
+          : column
+      )
+    );
+  }, []);
+
+  const handleTypeMenuOpen = useCallback((event: MouseEvent<HTMLElement>, index: number) => {
+    setTypeMenuAnchorEl(event.currentTarget);
+    setTypeMenuColumnIndex(index);
+  }, []);
+
+  const handleTypeMenuClose = useCallback(() => {
+    setTypeMenuAnchorEl(null);
+    setTypeMenuColumnIndex(null);
+  }, []);
+
+  const handleTypeSelect = useCallback(
+    (value: UploadColumnType) => {
+      if (typeMenuColumnIndex === null) {
+        return;
+      }
+      handleColumnTypeChange(typeMenuColumnIndex, value);
+      handleTypeMenuClose();
+    },
+    [handleColumnTypeChange, handleTypeMenuClose, typeMenuColumnIndex]
+  );
+
+  const handleColumnMenuOpen = useCallback((event: MouseEvent<HTMLElement>, index: number) => {
+    setColumnMenuAnchorEl(event.currentTarget);
+    setColumnMenuIndex(index);
+  }, []);
+
+  const handleColumnMenuClose = useCallback(() => {
+    setColumnMenuAnchorEl(null);
+    setColumnMenuIndex(null);
+  }, []);
+
+  const handleStartEditingColumn = useCallback(
+    (index: number) => {
+      const target = columnConfigs[index];
+      if (!target) {
+        return;
+      }
+      setEditingColumnIndex(index);
+      setEditingColumnValue(target.displayName);
+    },
+    [columnConfigs]
+  );
+
+  const handleEditingNameChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      if (editingColumnIndex === null) {
+        return;
+      }
+      const fallback = `column_${editingColumnIndex + 1}`;
+      const sanitized = sanitizeColumnName(event.target.value, fallback);
+      setEditingColumnValue(sanitized);
+    },
+    [editingColumnIndex]
+  );
+
+  const handleCommitEditingColumn = useCallback(() => {
+    if (editingColumnIndex === null) {
+      return;
+    }
+    handleColumnNameChange(editingColumnIndex, editingColumnValue);
+    setEditingColumnIndex(null);
+    setEditingColumnValue('');
+  }, [editingColumnIndex, editingColumnValue, handleColumnNameChange]);
+
+  const handleCancelEditingColumn = useCallback(() => {
+    setEditingColumnIndex(null);
+    setEditingColumnValue('');
+  }, []);
+
+  const handleNameEditKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleCommitEditingColumn();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCancelEditingColumn();
+      }
+    },
+    [handleCancelEditingColumn, handleCommitEditingColumn]
+  );
+
   const handleReset = () => {
     setSelectedFile(null);
     setPreview(null);
+    setColumnConfigs([]);
     setTableName('');
-    setSchemaName('');
-    setCatalog('');
     setDelimiter('');
     setMode('create');
     setHasHeader(true);
+    setTypeMenuAnchorEl(null);
+    setTypeMenuColumnIndex(null);
+    setColumnMenuAnchorEl(null);
+    setColumnMenuIndex(null);
+    setEditingColumnIndex(null);
+    setEditingColumnValue('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
   const isBusy = previewMutation.isLoading || createMutation.isLoading;
-  const createDisabled =
-    !canManage ||
-    !selectedFile ||
-    !preview ||
-    !tableName.trim() ||
-    !productTeamId ||
-    !dataObjectId ||
-    !systemId ||
-    createMutation.isLoading;
 
   const headerDescription = useMemo(() => {
     if (!preview) {
@@ -314,25 +491,108 @@ const UploadDataPage = () => {
     return `Detected ${preview.columns.length} column${preview.columns.length === 1 ? '' : 's'} and ${preview.totalRows} row${preview.totalRows === 1 ? '' : 's'}.`;
   }, [preview]);
 
+  useEffect(() => {
+    if (!preview) {
+      setColumnConfigs([]);
+      setTypeMenuAnchorEl(null);
+      setTypeMenuColumnIndex(null);
+      setColumnMenuAnchorEl(null);
+      setColumnMenuIndex(null);
+      setEditingColumnIndex(null);
+      setEditingColumnValue('');
+      return;
+    }
+
+    setColumnConfigs((previous) => {
+      const previousByField = new Map(previous.map((column) => [column.sourceFieldName, column]));
+      return preview.columns.map((column, index) => {
+        const fallback = `column_${index + 1}`;
+        const existing = previousByField.get(column.fieldName);
+        const currentName = existing?.displayName ?? column.fieldName;
+        const displayName = sanitizeColumnName(currentName, fallback);
+        const currentType = existing?.selectedType ?? column.inferredType;
+        return {
+          sourceFieldName: column.fieldName,
+          originalName: column.originalName,
+          inferredType: normalizeColumnType(column.inferredType),
+          displayName,
+          selectedType: normalizeColumnType(currentType),
+          included: existing?.included ?? true
+        } satisfies UploadColumnConfig;
+      });
+    });
+  }, [preview]);
+
+  const duplicateNameSet = useMemo(() => {
+    const counts = new Map<string, number>();
+    columnConfigs.forEach((column) => {
+      if (!column.included) {
+        return;
+      }
+      const key = column.displayName;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return new Set<string>([...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [columnConfigs]);
+
+  const columnOverrides = useMemo<UploadDataColumnOverrideInput[]>(() => {
+    return columnConfigs
+      .map((column) => {
+        const override: UploadDataColumnOverrideInput = {
+          fieldName: column.sourceFieldName
+        };
+        if (column.displayName !== column.sourceFieldName) {
+          override.targetName = column.displayName;
+        }
+        if (column.selectedType !== column.inferredType) {
+          override.targetType = column.selectedType;
+        }
+        if (!column.included) {
+          override.exclude = true;
+        }
+        return override;
+      })
+      .filter((override) => override.targetName || override.targetType || override.exclude === true);
+  }, [columnConfigs]);
+
+  const hasIncludedColumns = columnConfigs.some((column) => column.included);
+  const hasColumnNameConflicts = duplicateNameSet.size > 0;
+  const createDisabled =
+    !canManage ||
+    !selectedFile ||
+    !preview ||
+    !tableName.trim() ||
+    !productTeamId ||
+    !dataObjectId ||
+    !systemId ||
+    createMutation.isLoading ||
+    hasColumnNameConflicts ||
+    !hasIncludedColumns;
+
+  const getColumnTypeLabel = (type: UploadColumnType): string =>
+    COLUMN_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
+
+  const renderColumnTypeIcon = (type: UploadColumnType) => {
+    switch (type) {
+      case 'boolean':
+        return <CheckCircleOutlineIcon fontSize="small" />;
+      case 'integer':
+        return <NumbersIcon fontSize="small" />;
+      case 'float':
+        return <FunctionsIcon fontSize="small" />;
+      case 'timestamp':
+        return <AccessTimeIcon fontSize="small" />;
+      default:
+        return <TextFieldsIcon fontSize="small" />;
+    }
+  };
+
+  const activeTypeColumn = typeMenuColumnIndex !== null ? columnConfigs[typeMenuColumnIndex] ?? null : null;
+  const activeColumnMenuTarget = columnMenuIndex !== null ? columnConfigs[columnMenuIndex] ?? null : null;
+
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Upload Data
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          {headerDescription}
-        </Typography>
-      </Box>
+      <PageHeader title="Upload Data" subtitle={headerDescription} />
 
       {!canManage && (
         <Alert severity="info" sx={{ mb: 3 }}>
@@ -423,76 +683,229 @@ const UploadDataPage = () => {
       )}
 
       {preview && (
-        <Stack spacing={3} sx={{ mb: 3 }}>
-          <Paper elevation={2} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Column summary
+        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+          <Stack spacing={2}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Preview & Column Settings
             </Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>Field name</TableCell>
-                  <TableCell>Original header</TableCell>
-                  <TableCell>Inferred type</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {preview.columns.map((column, index) => (
-                  <TableRow key={column.fieldName}>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {column.fieldName}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{column.originalName}</TableCell>
-                    <TableCell sx={{ textTransform: 'capitalize' }}>{column.inferredType}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Paper>
-
-          <Paper elevation={2} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Sample preview
-            </Typography>
-            <Table size="small" sx={{ tableLayout: 'fixed' }}>
-              <TableHead>
-                <TableRow>
-                  {preview.columns.map((column) => (
-                    <TableCell key={column.fieldName} sx={{ fontWeight: 600 }}>
-                      {column.fieldName}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {preview.sampleRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={preview.columns.length} align="center">
-                      No data rows detected in the file.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  preview.sampleRows.map((row, rowIndex) => (
-                    <TableRow key={`sample-${rowIndex}`}>
-                      {preview.columns.map((column, columnIndex) => (
-                        <TableCell key={column.fieldName}>
-                          {row[columnIndex] ?? <Typography color="text.secondary">null</Typography>}
-                        </TableCell>
-                      ))}
+            {hasColumnNameConflicts && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                Column names must be unique. Resolve the highlighted fields before continuing.
+              </Alert>
+            )}
+            {!hasIncludedColumns && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                Select at least one column to include before continuing.
+              </Alert>
+            )}
+            {columnConfigs.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Preparing preview…
+              </Typography>
+            ) : (
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: Math.max(columnConfigs.length * 220, 600) }}>
+                  <TableHead>
+                    <TableRow>
+                      {columnConfigs.map((column, index) => {
+                        const nameError = column.included && duplicateNameSet.has(column.displayName);
+                        const typeLabel = getColumnTypeLabel(column.selectedType);
+                        return (
+                          <TableCell
+                            key={column.sourceFieldName}
+                            sx={{
+                              minWidth: 220,
+                              verticalAlign: 'top',
+                              backgroundColor: column.included
+                                ? alpha(theme.palette.primary.main, 0.04)
+                                : alpha(theme.palette.warning.main, 0.1),
+                              borderTop: nameError ? `2px solid ${theme.palette.error.main}` : undefined,
+                              opacity: column.included ? 1 : 0.7
+                            }}
+                          >
+                            <Stack spacing={1}>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <Tooltip title={`Data type: ${typeLabel}`}>
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={(event) => handleTypeMenuOpen(event, index)}
+                                      disabled={!canManage || isBusy}
+                                      sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.08) }}
+                                    >
+                                      {renderColumnTypeIcon(column.selectedType)}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Box flexGrow={1}>
+                                  {editingColumnIndex === index ? (
+                                    <TextField
+                                      size="small"
+                                      value={editingColumnValue}
+                                      onChange={handleEditingNameChange}
+                                      onBlur={handleCommitEditingColumn}
+                                      onKeyDown={handleNameEditKeyDown}
+                                      fullWidth
+                                      disabled={isBusy}
+                                      error={nameError}
+                                    />
+                                  ) : (
+                                    <Typography
+                                      variant="subtitle2"
+                                      align="center"
+                                      sx={{
+                                        fontWeight: 600,
+                                        cursor: canManage ? 'text' : 'default',
+                                        color: nameError ? theme.palette.error.main : undefined,
+                                        textDecoration: column.included ? 'none' : 'line-through'
+                                      }}
+                                      tabIndex={canManage ? 0 : -1}
+                                      onDoubleClick={() => {
+                                        if (canManage && !isBusy) {
+                                          handleStartEditingColumn(index);
+                                        }
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (!canManage || isBusy) {
+                                          return;
+                                        }
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          handleStartEditingColumn(index);
+                                        }
+                                      }}
+                                    >
+                                      {column.displayName}
+                                    </Typography>
+                                  )}
+                                </Box>
+                                <Tooltip title={column.included ? 'Column included in table' : 'Column excluded from table'}>
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      onClick={(event) => handleColumnMenuOpen(event, index)}
+                                      disabled={!canManage || isBusy}
+                                    >
+                                      <KeyboardArrowDownIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              </Box>
+                              {!column.included && (
+                                <Typography variant="caption" sx={{ color: theme.palette.warning.dark }}>
+                                  Excluded from table
+                                </Typography>
+                              )}
+                              {nameError && (
+                                <Typography variant="caption" sx={{ color: theme.palette.error.main }}>
+                                  Column name must be unique
+                                </Typography>
+                              )}
+                            </Stack>
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </Paper>
-        </Stack>
+                  </TableHead>
+                  <TableBody>
+                    {preview.sampleRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={columnConfigs.length} align="center">
+                          No data rows detected in the file.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      preview.sampleRows.map((row, rowIndex) => (
+                        <TableRow key={`sample-${rowIndex}`}>
+                          {columnConfigs.map((column, columnIndex) => {
+                            const value = row[columnIndex];
+                            return (
+                              <TableCell
+                                key={`${column.sourceFieldName}-${rowIndex}`}
+                                sx={{
+                                  whiteSpace: 'nowrap',
+                                  backgroundColor: column.included
+                                    ? undefined
+                                    : alpha(theme.palette.warning.main, 0.08),
+                                  opacity: column.included ? 1 : 0.5
+                                }}
+                              >
+                                {value !== null && value !== undefined && value !== '' ? (
+                                  value
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ color: theme.palette.error.main, fontStyle: 'italic' }}
+                                  >
+                                    null
+                                  </Typography>
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                <Menu
+                  anchorEl={typeMenuAnchorEl}
+                  open={Boolean(typeMenuAnchorEl)}
+                  onClose={handleTypeMenuClose}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                >
+                  {COLUMN_TYPE_OPTIONS.map((option) => (
+                    <MenuItem
+                      key={option.value}
+                      onClick={() => handleTypeSelect(option.value)}
+                      selected={activeTypeColumn?.selectedType === option.value}
+                      disabled={!canManage || isBusy}
+                    >
+                      <ListItemIcon sx={{ minWidth: 32 }}>
+                        {renderColumnTypeIcon(option.value)}
+                      </ListItemIcon>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Menu>
+                <Menu
+                  anchorEl={columnMenuAnchorEl}
+                  open={Boolean(columnMenuAnchorEl)}
+                  onClose={handleColumnMenuClose}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                >
+                  <MenuItem
+                    onClick={() => {
+                      if (columnMenuIndex === null || !activeColumnMenuTarget) {
+                        return;
+                      }
+                      handleColumnIncludeToggle(columnMenuIndex, !activeColumnMenuTarget.included);
+                      handleColumnMenuClose();
+                    }}
+                    disabled={!canManage || isBusy || columnMenuIndex === null}
+                  >
+                    {activeColumnMenuTarget?.included ? 'Exclude from table' : 'Include in table'}
+                  </MenuItem>
+                </Menu>
+              </Box>
+            )}
+          </Stack>
+        </Paper>
       )}
 
-      <Paper elevation={3} sx={{ p: 3 }}>
+      <Paper
+        elevation={3}
+        sx={{
+          p: 3,
+          backgroundColor: alpha(theme.palette.primary.light, 0.1),
+          '& .MuiInputBase-root': {
+            backgroundColor: theme.palette.background.paper
+          }
+        }}
+      >
         <Stack spacing={3}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
             Table configuration
@@ -501,6 +914,7 @@ const UploadDataPage = () => {
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <FormControl
               fullWidth
+              required
               disabled={!canManage || createMutation.isLoading || isLoadingProcessAreas}
             >
               <InputLabel id="upload-product-team-label">Product Team</InputLabel>
@@ -525,6 +939,7 @@ const UploadDataPage = () => {
             </FormControl>
             <FormControl
               fullWidth
+              required
               disabled={!canManage || createMutation.isLoading || !productTeamId || isLoadingDataObjects}
             >
               <InputLabel id="upload-data-object-label">Data Object</InputLabel>
@@ -551,6 +966,7 @@ const UploadDataPage = () => {
 
           <FormControl
             fullWidth
+              required
             disabled={!canManage || createMutation.isLoading || !dataObjectId || isLoadingSystems}
           >
             <InputLabel id="upload-system-label">System</InputLabel>
@@ -584,25 +1000,6 @@ const UploadDataPage = () => {
             disabled={!canManage || createMutation.isLoading}
             fullWidth
           />
-
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              label="Catalog"
-              value={catalog}
-              onChange={(event) => setCatalog(event.target.value)}
-              helperText="Optional. Applies to Databricks uploads."
-              disabled={!canManage || createMutation.isLoading || targetWarehouse !== 'databricks_sql'}
-              fullWidth
-            />
-            <TextField
-              label="Schema"
-              value={schemaName}
-              onChange={(event) => setSchemaName(event.target.value)}
-              helperText="Optional target schema."
-              disabled={!canManage || createMutation.isLoading}
-              fullWidth
-            />
-          </Stack>
 
           <FormControl fullWidth disabled={!canManage || createMutation.isLoading}>
             <InputLabel id="target-warehouse-label">Target warehouse</InputLabel>

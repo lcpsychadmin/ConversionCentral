@@ -38,6 +38,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
+import PageHeader from '../components/common/PageHeader';
 import SaveIcon from '@mui/icons-material/Save';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PublishIcon from '@mui/icons-material/Publish';
@@ -381,6 +382,31 @@ const ReportingDesignerContent = () => {
   const hasHydratedDraftRef = useRef(false);
   const draggedFieldRef = useRef<FieldDragPayload | null>(null);
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const canvasBackground = useMemo(
+    () =>
+      alpha(
+        isDarkMode ? theme.palette.background.default : theme.palette.background.paper,
+        isDarkMode ? 0.9 : 0.96
+      ),
+    [isDarkMode, theme]
+  );
+  const canvasGridColor = useMemo(
+    () => alpha(theme.palette.divider, isDarkMode ? 0.6 : 0.3),
+    [isDarkMode, theme]
+  );
+  const miniMapBackground = useMemo(
+    () =>
+      alpha(
+        isDarkMode ? theme.palette.background.paper : theme.palette.common.white,
+        isDarkMode ? 0.92 : 0.9
+      ),
+    [isDarkMode, theme]
+  );
+  const miniMapNodeColor = useMemo(
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.8 : 0.6),
+    [isDarkMode, theme]
+  );
   const joinEdgePresentation = useMemo(() => {
     const stroke = theme.palette.primary.main;
     return {
@@ -2025,14 +2051,10 @@ const ReportingDesignerContent = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minHeight: '100vh' }}>
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-          Report Designer
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Compose relational-style report definitions by combining enterprise tables, mapping joins, and shaping output fields prior to publishing.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Report Designer"
+        subtitle="Compose relational-style report definitions by combining enterprise tables, mapping joins, and shaping output fields prior to publishing."
+      />
 
       <Paper
         elevation={2}
@@ -2170,12 +2192,17 @@ const ReportingDesignerContent = () => {
                 nodeTypes={nodeTypes}
                 fitView
                 minZoom={0.4}
-                style={{ width: '100%', height: '100%', background: '#f5f7fb' }}
+                style={{ width: '100%', height: '100%', background: canvasBackground }}
                 onInit={(instance) => { reactFlowInstanceRef.current = instance; }}
               >
-                <MiniMap pannable zoomable />
+                <MiniMap
+                  pannable
+                  zoomable
+                  nodeColor={() => miniMapNodeColor}
+                  style={{ background: miniMapBackground, borderRadius: 8 }}
+                />
                 <Controls position="bottom-right" />
-                <Background gap={16} size={0.6} />
+                <Background color={canvasGridColor} gap={24} size={0.6} />
               </ReactFlow>
             </Paper>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>

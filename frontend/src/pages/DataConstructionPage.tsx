@@ -5,31 +5,31 @@ import { LoadingButton } from '@mui/lab';
 import {
   Autocomplete,
   Box,
+  Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
   Grid,
+  IconButton,
+  InputAdornment,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tab as MuiTab,
   Tabs as MuiTabs,
   TextField,
-  Typography,
-  IconButton,
-  Chip,
-  LinearProgress,
-  Tooltip,
-  Button
+  Typography
 } from '@mui/material';
 import { SxProps, Theme, alpha, useTheme } from '@mui/material/styles';
+import {
+  DataGrid,
+  GridActionsCellItem,
+  GridColDef,
+  GridRenderCellParams,
+  GridRowParams
+} from '@mui/x-data-grid';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
@@ -37,6 +37,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 import { useToast } from '../hooks/useToast';
+import PageHeader from '../components/common/PageHeader';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchProcessAreas,
@@ -54,6 +55,8 @@ import {
 import { deleteUploadedTable } from '../services/uploadDataService';
 import ConstructedDataGrid from '../components/data-construction/ConstructedDataGridAgGrid';
 import ValidationRulesManager from '../components/data-construction/ValidationRulesManager';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import { getDataGridStyles } from '../utils/tableStyles';
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof AxiosError) {
@@ -118,6 +121,87 @@ const DataConstructionPage = () => {
   const { hasRole } = useAuth();
 
   const canManage = hasRole('admin');
+  const isDarkMode = theme.palette.mode === 'dark';
+
+  const filterPanelStyles = useMemo(() => {
+    const surface = getSectionSurface(theme, { shadow: 'subtle' });
+    return {
+      background: surface.background,
+      border: surface.border,
+      boxShadow: surface.boxShadow,
+      borderRadius: 3
+    } as const;
+  }, [theme]);
+
+  const filterInputStyles = useMemo(() => {
+    const labelColor = isDarkMode
+      ? alpha(theme.palette.common.white, 0.88)
+      : alpha(theme.palette.text.primary, 0.88);
+    const inputBackground = isDarkMode
+      ? alpha(theme.palette.background.paper, 0.72)
+      : theme.palette.common.white;
+    const hoverBackground = isDarkMode
+      ? alpha(theme.palette.primary.main, 0.16)
+      : alpha(theme.palette.primary.main, 0.08);
+    const focusRing = alpha(theme.palette.primary.main, isDarkMode ? 0.4 : 0.25);
+
+    return {
+      '& .MuiOutlinedInput-root': {
+        backgroundColor: inputBackground,
+        borderRadius: 2,
+        transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
+        '& fieldset': {
+          borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.45 : 0.25)
+        },
+        '&:hover fieldset': {
+          borderColor: alpha(theme.palette.primary.main, isDarkMode ? 0.65 : 0.45)
+        },
+        '&:hover': {
+          backgroundColor: hoverBackground
+        },
+        '&.Mui-focused fieldset': {
+          borderColor: theme.palette.primary.main
+        },
+        '&.Mui-focused': {
+          boxShadow: `0 0 0 3px ${focusRing}`,
+          backgroundColor: isDarkMode
+            ? alpha(theme.palette.background.paper, 0.85)
+            : theme.palette.common.white
+        },
+        '&.Mui-disabled': {
+          opacity: 0.85,
+          backgroundColor: isDarkMode
+            ? alpha(theme.palette.background.paper, 0.4)
+            : alpha(theme.palette.action.disabledBackground, 0.4)
+        }
+      },
+      '& .MuiOutlinedInput-input': {
+        fontSize: '0.95rem'
+      },
+      '& .MuiInputLabel-root': {
+        color: labelColor,
+        fontWeight: 600,
+        fontSize: '1rem',
+        '&.MuiInputLabel-shrink': {
+          fontSize: '0.85rem'
+        }
+      }
+    } as const;
+  }, [isDarkMode, theme]);
+
+  const filterTitleColor = isDarkMode
+    ? alpha(theme.palette.common.white, 0.9)
+    : theme.palette.text.primary;
+
+  const tablePanelStyles = useMemo(() => {
+    const surface = getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' });
+    return {
+      background: surface.background,
+      border: surface.border,
+      boxShadow: surface.boxShadow,
+      borderRadius: 3
+    } as const;
+  }, [isDarkMode, theme]);
 
   const [tablePendingDelete, setTablePendingDelete] = useState<ConstructionTableRow | null>(null);
 
@@ -403,6 +487,165 @@ const DataConstructionPage = () => {
     }
   }, [refetchRows, toast]);
 
+  const tableColumns = useMemo<GridColDef<ConstructionTableRow>[]>(() => {
+    const columns: GridColDef<ConstructionTableRow>[] = [
+      {
+        field: 'displayName',
+        headerName: 'Table Name',
+        flex: 1.2,
+        minWidth: 220,
+        sortable: true,
+  renderCell: (params: GridRenderCellParams<ConstructionTableRow>) => {
+          const { row } = params;
+          const label = row.alias || row.constructedTableName || '—';
+
+          if (row.constructedTableId) {
+            return (
+              <Button
+                variant="text"
+                color="primary"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenTableDetails(row);
+                }}
+                sx={{
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  px: 0,
+                  justifyContent: 'flex-start',
+                  minWidth: 0,
+                  '&:hover': {
+                    textDecoration: 'underline'
+                  }
+                }}
+              >
+                {label}
+              </Button>
+            );
+          }
+
+          return (
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              {label}
+            </Typography>
+          );
+        }
+      },
+      {
+        field: 'description',
+        headerName: 'Description',
+        flex: 1.4,
+        minWidth: 260,
+  renderCell: (params: GridRenderCellParams<ConstructionTableRow>) => (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {params.row.description || '—'}
+          </Typography>
+        )
+      },
+      {
+        field: 'processAreaName',
+        headerName: 'Product Team',
+        flex: 1,
+        minWidth: 160,
+        valueGetter: ({ row }) => row.processAreaName || '—'
+      },
+      {
+        field: 'dataObjectName',
+        headerName: 'Data Object',
+        flex: 1,
+        minWidth: 160,
+        valueGetter: ({ row }) => row.dataObjectName || '—'
+      },
+      {
+        field: 'systemName',
+        headerName: 'System',
+        flex: 0.9,
+        minWidth: 140,
+        valueGetter: ({ row }) => row.systemName || '—'
+      },
+      {
+        field: 'constructedTableStatus',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 120,
+  renderCell: (params: GridRenderCellParams<ConstructionTableRow>) => {
+          const status = params.row.constructedTableStatus || 'draft';
+          const color =
+            status === 'approved'
+              ? 'success'
+              : status === 'rejected'
+              ? 'error'
+              : 'default';
+
+          return (
+            <Chip
+              label={status}
+              color={color}
+              size="small"
+              variant={color === 'default' ? 'outlined' : 'filled'}
+              sx={{ textTransform: 'capitalize', fontWeight: 600 }}
+            />
+          );
+        }
+      }
+    ];
+
+    if (canManage) {
+      columns.push({
+        field: 'actions',
+        type: 'actions',
+        headerName: 'Actions',
+        flex: 0.4,
+        minWidth: 100,
+        getActions: (params: GridRowParams<ConstructionTableRow>) => {
+          const row = params.row;
+
+          if (!row.tableId) {
+            return [];
+          }
+
+          return [
+            <GridActionsCellItem
+              key="delete"
+              icon={<DeleteOutlineIcon fontSize="small" />}
+              label="Delete table"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleOpenDeleteDialog(row);
+              }}
+              disabled={isDeleting && tablePendingDelete?.id === row.id}
+              showInMenu
+            />
+          ];
+        }
+      });
+    }
+
+    return columns;
+  }, [canManage, handleOpenDeleteDialog, handleOpenTableDetails, isDeleting, tablePendingDelete?.id]);
+
+  const NoRowsOverlay = () => (
+    <Stack alignItems="center" justifyContent="center" spacing={1.5} sx={{ py: 6 }}>
+      <Typography color="text.secondary" sx={{ fontWeight: 600 }}>
+        No construction tables found
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        {allConstructionTables.length === 0
+          ? 'No construction tables available'
+          : 'Try adjusting your search filters'}
+      </Typography>
+    </Stack>
+  );
+
   const handleProcessAreaChange = useCallback((_event: SyntheticEvent, value: ProcessArea | null) => {
     // Only update Product Team - don't reset other filters
     setSelectedProcessAreaId(value?.id ?? null);
@@ -434,23 +677,27 @@ const DataConstructionPage = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Page Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" sx={{ mb: 1, fontWeight: 'bold' }}>
-          Manage Data
-        </Typography>
-        <Typography variant="body2" color="textSecondary">
-          Manage and edit construction table data with validation rules
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Manage Data"
+        subtitle="Manage and edit construction table data with validation rules"
+      />
 
       {/* Filters Section */}
-      <Paper sx={{ p: 3, mb: 3, backgroundColor: alpha(theme.palette.primary.main, 0.02), border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}` }}>
-        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, textTransform: 'uppercase', color: 'textSecondary' }}>
-          Filters
+      <Paper elevation={0} sx={{ p: 3, mb: 3, ...filterPanelStyles }}>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
+            color: filterTitleColor,
+            mb: 2.5,
+            letterSpacing: 0.5,
+            fontSize: '1.05rem'
+          }}
+        >
+          Filter by Product Team, Data Object & System
         </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6} md={3}>
+        <Grid container spacing={2.5}>
+          <Grid item xs={12} md={6} lg={3}>
             <Autocomplete
               fullWidth
               options={processAreas}
@@ -459,19 +706,18 @@ const DataConstructionPage = () => {
               onChange={handleProcessAreaChange}
               loading={isLoadingProcessAreas}
               disabled={isLoadingProcessAreas}
-              size="small"
               renderInput={(params) => (
                 <TextField
                   {...params}
                   label="Product Team"
-                  placeholder="Select..."
-                  required
+                  placeholder={isLoadingProcessAreas ? 'Loading...' : 'Select product team'}
+                  sx={filterInputStyles}
                 />
               )}
             />
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} md={6} lg={3}>
             <Autocomplete
               fullWidth
               options={dataObjects}
@@ -480,19 +726,18 @@ const DataConstructionPage = () => {
               onChange={handleDataObjectChange}
               loading={isLoadingDataObjects}
               disabled={isLoadingDataObjects || !selectedProcessArea}
-              size="small"
               renderInput={(params) => (
                 <TextField
                   {...params}
                   label="Data Object"
-                  placeholder="Select..."
-                  required
+                  placeholder={isLoadingDataObjects ? 'Loading...' : 'Select data object'}
+                  sx={filterInputStyles}
                 />
               )}
             />
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} md={6} lg={3}>
             <Autocomplete
               fullWidth
               options={systems}
@@ -501,27 +746,31 @@ const DataConstructionPage = () => {
               onChange={handleSystemChange}
               loading={isLoadingSystems}
               disabled={isLoadingSystems}
-              size="small"
               renderInput={(params) => (
                 <TextField
                   {...params}
                   label="System"
-                  placeholder="Select..."
-                  required
+                  placeholder={isLoadingSystems ? 'Loading...' : 'Select system'}
+                  sx={filterInputStyles}
                 />
               )}
             />
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} md={6} lg={3}>
             <TextField
               fullWidth
-              size="small"
-              placeholder="Search tables..."
+              label="Search tables"
+              placeholder="Search tables"
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(event) => setSearchText(event.target.value)}
+              sx={filterInputStyles}
               InputProps={{
-                startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: alpha(theme.palette.text.primary, 0.55) }} />
+                  </InputAdornment>
+                )
               }}
             />
           </Grid>
@@ -529,136 +778,25 @@ const DataConstructionPage = () => {
       </Paper>
 
       {/* Tables List */}
-      <Paper>
-        {isLoadingAllDefinitions ? (
-          <LinearProgress />
-        ) : filteredTables.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <Typography color="textSecondary" sx={{ mb: 2 }}>
-              No construction tables found
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              {allConstructionTables.length === 0
-                ? 'No construction tables available'
-                : 'Try adjusting your search filters'}
-            </Typography>
-          </Box>
-        ) : (
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.08) }}>
-                  <TableCell sx={{ fontWeight: 600 }}>Table Name</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Product Team</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Data Object</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>System</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }} align="center">
-                    Status
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }} align="right">
-                    Actions
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredTables.map((table) => (
-                  <TableRow
-                    key={table.id}
-                    hover
-                    sx={{
-                      '&:hover': {
-                        backgroundColor: alpha(theme.palette.primary.main, 0.05)
-                      }
-                    }}
-                  >
-                    <TableCell sx={{ fontWeight: 500 }}>
-                      {table.constructedTableId ? (
-                        <Button
-                          variant="text"
-                          color="primary"
-                          size="small"
-                          sx={{
-                            fontWeight: 600,
-                            textTransform: 'none',
-                            p: 0,
-                            minWidth: 0,
-                            justifyContent: 'flex-start',
-                            '&:hover': {
-                              textDecoration: 'underline',
-                              backgroundColor: 'transparent'
-                            }
-                          }}
-                          onClick={() => handleOpenTableDetails(table)}
-                        >
-                          {table.alias || table.constructedTableName || '—'}
-                        </Button>
-                      ) : (
-                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                          {table.alias || table.constructedTableName || '—'}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="textSecondary" sx={{ maxWidth: 300 }}>
-                        {table.description || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="textSecondary">
-                        {table.processAreaName || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="textSecondary">
-                        {table.dataObjectName || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="textSecondary">
-                        {table.systemName || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip
-                        label={table.constructedTableStatus || 'draft'}
-                        size="small"
-                        variant="outlined"
-                        color={
-                          table.constructedTableStatus === 'approved'
-                            ? 'success'
-                            : table.constructedTableStatus === 'rejected'
-                            ? 'error'
-                            : 'default'
-                        }
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        {canManage && table.tableId && (
-                          <Tooltip title="Delete table">
-                            <span>
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => handleOpenDeleteDialog(table)}
-                                disabled={
-                                  isDeleting && tablePendingDelete?.id === table.id
-                                }
-                              >
-                                <DeleteOutlineIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        )}
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+      <Paper elevation={0} sx={{ p: 3, mb: 3, ...tablePanelStyles }}>
+        <Box sx={{ height: 540, width: '100%' }}>
+          <DataGrid
+            rows={filteredTables}
+            columns={tableColumns}
+            getRowId={(row) => row.id}
+            disableRowSelectionOnClick
+            hideFooter
+            loading={isLoadingAllDefinitions}
+            onRowDoubleClick={(params) => {
+              const row = params.row as ConstructionTableRow;
+              if (row.constructedTableId) {
+                handleOpenTableDetails(row);
+              }
+            }}
+            slots={{ noRowsOverlay: NoRowsOverlay }}
+            sx={getDataGridStyles(theme)}
+          />
+        </Box>
       </Paper>
 
       {/* Table Details Modal */}

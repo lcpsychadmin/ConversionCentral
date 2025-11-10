@@ -17,7 +17,7 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { /* alpha, */ /* useTheme */ } from '@mui/material/styles';
 
 import { useApplicationDatabase } from '../hooks/useApplicationDatabase';
 import {
@@ -26,6 +26,7 @@ import {
   ApplicationDatabaseTestResult
 } from '../types/data';
 import { useAuth } from '../context/AuthContext';
+import PageHeader from '../components/common/PageHeader';
 
 interface ConnectionFormState {
   host: string;
@@ -119,7 +120,7 @@ const getDefaultPort = (engine: ApplicationDatabaseEngine): string => {
 };
 
 const ApplicationDatabaseSetupPage = () => {
-  const theme = useTheme();
+  // theme removed as it's not currently used in this page
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
 
@@ -388,23 +389,10 @@ const ApplicationDatabaseSetupPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.secondary.main, 0.15)} 0%, ${alpha(theme.palette.secondary.dark, 0.08)} 100%)`,
-          borderBottom: `3px solid ${alpha(theme.palette.secondary.main, 0.6)}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.secondary.main, 0.18)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 800 }}>
-          Application Database Setup
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.85 }}>
-          {headerDescription}
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Application Database Setup"
+        subtitle={headerDescription}
+      />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>

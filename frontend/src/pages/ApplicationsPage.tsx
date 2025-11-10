@@ -9,7 +9,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 
 import SystemTable from '../components/system/SystemTable';
 import SystemForm from '../components/system/SystemForm';
@@ -17,6 +17,8 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 import { useSystems } from '../hooks/useSystems';
 import { System, SystemFormValues } from '../types/data';
 import { useAuth } from '../context/AuthContext';
+import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
+import PageHeader from '../components/common/PageHeader';
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error) {
@@ -29,6 +31,9 @@ const ApplicationsPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const sectionSurface = useMemo(() => getSectionSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
+  const panelSurface = useMemo(() => getPanelSurface(theme, { shadow: isDarkMode ? 'raised' : 'subtle' }), [isDarkMode, theme]);
 
   const {
     systemsQuery,
@@ -128,31 +133,17 @@ const ApplicationsPage = () => {
 
   return (
     <Box>
-      <Box
-        sx={{
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)} 0%, ${alpha(theme.palette.primary.main, 0.08)} 100%)`,
-          borderBottom: `3px solid ${theme.palette.primary.main}`,
-          borderRadius: '12px',
-          p: 3,
-          mb: 3,
-          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.12)}`
-        }}
-      >
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 800, fontSize: '1.75rem' }}>
-          Applications
-        </Typography>
-        <Typography variant="body2" sx={{ color: theme.palette.primary.dark, opacity: 0.85, fontSize: '0.95rem' }}>
-          Maintain the catalog of source applications available for data objects and integrations.
-        </Typography>
-      </Box>
-
-      {canManage && (
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-          <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
-            New Application
-          </Button>
-        </Box>
-      )}
+      <PageHeader
+        title="Applications"
+        subtitle="Maintain the catalog of source applications available for data objects and integrations."
+        actions={
+          canManage ? (
+            <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
+              New Application
+            </Button>
+          ) : undefined
+        }
+      />
 
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -160,11 +151,15 @@ const ApplicationsPage = () => {
         </Alert>
       )}
 
-      <Paper elevation={3} sx={{
-        p: 3,
-        mb: 3,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`
-      }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 3,
+          borderRadius: 3,
+          ...sectionSurface
+        }}
+      >
         <SystemTable
           data={sortedSystems}
           loading={isLoading}
@@ -177,8 +172,20 @@ const ApplicationsPage = () => {
       </Paper>
 
       {selected && (
-        <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            mb: 3,
+            borderRadius: 3,
+            ...panelSurface
+          }}
+        >
+          <Typography
+            variant="h5"
+            gutterBottom
+            sx={{ color: isDarkMode ? theme.palette.common.white : theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}
+          >
             Application Details
           </Typography>
           <Grid container spacing={3}>

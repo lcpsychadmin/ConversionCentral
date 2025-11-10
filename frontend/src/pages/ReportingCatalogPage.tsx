@@ -1,16 +1,13 @@
 import { Box, Paper, Stack, Typography } from '@mui/material';
+import PageHeader from '../components/common/PageHeader';
 
 const ReportingCatalogPage = () => {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-          Reports & Outputs
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Browse published reporting assets, inspect run history, and access generated outputs. This directory will evolve alongside the Reporting Designer to provide governance and operational controls.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Reports & Outputs"
+        subtitle="Browse published reporting assets, inspect run history, and access generated outputs. This directory will evolve alongside the Reporting Designer to provide governance and operational controls."
+      />
 
       <Paper variant="outlined" sx={{ p: 3, minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <Stack spacing={1} alignItems="center">

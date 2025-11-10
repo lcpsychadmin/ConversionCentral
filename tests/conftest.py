@@ -49,7 +49,6 @@ def db_session(engine) -> Generator[Session, None, None]:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     connection = engine.connect()
-    transaction = connection.begin()
 
     TestingSessionLocal = _create_test_sessionmaker(connection)
     session = TestingSessionLocal()
@@ -58,7 +57,6 @@ def db_session(engine) -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-        transaction.rollback()
         connection.close()
 
 

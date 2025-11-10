@@ -1,12 +1,19 @@
 from fastapi.testclient import TestClient
 
+from app.schemas.entities import DEFAULT_ACCENT_COLOR, DEFAULT_THEME_MODE
+
 LOGO_DATA_URL = "data:image/png;base64,iVBORw0KGgo="
 
 
 def test_company_settings_defaults(client: TestClient) -> None:
     response = client.get("/application-settings/company")
     assert response.status_code == 200
-    assert response.json() == {"site_title": None, "logo_data_url": None}
+    assert response.json() == {
+        "site_title": None,
+        "logo_data_url": None,
+        "theme_mode": DEFAULT_THEME_MODE,
+        "accent_color": DEFAULT_ACCENT_COLOR,
+    }
 
 
 def test_update_company_settings(client: TestClient) -> None:

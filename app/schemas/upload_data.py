@@ -26,6 +26,13 @@ class UploadDataPreviewResponse(BaseModel):
     total_rows: int
 
 
+class UploadDataColumnOverride(BaseModel):
+    field_name: str
+    target_name: Optional[str] = None
+    target_type: Optional[str] = None
+    exclude: Optional[bool] = None
+
+
 class UploadDataCreateResponse(BaseModel):
     table_name: str
     schema_name: Optional[str] = None
