@@ -33,6 +33,7 @@ def _serialize(
     constructed_schema_fallback: str | None = None,
     ingestion_batch_rows_fallback: int | None = None,
     ingestion_method_fallback: str | None = None,
+    spark_compute_fallback: str | None = None,
 ) -> DatabricksSqlSettingRead:
     constructed_schema = setting.constructed_schema
     if (constructed_schema is None or not constructed_schema.strip()) and constructed_schema_fallback:
@@ -45,6 +46,9 @@ def _serialize(
     ingestion_method = setting.ingestion_method or ingestion_method_fallback or "sql"
     ingestion_method = ingestion_method.strip().lower()
 
+    spark_compute = setting.spark_compute or spark_compute_fallback
+    spark_compute = spark_compute.strip().lower() if isinstance(spark_compute, str) and spark_compute.strip() else None
+
     return DatabricksSqlSettingRead(
         id=setting.id,
         display_name=setting.display_name,
@@ -55,6 +59,7 @@ def _serialize(
         constructed_schema=constructed_schema,
         ingestion_batch_rows=ingestion_batch_rows,
         ingestion_method=ingestion_method,
+        spark_compute=spark_compute,
         warehouse_name=setting.warehouse_name,
         is_active=setting.is_active,
         created_at=setting.created_at,
@@ -84,6 +89,7 @@ def get_databricks_setting(db: Session = Depends(get_db)) -> DatabricksSqlSettin
         constructed_schema_fallback=config.databricks_constructed_schema,
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
+        spark_compute_fallback=config.databricks_spark_compute,
     )
 
 
@@ -108,6 +114,7 @@ def create_databricks_setting(
         constructed_schema=payload.constructed_schema,
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method,
+        spark_compute=payload.spark_compute,
     )
     try:
         test_databricks_connection(params)
@@ -124,6 +131,7 @@ def create_databricks_setting(
         constructed_schema=payload.constructed_schema.strip() if payload.constructed_schema else None,
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method or "sql",
+        spark_compute=payload.spark_compute,
         warehouse_name=payload.warehouse_name.strip() if payload.warehouse_name else None,
         is_active=True,
     )
@@ -138,6 +146,7 @@ def create_databricks_setting(
         constructed_schema_fallback=config.databricks_constructed_schema,
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
+        spark_compute_fallback=config.databricks_spark_compute,
     )
     reset_ingestion_engine()
     ensure_databricks_connection()
@@ -177,6 +186,9 @@ def update_databricks_setting(
             setting.ingestion_method = data["ingestion_method"]
         if "warehouse_name" in data:
             setting.warehouse_name = data["warehouse_name"].strip() if data["warehouse_name"] else None
+        if "spark_compute" in data:
+            value = data["spark_compute"]
+            setting.spark_compute = value.strip().lower() if isinstance(value, str) and value.strip() else None
         if "access_token" in data:
             setting.access_token = data["access_token"] if data["access_token"] else None
         if data.get("is_active") is True and not setting.is_active:
@@ -203,6 +215,7 @@ def update_databricks_setting(
             "warehouse_name",
             "ingestion_method",
             "access_token",
+            "spark_compute",
         )
     )
     if should_validate and setting.access_token:
@@ -215,6 +228,7 @@ def update_databricks_setting(
             constructed_schema=setting.constructed_schema,
             ingestion_batch_rows=setting.ingestion_batch_rows,
             ingestion_method=setting.ingestion_method,
+            spark_compute=setting.spark_compute,
         )
         try:
             test_databricks_connection(params)
@@ -229,6 +243,7 @@ def update_databricks_setting(
         constructed_schema_fallback=config.databricks_constructed_schema,
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
+        spark_compute_fallback=config.databricks_spark_compute,
     )
     reset_ingestion_engine()
     ensure_databricks_connection()
@@ -246,6 +261,7 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         constructed_schema=payload.constructed_schema.strip() if payload.constructed_schema else None,
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method or "sql",
+        spark_compute=payload.spark_compute,
     )
     try:
         elapsed_ms, summary = test_databricks_connection(params)

@@ -1,4 +1,5 @@
 import client from './api/client';
+import { ensureArrayResponse, PaginatedResponse } from './api/responseUtils';
 import { DataObject } from '../types/data';
 import { mapSystem, SystemResponse } from './systemService';
 
@@ -25,8 +26,9 @@ const mapDataObject = (payload: DataObjectResponse): DataObject => ({
 });
 
 export const fetchDataObjects = async (): Promise<DataObject[]> => {
-  const response = await client.get<DataObjectResponse[]>('/data-objects');
-  return response.data.map(mapDataObject);
+  const response = await client.get<DataObjectResponse[] | PaginatedResponse<DataObjectResponse>>('/data-objects');
+  const objects = ensureArrayResponse(response.data);
+  return objects.map(mapDataObject);
 };
 
 export interface DataObjectInput {

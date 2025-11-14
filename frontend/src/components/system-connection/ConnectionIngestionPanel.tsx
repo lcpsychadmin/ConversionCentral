@@ -127,14 +127,9 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
           : 'Uses the default Databricks SQL warehouse configuration.'
       }
     ];
-    options.push({
-      value: 'sap_hana',
-      label: sapHanaSetting?.displayName ?? 'SAP HANA Warehouse',
-      disabled: !sapHanaSetting,
-      helperText: sapHanaSetting ? 'Loads into the configured SAP HANA warehouse.' : 'Configure SAP HANA settings first.'
-    });
+    // SAP HANA is not a warehouse target; do not include it in the warehouseOptions list.
     return options;
-  }, [databricksSettings, sapHanaSetting]);
+  }, [databricksSettings]);
 
   const sapHanaOptions = useMemo<SapHanaOption[]>(() => {
     if (!sapHanaSetting) {
@@ -150,9 +145,8 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
   }, [sapHanaSetting]);
 
   const warehouseLabels = useMemo<Record<DataWarehouseTarget, string>>(() => ({
-    databricks_sql: databricksSettings?.displayName ?? 'Databricks SQL',
-    sap_hana: sapHanaSetting?.displayName ?? 'SAP HANA'
-  }), [databricksSettings, sapHanaSetting]);
+    databricks_sql: databricksSettings?.displayName ?? 'Databricks SQL'
+  }), [databricksSettings]);
 
   const relevantSchedules = useMemo(
     () => schedules.filter((schedule) => selectionIds.has(schedule.connectionTableSelectionId)),
@@ -295,11 +289,8 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
   };
 
   const handleFormSubmit = async (values: ScheduleFormValues) => {
-    const normalizedSapHanaId = values.targetWarehouse === 'sap_hana'
-      ? values.sapHanaSettingId && values.sapHanaSettingId.length > 0
-        ? values.sapHanaSettingId
-        : null
-      : null;
+    // SAP HANA is not a warehouse target; do not set a sapHanaSettingId on schedule payloads.
+    const normalizedSapHanaId = null;
 
     if (editing) {
       setBusyScheduleId(editing.id);
@@ -419,7 +410,6 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
           setEditing(null);
         }}
         onSubmit={handleFormSubmit}
-        sapHanaSettingsPath="/data-configuration/data-warehouse"
       />
 
       <Dialog open={Boolean(deleteTarget)} onClose={handleCancelDelete} maxWidth="xs" fullWidth>

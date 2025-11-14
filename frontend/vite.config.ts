@@ -21,6 +21,7 @@ export default defineConfig({
       "@context": "/src/context",
       "@hooks": "/src/hooks",
       "@types": "/src/types",
+  "@cc-types": "/src/types",
       "@routes": "/src/routes",
       "@theme": "/src/theme",
       "@utils": "/src/utils"

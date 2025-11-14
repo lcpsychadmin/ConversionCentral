@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -411,6 +413,11 @@ class ProcessArea(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    reports: Mapped[list["Report"]] = relationship(
+        "Report",
+        back_populates="process_area",
+        passive_deletes=True,
+    )
 
 
 class Role(Base, TimestampMixin):
@@ -536,6 +543,11 @@ class DataObject(Base, TimestampMixin):
         secondary="data_object_systems",
         viewonly=True,
         overlaps="system_links,data_object_links",
+    )
+    reports: Mapped[list["Report"]] = relationship(
+        "Report",
+        back_populates="data_object",
+        passive_deletes=True,
     )
 
 
@@ -1137,6 +1149,42 @@ class DependencyApproval(Base, TimestampMixin):
     )
 
 
+class LegalRequirement(Base, TimestampMixin):
+    __tablename__ = "legal_requirements"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    fields: Mapped[list["Field"]] = relationship(
+        "Field",
+        back_populates="legal_requirement",
+        passive_deletes=True,
+    )
+
+
+class SecurityClassification(Base, TimestampMixin):
+    __tablename__ = "security_classifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    fields: Mapped[list["Field"]] = relationship(
+        "Field",
+        back_populates="security_classification",
+        passive_deletes=True,
+    )
+
+
 class Field(Base, TimestampMixin):
     __tablename__ = "fields"
 
@@ -1159,12 +1207,23 @@ class Field(Base, TimestampMixin):
     suppressed_field: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     legal_regulatory_implications: Mapped[str | None] = mapped_column(Text, nullable=True)
-    security_classification: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    legal_requirement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("legal_requirements.id", ondelete="SET NULL"), nullable=True
+    )
+    security_classification_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_classifications.id", ondelete="SET NULL"), nullable=True
+    )
     data_validation: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_table: Mapped[str | None] = mapped_column(String(200), nullable=True)
     grouping_tab: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     table: Mapped[Table] = relationship("Table", back_populates="fields")
+    legal_requirement: Mapped[Optional["LegalRequirement"]] = relationship(
+        "LegalRequirement", back_populates="fields", foreign_keys="Field.legal_requirement_id"
+    )
+    security_classification: Mapped[Optional["SecurityClassification"]] = relationship(
+        "SecurityClassification", back_populates="fields", foreign_keys="Field.security_classification_id"
+    )
     field_loads: Mapped[list["FieldLoad"]] = relationship(
         "FieldLoad",
         back_populates="field",
@@ -1538,6 +1597,7 @@ class DatabricksSqlSetting(Base, TimestampMixin):
     ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     ingestion_method: Mapped[str] = mapped_column(String(20), nullable=False, default="sql")
+    spark_compute: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -1629,7 +1689,7 @@ class IngestionSchedule(Base, TimestampMixin):
     target_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_table_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     target_warehouse: Mapped[str] = mapped_column(
-        sa.Enum("databricks_sql", "sap_hana", name="data_warehouse_type_enum"),
+        sa.Enum("databricks_sql", name="data_warehouse_type_enum"),
         nullable=False,
         default="databricks_sql",
     )
@@ -1780,3 +1840,38 @@ class Mapping(Base, TimestampMixin):
         foreign_keys=[target_field_id],
     )
     creator: Mapped[User | None] = relationship("User", back_populates="mappings")
+
+
+class Report(Base, TimestampMixin):
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        sa.Enum("draft", "published", name="report_status_enum"),
+        nullable=False,
+        default="draft",
+    )
+    definition: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    process_area_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("process_areas.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    data_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("data_objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    process_area: Mapped[ProcessArea | None] = relationship(
+        "ProcessArea",
+        back_populates="reports",
+    )
+    data_object: Mapped[DataObject | None] = relationship(
+        "DataObject",
+        back_populates="reports",
+    )

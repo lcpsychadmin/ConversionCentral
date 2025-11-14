@@ -6,6 +6,7 @@ from app.models.entities import (
     DataDefinitionField,
     DataDefinitionRelationship,
     ExecutionContext,
+    LegalRequirement,
     Field,
     FieldLoad,
     Role,
@@ -44,6 +45,8 @@ from app.models.entities import (
     SapHanaSetting,
     ApplicationDatabaseSetting,
     ApplicationSetting,
+    SecurityClassification,
+    Report,
 )
 
 __all__ = [
@@ -57,6 +60,8 @@ __all__ = [
     "System",
     "Table",
     "Field",
+    "LegalRequirement",
+    "SecurityClassification",
     "ConstructedField",
     "DataObjectSystem",
     "DataDefinition",
@@ -92,4 +97,5 @@ __all__ = [
     "SapHanaSetting",
     "ApplicationDatabaseSetting",
     "ApplicationSetting",
+    "Report",
 ]

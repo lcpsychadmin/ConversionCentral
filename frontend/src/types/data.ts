@@ -107,6 +107,26 @@ export interface System {
   updatedAt?: string;
 }
 
+export interface LegalRequirement {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SecurityClassification {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface SystemFormValues {
   name: string;
   physicalName: string;
@@ -123,7 +143,7 @@ export type SystemConnectionAuthMethod =
   | 'oauth'
   | 'key_vault_reference';
 
-export type RelationalDatabaseType = 'postgresql' | 'databricks';
+export type RelationalDatabaseType = 'postgresql' | 'databricks' | 'sap';
 
 export interface SystemConnection {
   id: string;
@@ -168,6 +188,7 @@ export interface DatabricksSqlSettings {
   constructedSchema?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
+  sparkCompute?: 'classic' | 'serverless' | null;
   warehouseName?: string | null;
   isActive: boolean;
   hasAccessToken: boolean;
@@ -185,6 +206,7 @@ export interface DatabricksSqlSettingsInput {
   constructedSchema?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
+  sparkCompute?: 'classic' | 'serverless' | null;
   warehouseName?: string | null;
 }
 
@@ -198,6 +220,7 @@ export interface DatabricksSqlSettingsUpdate {
   constructedSchema?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
+  sparkCompute?: 'classic' | 'serverless' | null;
   warehouseName?: string | null;
   isActive?: boolean;
 }
@@ -206,6 +229,12 @@ export interface DatabricksSqlSettingsTestResult {
   success: boolean;
   message: string;
   durationMs?: number | null;
+}
+
+export interface DatabricksDataType {
+  name: string;
+  category: string;
+  supportsDecimalPlaces: boolean;
 }
 
 export interface SapHanaSettings {
@@ -347,7 +376,7 @@ export interface ConnectionCatalogSelectionInput {
 
 export type IngestionLoadStrategy = 'timestamp' | 'numeric_key' | 'full';
 
-export type DataWarehouseTarget = 'databricks_sql' | 'sap_hana';
+export type DataWarehouseTarget = 'databricks_sql';
 
 export type UploadTableMode = 'create' | 'replace';
 
@@ -494,7 +523,10 @@ export interface Field {
   suppressedField: boolean;
   active: boolean;
   legalRegulatoryImplications?: string | null;
-  securityClassification?: string | null;
+  legalRequirementId?: string | null;
+  legalRequirement?: LegalRequirement | null;
+  securityClassificationId?: string | null;
+  securityClassification?: SecurityClassification | null;
   dataValidation?: string | null;
   referenceTable?: string | null;
   groupingTab?: string | null;
@@ -517,7 +549,8 @@ export interface FieldInput {
   suppressedField?: boolean;
   active?: boolean;
   legalRegulatoryImplications?: string | null;
-  securityClassification?: string | null;
+  legalRequirementId?: string | null;
+  securityClassificationId?: string | null;
   dataValidation?: string | null;
   referenceTable?: string | null;
   groupingTab?: string | null;

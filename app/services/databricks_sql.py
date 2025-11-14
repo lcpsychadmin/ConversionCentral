@@ -25,6 +25,7 @@ class DatabricksConnectionParams:
     constructed_schema: Optional[str] = None
     ingestion_batch_rows: Optional[int] = None
     ingestion_method: str = "sql"
+    spark_compute: Optional[str] = None
 
 
 def build_sqlalchemy_url(params: DatabricksConnectionParams) -> URL:

@@ -26,8 +26,14 @@ from app.models import (
     SystemConnection,
 )
 from app.schemas import IngestionLoadStrategy, IngestionRunStatus, SystemConnectionType
+from app.ingestion.engine import get_ingestion_connection_params
 from app.services.connection_resolver import UnsupportedConnectionError, resolve_sqlalchemy_url
-from app.services.ingestion_loader import DatabricksTableLoader, build_loader_plan
+from app.services.ingestion_loader import (
+    BaseTableLoader,
+    DatabricksTableLoader,
+    SparkTableLoader,
+    build_loader_plan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +75,13 @@ class ScheduledIngestionEngine:
         self,
         session_factory: Callable[[], Session] = SessionLocal,
         *,
-        loader: DatabricksTableLoader | None = None,
+        loader: BaseTableLoader | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._loader = loader
+        self._loader_method: str | None = None
+        if loader is not None:
+            self._loader_method = "spark" if isinstance(loader, SparkTableLoader) else "sql"
         self._scheduler: AsyncIOScheduler | None = None
 
     def start(self) -> None:
@@ -330,9 +339,18 @@ class ScheduledIngestionEngine:
         )
         return loaded
 
-    def _get_loader(self) -> DatabricksTableLoader:
-        if self._loader is None:
-            self._loader = DatabricksTableLoader()
+    def _get_loader(self) -> BaseTableLoader:
+        params = get_ingestion_connection_params()
+        method = (params.ingestion_method or "sql").strip().lower()
+        if method not in {"sql", "spark"}:
+            method = "sql"
+
+        if self._loader is None or self._loader_method != method:
+            if method == "spark":
+                self._loader = SparkTableLoader()
+            else:
+                self._loader = DatabricksTableLoader()
+            self._loader_method = method
         return self._loader
 
     def _compute_timestamp_watermark(

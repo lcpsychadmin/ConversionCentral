@@ -1,0 +1,1 @@
+1. On the reporting designer, when dragging and dropping a table from the pallette, it's invoking preventdefault equal to true which is preventing navigating away from the page.

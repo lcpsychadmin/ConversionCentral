@@ -7,18 +7,41 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   Stack,
   Switch,
   TextField,
   Typography
 } from '@mui/material';
 
+import {
+  DatabricksDataType,
+  LegalRequirement,
+  SecurityClassification
+} from '../../types/data';
+
+type EnterpriseAttributeValue = 'Yes' | 'No';
+
+const normalizeEnterpriseAttribute = (value?: string | null): EnterpriseAttributeValue => {
+  if (!value) {
+    return 'No';
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (['yes', 'y', 'true'].includes(normalized)) {
+    return 'Yes';
+  }
+
+  return 'No';
+};
+
 export type FieldFormValues = {
   name: string;
   description: string;
   applicationUsage: string;
   businessDefinition: string;
-  enterpriseAttribute: string;
+  enterpriseAttribute: EnterpriseAttributeValue;
   fieldType: string;
   fieldLength: string;
   decimalPlaces: string;
@@ -28,7 +51,8 @@ export type FieldFormValues = {
   active: boolean;
   isUnique: boolean;
   legalRegulatoryImplications: string;
-  securityClassification: string;
+  legalRequirementId: string;
+  securityClassificationId: string;
   dataValidation: string;
   referenceTable: string;
   groupingTab: string;
@@ -40,6 +64,12 @@ interface CreateFieldDialogProps {
   loading?: boolean;
   mode?: 'create' | 'edit';
   initialValues?: Partial<Record<keyof FieldFormValues, string | boolean | null>>;
+  fieldTypeOptions: DatabricksDataType[];
+  fieldTypeLoading?: boolean;
+  legalRequirements: LegalRequirement[];
+  legalRequirementsLoading?: boolean;
+  securityClassifications: SecurityClassification[];
+  securityClassificationsLoading?: boolean;
   onClose: () => void;
   onSubmit: (values: FieldFormValues) => Promise<void>;
 }
@@ -49,7 +79,7 @@ const defaultValues: FieldFormValues = {
   description: '',
   applicationUsage: '',
   businessDefinition: '',
-  enterpriseAttribute: '',
+  enterpriseAttribute: 'No',
   fieldType: '',
   fieldLength: '',
   decimalPlaces: '',
@@ -59,7 +89,8 @@ const defaultValues: FieldFormValues = {
   active: true,
   isUnique: false,
   legalRegulatoryImplications: '',
-  securityClassification: '',
+  legalRequirementId: '',
+  securityClassificationId: '',
   dataValidation: '',
   referenceTable: '',
   groupingTab: ''
@@ -71,6 +102,12 @@ const CreateFieldDialog = ({
   loading = false,
   mode = 'create',
   initialValues,
+  fieldTypeOptions,
+  fieldTypeLoading = false,
+  legalRequirements,
+  legalRequirementsLoading = false,
+  securityClassifications,
+  securityClassificationsLoading = false,
   onClose,
   onSubmit
 }: CreateFieldDialogProps) => {
@@ -83,7 +120,7 @@ const CreateFieldDialog = ({
       description: (initialValues.description as string | undefined) ?? '',
       applicationUsage: (initialValues.applicationUsage as string | undefined) ?? '',
       businessDefinition: (initialValues.businessDefinition as string | undefined) ?? '',
-      enterpriseAttribute: (initialValues.enterpriseAttribute as string | undefined) ?? '',
+  enterpriseAttribute: normalizeEnterpriseAttribute(initialValues.enterpriseAttribute as string | undefined),
       fieldType: (initialValues.fieldType as string | undefined) ?? '',
       fieldLength: initialValues.fieldLength != null ? String(initialValues.fieldLength) : '',
       decimalPlaces: initialValues.decimalPlaces != null ? String(initialValues.decimalPlaces) : '',
@@ -94,7 +131,9 @@ const CreateFieldDialog = ({
       isUnique: Boolean(initialValues.isUnique ?? false),
       legalRegulatoryImplications:
         (initialValues.legalRegulatoryImplications as string | undefined) ?? '',
-      securityClassification: (initialValues.securityClassification as string | undefined) ?? '',
+      legalRequirementId: (initialValues.legalRequirementId as string | undefined) ?? '',
+      securityClassificationId:
+        (initialValues.securityClassificationId as string | undefined) ?? '',
       dataValidation: (initialValues.dataValidation as string | undefined) ?? '',
       referenceTable: (initialValues.referenceTable as string | undefined) ?? '',
       groupingTab: (initialValues.groupingTab as string | undefined) ?? ''
@@ -104,11 +143,24 @@ const CreateFieldDialog = ({
   const [values, setValues] = useState<FieldFormValues>(baseValues);
   const [errors, setErrors] = useState<{ name?: string; fieldType?: string; fieldLength?: string; decimalPlaces?: string }>({});
 
+  const selectedFieldType = useMemo(
+    () => fieldTypeOptions.find((option) => option.name === values.fieldType),
+    [fieldTypeOptions, values.fieldType]
+  );
+
+  const decimalPlacesDisabled = selectedFieldType ? !selectedFieldType.supportsDecimalPlaces : false;
+
   useEffect(() => {
     if (!open) return;
     setValues(baseValues);
     setErrors({});
   }, [open, baseValues]);
+
+  useEffect(() => {
+    if (decimalPlacesDisabled && values.decimalPlaces) {
+      setValues((prev) => ({ ...prev, decimalPlaces: '' }));
+    }
+  }, [decimalPlacesDisabled, values.decimalPlaces]);
 
   const isDirty = useMemo(() => {
     return Object.entries(values).some(([key, value]) => value !== baseValues[key as keyof FieldFormValues]);
@@ -121,9 +173,18 @@ const CreateFieldDialog = ({
   };
 
   const handleBooleanChange = (
-    field: 'systemRequired' | 'businessProcessRequired' | 'suppressedField' | 'active' | 'isUnique'
+    field:
+      | 'systemRequired'
+      | 'businessProcessRequired'
+      | 'suppressedField'
+      | 'active'
+      | 'isUnique'
   ) => (_: ChangeEvent<HTMLInputElement>, checked: boolean) => {
     setValues((prev) => ({ ...prev, [field]: checked }));
+  };
+
+  const handleEnterpriseAttributeChange = (_: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+    setValues((prev) => ({ ...prev, enterpriseAttribute: checked ? 'Yes' : 'No' }));
   };
 
   const handleClose = () => {
@@ -171,7 +232,7 @@ const CreateFieldDialog = ({
       description: values.description.trim(),
       applicationUsage: values.applicationUsage.trim(),
       businessDefinition: values.businessDefinition.trim(),
-      enterpriseAttribute: values.enterpriseAttribute.trim(),
+  enterpriseAttribute: values.enterpriseAttribute,
       fieldType: values.fieldType.trim(),
       fieldLength: values.fieldLength.trim(),
       decimalPlaces: values.decimalPlaces.trim(),
@@ -179,9 +240,10 @@ const CreateFieldDialog = ({
       businessProcessRequired: values.businessProcessRequired,
       suppressedField: values.suppressedField,
       active: values.active,
-  isUnique: values.isUnique,
-      legalRegulatoryImplications: values.legalRegulatoryImplications.trim(),
-      securityClassification: values.securityClassification.trim(),
+      isUnique: values.isUnique,
+  legalRegulatoryImplications: values.legalRegulatoryImplications.trim(),
+      legalRequirementId: values.legalRequirementId.trim(),
+      securityClassificationId: values.securityClassificationId.trim(),
       dataValidation: values.dataValidation.trim(),
       referenceTable: values.referenceTable.trim(),
       groupingTab: values.groupingTab.trim()
@@ -233,20 +295,27 @@ const CreateFieldDialog = ({
               fullWidth
             />
             <TextField
-              label="Enterprise Attribute"
-              value={values.enterpriseAttribute}
-              onChange={handleChange('enterpriseAttribute')}
-              fullWidth
-            />
-            <TextField
+              select
               label="Field Type"
               value={values.fieldType}
               onChange={handleChange('fieldType')}
               required
               error={!!errors.fieldType}
-              helperText={errors.fieldType}
+              helperText={errors.fieldType ?? (fieldTypeLoading ? 'Loading data types...' : undefined)}
               fullWidth
-            />
+              disabled={fieldTypeLoading}
+              SelectProps={{ displayEmpty: true }}
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>Select a data type</em>
+              </MenuItem>
+              {fieldTypeOptions.map((type) => (
+                <MenuItem key={type.name} value={type.name}>
+                  {type.name}
+                </MenuItem>
+              ))}
+            </TextField>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <TextField
                 label="Field Length"
@@ -270,6 +339,15 @@ const CreateFieldDialog = ({
               />
             </Stack>
             <Stack direction="row" spacing={2} flexWrap="wrap">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={values.enterpriseAttribute === 'Yes'}
+                    onChange={handleEnterpriseAttributeChange}
+                  />
+                }
+                label="Enterprise Attribute"
+              />
               <FormControlLabel
                 control={<Switch checked={values.systemRequired} onChange={handleBooleanChange('systemRequired')} />}
                 label="System Required"
@@ -297,17 +375,49 @@ const CreateFieldDialog = ({
               />
             </Stack>
             <TextField
-              label="Legal / Regulatory Implications"
+              select
+              label="Legal Requirement"
+              value={values.legalRequirementId}
+              onChange={handleChange('legalRequirementId')}
+              fullWidth
+              disabled={legalRequirementsLoading}
+              SelectProps={{ displayEmpty: true }}
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {legalRequirements.map((legalRequirement) => (
+                <MenuItem key={legalRequirement.id} value={legalRequirement.id}>
+                  {legalRequirement.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Security Classification"
+              value={values.securityClassificationId}
+              onChange={handleChange('securityClassificationId')}
+              fullWidth
+              disabled={securityClassificationsLoading}
+              SelectProps={{ displayEmpty: true }}
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {securityClassifications.map((securityClassification) => (
+                <MenuItem key={securityClassification.id} value={securityClassification.id}>
+                  {securityClassification.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Legal / Regulatory Notes"
               value={values.legalRegulatoryImplications}
               onChange={handleChange('legalRegulatoryImplications')}
               multiline
               minRows={2}
-              fullWidth
-            />
-            <TextField
-              label="Security Classification"
-              value={values.securityClassification}
-              onChange={handleChange('securityClassification')}
               fullWidth
             />
             <TextField

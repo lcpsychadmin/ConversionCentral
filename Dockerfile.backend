@@ -4,6 +4,7 @@ FROM python:3.11-slim-bullseye AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
     DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies for the API

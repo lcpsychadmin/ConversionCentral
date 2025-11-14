@@ -23,7 +23,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { alpha, lighten, useTheme } from '@mui/material/styles';
 import { RevoGrid, Template } from '@revolist/react-datagrid';
-import type { ColumnDataSchemaModel, ColumnRegular, ColumnTemplateProp } from '@revolist/revogrid';
+import type { ColumnDataSchemaModel, ColumnRegular } from '@revolist/revogrid';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import type { AxiosError } from 'axios';
 
@@ -49,6 +49,19 @@ type GridRowData = EditableConstructedRow &
     __isPlaceholder?: boolean;
   };
 
+type ColumnTemplateContext = {
+  prop?: string | number | symbol;
+  rowIndex?: number;
+  column?: ColumnRegular;
+  [key: string]: unknown;
+};
+
+type TemplateCallbackProps = ColumnDataSchemaModel | ColumnTemplateContext;
+
+type BeforeUnloadSentinelWindow = Window & {
+  __CC_SUPPRESS_BEFOREUNLOAD?: boolean;
+};
+
 type RevoGridSelectionRange = {
   y: number;
   y1: number;
@@ -61,8 +74,9 @@ type RevoGridElement = HTMLRevoGridElement & {
 };
 
 const isColumnDataSchemaModel = (
-  props: ColumnDataSchemaModel | ColumnTemplateProp
-): props is ColumnDataSchemaModel => 'model' in props;
+  props: TemplateCallbackProps
+): props is ColumnDataSchemaModel =>
+  typeof props === 'object' && props !== null && 'model' in props;
 
 type GridModel = {
   id?: string | number;
@@ -313,35 +327,28 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     () => alpha(modalHeaderTextColor, isDarkMode ? 0.25 : 0.18),
     [isDarkMode, modalHeaderTextColor]
   );
-  const toolbarGradient = useMemo(
-    () =>
-      isDarkMode
-        ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.88)} 0%, ${alpha(
-            theme.palette.primary.dark ?? theme.palette.primary.main,
-            0.82
-          )} 100%)`
-        : `linear-gradient(135deg, ${alpha(theme.palette.primary.light ?? theme.palette.primary.main, 0.98)} 0%, ${theme.palette.primary.main} 70%, ${theme.palette.primary.dark ?? theme.palette.primary.main} 100%)`,
-    [isDarkMode, theme]
-  );
+  const toolbarGradient = useMemo(() => {
+    if (isDarkMode) {
+      return `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.88)} 0%, ${alpha(
+        theme.palette.background.default,
+        0.94
+      )} 100%)`;
+    }
+    return `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.98)} 0%, ${alpha(
+      theme.palette.background.default,
+      0.92
+    )} 100%)`;
+  }, [isDarkMode, theme]);
   const toolbarBorderColor = useMemo(
-    () =>
-      alpha(
-        isDarkMode
-          ? theme.palette.common.white
-          : theme.palette.primary.dark ?? theme.palette.primary.main,
-        isDarkMode ? 0.35 : 0.25
-      ),
+    () => alpha(theme.palette.divider, isDarkMode ? 0.45 : 0.28),
     [isDarkMode, theme]
   );
   const toolbarTextColor = useMemo(
-    () => (isDarkMode ? theme.palette.common.white : theme.palette.common.white),
+    () => (isDarkMode ? alpha(theme.palette.common.white, 0.92) : theme.palette.text.primary),
     [isDarkMode, theme]
   );
   const toolbarShadow = useMemo(
-    () =>
-      isDarkMode
-        ? theme.shadows[6]
-        : `0 12px 32px ${alpha(theme.palette.common.black, 0.18)}`,
+    () => (isDarkMode ? theme.shadows[4] : theme.shadows[2]),
     [isDarkMode, theme]
   );
   const toast = useToast();
@@ -1169,7 +1176,7 @@ ${error.message}`
 
   const createSelectCellTemplate = useCallback(
     (fieldName: string, options: { label: string; value: string }[]) =>
-      Template((props: ColumnDataSchemaModel | ColumnTemplateProp) => {
+      Template((props: TemplateCallbackProps) => {
         if (!isColumnDataSchemaModel(props)) {
           return null;
         }
@@ -1957,7 +1964,7 @@ ${error.message}`
 
   const selectCellTemplate = useMemo(
     () =>
-      Template((props: ColumnDataSchemaModel | ColumnTemplateProp) => {
+      Template((props: TemplateCallbackProps) => {
         if (!isColumnDataSchemaModel(props)) {
           return null;
         }
@@ -2003,7 +2010,7 @@ ${error.message}`
 
   const deleteCellTemplate = useMemo(
     () =>
-      Template((props: ColumnDataSchemaModel | ColumnTemplateProp) => {
+      Template((props: TemplateCallbackProps) => {
         if (!isColumnDataSchemaModel(props)) {
           return null;
         }
@@ -2084,6 +2091,20 @@ ${error.message}`
     }
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      try {
+        // If a global sentinel is set (e.g., user confirmed navigation via in-app modal),
+        // allow the unload to proceed without setting returnValue or preventing default.
+        // This is checked to avoid triggering the browser native unload confirmation
+        // when an in-app flow has already confirmed navigation.
+        const suppressBeforeUnload = Boolean(
+          (window as BeforeUnloadSentinelWindow).__CC_SUPPRESS_BEFOREUNLOAD
+        );
+        if (suppressBeforeUnload) {
+          return;
+        }
+      } catch {
+        // ignore
+      }
       event.preventDefault();
       event.returnValue = '';
     };
@@ -2096,13 +2117,12 @@ ${error.message}`
 
   const selectAllHeaderTemplate = useMemo(
     () =>
-      Template((templateProps: ColumnDataSchemaModel | ColumnTemplateProp) => {
+      Template((templateProps: TemplateCallbackProps) => {
         if (isColumnDataSchemaModel(templateProps)) {
           return null;
         }
 
-        const columnTemplateProps = templateProps as ColumnTemplateProp;
-        const columnProp = columnTemplateProps.prop;
+        const columnProp = templateProps.prop;
 
         return (
           <Box
@@ -2190,6 +2210,13 @@ ${error.message}`
         columnType: 'text',
       };
 
+      if (fieldName === AUDIT_CREATED_DATE_FIELD || fieldName === AUDIT_MODIFIED_DATE_FIELD) {
+        column.size = 240;
+        column.minSize = 200;
+        column.maxSize = 340;
+        (column as ColumnRegular & { autoSize?: boolean }).autoSize = true;
+      }
+
       if (READ_ONLY_AUDIT_FIELDS.has(field.name)) {
         column.readonly = true;
       }
@@ -2203,7 +2230,7 @@ ${error.message}`
       }
 
       if (!column.cellTemplate) {
-        column.cellTemplate = Template((templateProps: ColumnDataSchemaModel | ColumnTemplateProp) => {
+  column.cellTemplate = Template((templateProps: TemplateCallbackProps) => {
           if (!isColumnDataSchemaModel(templateProps)) {
             return null;
           }

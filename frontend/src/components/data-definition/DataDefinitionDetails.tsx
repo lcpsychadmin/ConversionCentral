@@ -76,7 +76,10 @@ import {
 	DataDefinitionRelationshipUpdateInput,
 	DataDefinitionTable,
 	Field,
-	ConnectionTablePreview
+	ConnectionTablePreview,
+	DatabricksDataType,
+	LegalRequirement,
+	SecurityClassification
 } from '../../types/data';
 import { fetchTablePreview } from '../../services/tableService';
 import { useToast } from '../../hooks/useToast';
@@ -92,7 +95,8 @@ type FieldDraft = {
 	fieldLength: string;
 	decimalPlaces: string;
 	legalRegulatoryImplications: string;
-	securityClassification: string;
+	legalRequirementId: string;
+	securityClassificationId: string;
 	dataValidation: string;
 	referenceTable: string;
 	groupingTab: string;
@@ -112,17 +116,18 @@ type FieldColumn =
 	| { key: NumberColumnKey; label: string; kind: 'number'; minWidth?: number }
 	| { key: BooleanDraftKey; label: string; kind: 'boolean' };
 
+
 const FIELD_COLUMNS: FieldColumn[] = [
 	{ key: 'name', label: 'Name', kind: 'text', minWidth: 200 },
 	{ key: 'description', label: 'Description', kind: 'text', multiline: true, minWidth: 260 },
 	{ key: 'applicationUsage', label: 'Application Usage', kind: 'text', multiline: true, minWidth: 220 },
 	{ key: 'businessDefinition', label: 'Business Definition', kind: 'text', multiline: true, minWidth: 260 },
-	{ key: 'enterpriseAttribute', label: 'Enterprise Attribute', kind: 'text', minWidth: 200 },
 	{ key: 'fieldType', label: 'Field Type', kind: 'text', minWidth: 160 },
 	{ key: 'fieldLength', label: 'Length', kind: 'number', minWidth: 100 },
 	{ key: 'decimalPlaces', label: 'Decimal Places', kind: 'number', minWidth: 120 },
 	{ key: 'systemRequired', label: 'System Required', kind: 'boolean' },
 	{ key: 'businessProcessRequired', label: 'Business Process Required', kind: 'boolean' },
+	{ key: 'enterpriseAttribute', label: 'Enterprise Attribute', kind: 'text', minWidth: 160 },
 	{ key: 'suppressedField', label: 'Suppressed', kind: 'boolean' },
 	{ key: 'active', label: 'Active', kind: 'boolean' },
 	{
@@ -132,11 +137,57 @@ const FIELD_COLUMNS: FieldColumn[] = [
 		multiline: true,
 		minWidth: 240
 	},
-	{ key: 'securityClassification', label: 'Security Classification', kind: 'text', minWidth: 200 },
+	{ key: 'legalRequirementId', label: 'Legal Requirement', kind: 'text', minWidth: 200 },
+	{ key: 'securityClassificationId', label: 'Security Classification', kind: 'text', minWidth: 200 },
 	{ key: 'dataValidation', label: 'Data Validation', kind: 'text', multiline: true, minWidth: 220 },
 	{ key: 'referenceTable', label: 'Reference Table', kind: 'text', minWidth: 180 },
 	{ key: 'groupingTab', label: 'Grouping Tab', kind: 'text', minWidth: 160 }
 ];
+
+const ENTERPRISE_ATTRIBUTE_OPTIONS = [
+	{ label: 'Yes', value: 'Yes' },
+	{ label: 'No', value: 'No' }
+];
+
+const normalizeEnterpriseAttribute = (value?: string | null): string => {
+	if (!value) {
+		return '';
+	}
+
+	const normalized = value.trim().toLowerCase();
+
+	if (['yes', 'y', 'true'].includes(normalized)) {
+		return 'Yes';
+	}
+
+	if (['no', 'n', 'false'].includes(normalized)) {
+		return 'No';
+	}
+
+	return value.trim();
+};
+
+const enterpriseAttributeToBoolean = (value?: string | null): boolean | null => {
+	const normalized = normalizeEnterpriseAttribute(value);
+	if (normalized === 'Yes') {
+		return true;
+	}
+	if (normalized === 'No') {
+		return false;
+	}
+	return null;
+};
+
+const cycleEnterpriseAttributeValue = (value?: string | null): string => {
+	const normalized = normalizeEnterpriseAttribute(value);
+	if (normalized === 'Yes') {
+		return 'No';
+	}
+	if (normalized === 'No') {
+		return '';
+	}
+	return 'Yes';
+};
 
 const AUDIT_FIELD_NAMES = new Set(
 	['Project', 'Release', 'Created By', 'Created Date', 'Modified By', 'Modified Date'].map((name) =>
@@ -149,12 +200,13 @@ const buildDraft = (field: Field): FieldDraft => ({
 	description: field.description ?? '',
 	applicationUsage: field.applicationUsage ?? '',
 	businessDefinition: field.businessDefinition ?? '',
-	enterpriseAttribute: field.enterpriseAttribute ?? '',
+	enterpriseAttribute: normalizeEnterpriseAttribute(field.enterpriseAttribute),
 	fieldType: field.fieldType,
 	fieldLength: field.fieldLength?.toString() ?? '',
 	decimalPlaces: field.decimalPlaces?.toString() ?? '',
 	legalRegulatoryImplications: field.legalRegulatoryImplications ?? '',
-	securityClassification: field.securityClassification ?? '',
+	legalRequirementId: field.legalRequirementId ?? '',
+	securityClassificationId: field.securityClassificationId ?? '',
 	dataValidation: field.dataValidation ?? '',
 	referenceTable: field.referenceTable ?? '',
 	groupingTab: field.groupingTab ?? '',
@@ -186,7 +238,8 @@ const createEmptyDraft = (): FieldDraft => ({
 	fieldLength: '',
 	decimalPlaces: '',
 	legalRegulatoryImplications: '',
-	securityClassification: '',
+	legalRequirementId: '',
+	securityClassificationId: '',
 	dataValidation: '',
 	referenceTable: '',
 	groupingTab: '',
@@ -363,8 +416,6 @@ const GridTextarea = styled(TextareaAutosize)(({ theme }) => {
 		: alpha(theme.palette.action.disabledBackground, 0.35);
 
 	return {
-		width: '100%',
-		borderRadius: 6,
 		border: `1px solid ${alpha(theme.palette.divider, isDarkMode ? 0.55 : 0.45)}`,
 		backgroundColor: baseBackground,
 		fontFamily: theme.typography.fontFamily,
@@ -578,6 +629,9 @@ type DataDefinitionDetailsProps = {
 	onReorderFields?: (definitionTableId: string, orderedDefinitionFieldIds: string[]) => Promise<boolean>;
 	onDeleteField?: (definitionTableId: string, definitionFieldId: string) => Promise<boolean>;
 	relationshipBusy?: boolean;
+	dataTypes?: DatabricksDataType[];
+	legalRequirements?: LegalRequirement[];
+	securityClassifications?: SecurityClassification[];
 };
 
 const DataDefinitionDetails = ({
@@ -598,7 +652,10 @@ const DataDefinitionDetails = ({
 	onDeleteRelationship,
 	onReorderFields,
 	onDeleteField,
-	relationshipBusy = false
+	relationshipBusy = false,
+	dataTypes = [],
+	legalRequirements = [],
+	securityClassifications = []
 }: DataDefinitionDetailsProps) => {
 	const toast = useToast();
 	const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>(() => {
@@ -616,6 +673,48 @@ const DataDefinitionDetails = ({
 		});
 		return map;
 	}, [definition.tables]);
+
+	const dataTypeByName = useMemo(() => {
+		const map = new Map<string, DatabricksDataType>();
+		dataTypes.forEach((type) => {
+			const original = type.name;
+			map.set(original, type);
+			map.set(original.toLowerCase(), type);
+			map.set(original.toUpperCase(), type);
+		});
+		return map;
+	}, [dataTypes]);
+
+	const legalRequirementNameById = useMemo(() => {
+		const map = new Map<string, string>();
+		legalRequirements.forEach((item) => {
+			map.set(item.id, item.name);
+		});
+		return map;
+	}, [legalRequirements]);
+
+	const securityClassificationNameById = useMemo(() => {
+		const map = new Map<string, string>();
+		securityClassifications.forEach((item) => {
+			map.set(item.id, item.name);
+		});
+		return map;
+	}, [securityClassifications]);
+
+	const supportsDecimalPlaces = useCallback(
+		(name: string) => {
+			if (!name) {
+				return true;
+			}
+			const trimmed = name.trim();
+			const type =
+				dataTypeByName.get(trimmed) ??
+				dataTypeByName.get(trimmed.toLowerCase()) ??
+				dataTypeByName.get(trimmed.toUpperCase());
+			return type ? type.supportsDecimalPlaces : true;
+		},
+		[dataTypeByName]
+	);
 
 	const initialDrafts = useMemo(() => mapDraftsFromDefinition(definition), [definition]);
 	const [drafts, setDrafts] = useState<Record<string, FieldDraft>>(initialDrafts);
@@ -968,15 +1067,39 @@ const DataDefinitionDetails = ({
 		(field: Field, key: StringDraftKey, value: string) => {
 			setDrafts((prev) => {
 				const previous = prev[field.id] ?? buildDraft(field);
+				let nextDraft = {
+					...previous,
+					[key]: value
+				};
+
+				if (key === 'enterpriseAttribute') {
+					nextDraft = {
+						...nextDraft,
+						enterpriseAttribute: normalizeEnterpriseAttribute(value)
+					};
+				}
+
+				if (key === 'fieldType') {
+					nextDraft = {
+						...nextDraft,
+						fieldType: value
+					};
+					if (!supportsDecimalPlaces(value)) {
+						nextDraft = {
+							...nextDraft,
+							decimalPlaces: ''
+						};
+					}
+				}
+
 				return {
 					...prev,
-					[field.id]: {
-						...previous,
-						[key]: value
-					}
+					[field.id]: nextDraft
 				};
 			});
-	}, []);
+		},
+		[supportsDecimalPlaces]
+	);
 
 	const handleSubmitChange = useCallback(
 		async (field: Field, key: StringDraftKey) => {
@@ -988,7 +1111,16 @@ const DataDefinitionDetails = ({
 			if (currentDraft[key] === currentCommitted[key]) {
 				return;
 			}
-			const success = await onInlineFieldSubmit(field, { [key]: currentDraft[key] });
+			const payload: Partial<Record<StringDraftKey, string>> = {
+				[key]: currentDraft[key]
+			};
+			if (
+				key === 'fieldType' &&
+				currentDraft.decimalPlaces !== currentCommitted.decimalPlaces
+			) {
+				payload.decimalPlaces = currentDraft.decimalPlaces;
+			}
+			const success = await onInlineFieldSubmit(field, payload);
 			if (success) {
 				setCommitted((prev) => {
 					const previous = prev[field.id] ?? buildDraft(field);
@@ -996,7 +1128,12 @@ const DataDefinitionDetails = ({
 						...prev,
 						[field.id]: {
 							...previous,
-							[key]: currentDraft[key]
+							...Object.fromEntries(
+								Object.keys(payload).map((changedKey) => [
+									changedKey,
+									currentDraft[changedKey as StringDraftKey]
+								])
+							)
 						}
 					};
 				});
@@ -1007,7 +1144,12 @@ const DataDefinitionDetails = ({
 						...prev,
 						[field.id]: {
 							...previous,
-							[key]: currentCommitted[key]
+							...Object.fromEntries(
+								Object.keys(payload).map((changedKey) => [
+									changedKey,
+									currentCommitted[changedKey as StringDraftKey]
+								])
+							)
 						}
 					};
 				});
@@ -1319,19 +1461,44 @@ const DataDefinitionDetails = ({
 
 	const handleCreateDraftTextChange = useCallback(
 		(definitionTableId: string, key: StringDraftKey, value: string) => {
-			updateCreateRow(definitionTableId, (state) => ({
-				...state,
-				draft: {
+			updateCreateRow(definitionTableId, (state) => {
+				let nextDraft = {
 					...state.draft,
 					[key]: value
-				},
-				errors: {
-					...state.errors,
-					[key]: undefined
+				};
+
+				if (key === 'enterpriseAttribute') {
+					nextDraft = {
+						...nextDraft,
+						enterpriseAttribute: normalizeEnterpriseAttribute(value)
+					};
 				}
-			}));
+
+				if (key === 'fieldType') {
+					nextDraft = {
+						...nextDraft,
+						fieldType: value
+					};
+					if (!supportsDecimalPlaces(value)) {
+						nextDraft = {
+							...nextDraft,
+							decimalPlaces: ''
+						};
+					}
+				}
+
+				return {
+					...state,
+					draft: nextDraft,
+					errors: {
+						...state.errors,
+						[key]: undefined,
+						...(key === 'fieldType' ? { decimalPlaces: undefined } : {})
+					}
+				};
+			});
 		},
-		[updateCreateRow]
+		[supportsDecimalPlaces, updateCreateRow]
 	);
 
 	const handleCreateDraftBooleanChange = useCallback(
@@ -1478,7 +1645,8 @@ const DataDefinitionDetails = ({
 					businessDefinition,
 					enterpriseAttribute,
 					legalRegulatoryImplications,
-					securityClassification,
+					legalRequirementIdCell,
+					securityClassificationIdCell,
 					dataValidation,
 					referenceTable,
 					groupingTab,
@@ -1495,7 +1663,8 @@ const DataDefinitionDetails = ({
 					fieldLength: fieldLength ?? '',
 					decimalPlaces: decimalPlaces ?? '',
 					legalRegulatoryImplications: legalRegulatoryImplications ?? '',
-					securityClassification: securityClassification ?? '',
+					legalRequirementId: legalRequirementIdCell ?? '',
+					securityClassificationId: securityClassificationIdCell ?? '',
 					dataValidation: dataValidation ?? '',
 					referenceTable: referenceTable ?? '',
 					groupingTab: groupingTab ?? '',
@@ -1549,13 +1718,28 @@ const DataDefinitionDetails = ({
 			.map((definitionField) => {
 				const field = definitionField.field!;
 				const values = FIELD_COLUMNS.map((column) => {
-					switch (column.kind) {
-						case 'boolean':
-							return toCsvString(field[column.key]);
-						case 'number':
-							return toCsvString(field[column.key] ?? '');
+					switch (column.key) {
+						case 'legalRequirementId': {
+							const id = field.legalRequirementId ?? '';
+							const label = id ? legalRequirementNameById.get(id) ?? id : '';
+							return toCsvString(label);
+						}
+						case 'securityClassificationId': {
+							const id = field.securityClassificationId ?? '';
+							const label = id ? securityClassificationNameById.get(id) ?? id : '';
+							return toCsvString(label);
+						}
+						case 'enterpriseAttribute':
+							return toCsvString(normalizeEnterpriseAttribute(field.enterpriseAttribute));
 						default:
-							return toCsvString(field[column.key] ?? '');
+							switch (column.kind) {
+								case 'boolean':
+									return toCsvString(field[column.key]);
+								case 'number':
+									return toCsvString(field[column.key] ?? '');
+								default:
+									return toCsvString(field[column.key] ?? '');
+							}
 					}
 				});
 				values.push(toCsvString(definitionField.isUnique ? 'Yes' : 'No'));
@@ -1578,7 +1762,7 @@ const DataDefinitionDetails = ({
 		link.click();
 		document.body.removeChild(link);
 		URL.revokeObjectURL(url);
-	}, []);
+	}, [legalRequirementNameById, securityClassificationNameById]);
 
 	const handleOpenPreview = useCallback((table: DataDefinitionTable) => {
 		setPreviewTableId(table.table.id);
@@ -1796,6 +1980,10 @@ const DataDefinitionDetails = ({
 								if (column.key === 'fieldType') {
 									return renderFieldTypeChip(value as string | null | undefined);
 								}
+								if (column.key === 'enterpriseAttribute') {
+									return renderBooleanChip(enterpriseAttributeToBoolean(value as string | null | undefined));
+								}
+
 								if (column.kind === 'boolean') {
 									return renderBooleanChip(value as boolean | null | undefined);
 								}
@@ -1854,14 +2042,167 @@ const DataDefinitionDetails = ({
 								}
 
 								const draftKey = column.key as StringDraftKey;
-								const draftValue = row[draftKey];
+								const draftValue = (row[draftKey] ?? '') as string;
+								const disabled = fieldActionsDisabled || saving;
+								const textFieldSx = {
+									'& .MuiOutlinedInput-root': {
+										borderRadius: 0.75,
+										backgroundColor: inlineInputBackground,
+										'& fieldset': {
+											borderColor: inlineInputBorder
+										},
+										'&:hover fieldset': {
+											borderColor: inlineInputHoverBorder
+										},
+										'&.Mui-focused fieldset': {
+											borderColor: theme.palette.primary.main
+										},
+										'&.Mui-focused': {
+											boxShadow: `0 0 0 2px ${inlineInputFocusShadow}`
+										}
+									},
+									'& .MuiOutlinedInput-input': {
+										fontSize: 13.5,
+										lineHeight: 1.35,
+										padding: theme.spacing(0.55, 1)
+									}
+								};
+
+								const commitSelectChange = async (nextValue: string, targetKey: StringDraftKey) => {
+									handleDraftChange(definitionField.field, targetKey, nextValue);
+									await Promise.resolve();
+									await handleSubmitChange(definitionField.field, targetKey);
+								};
+
+								if (column.key === 'fieldType') {
+									return (
+										<TextField
+											select
+											variant="outlined"
+											size="small"
+											fullWidth
+											value={draftValue}
+											disabled={disabled}
+											onChange={(event) => {
+												void commitSelectChange(event.target.value, draftKey);
+											}}
+											SelectProps={{ displayEmpty: true }}
+											sx={textFieldSx}
+										>
+											<MenuItem value="">
+												<em>Select a data type</em>
+											</MenuItem>
+											{dataTypes.map((type) => (
+												<MenuItem key={type.name} value={type.name}>
+													{type.name}
+												</MenuItem>
+											))}
+										</TextField>
+									);
+								}
+
+								if (column.key === 'enterpriseAttribute') {
+									const normalizedValue = normalizeEnterpriseAttribute(draftValue);
+									const checked = normalizedValue === 'Yes';
+									const indeterminate = normalizedValue !== 'Yes' && normalizedValue !== 'No';
+									return (
+										<Checkbox
+											size="small"
+											checked={checked}
+											indeterminate={indeterminate}
+											onChange={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												if (disabled) {
+													return;
+												}
+												const nextValue = cycleEnterpriseAttributeValue(draftValue);
+												void commitSelectChange(nextValue, draftKey);
+											}}
+											disabled={disabled}
+										/>
+									);
+								}
+
+								if (column.key === 'legalRequirementId') {
+									return (
+										<TextField
+											select
+											variant="outlined"
+											size="small"
+											fullWidth
+											value={draftValue}
+											disabled={disabled}
+											onChange={(event) => {
+												void commitSelectChange(event.target.value, draftKey);
+											}}
+											SelectProps={{ displayEmpty: true }}
+											sx={textFieldSx}
+										>
+											<MenuItem value="">
+												<em>None</em>
+											</MenuItem>
+											{legalRequirements.map((item) => (
+												<MenuItem key={item.id} value={item.id}>
+													{item.name}
+												</MenuItem>
+											))}
+										</TextField>
+									);
+								}
+
+								if (column.key === 'securityClassificationId') {
+									return (
+										<TextField
+											select
+											variant="outlined"
+											size="small"
+											fullWidth
+											value={draftValue}
+											disabled={disabled}
+											onChange={(event) => {
+												void commitSelectChange(event.target.value, draftKey);
+											}}
+											SelectProps={{ displayEmpty: true }}
+											sx={textFieldSx}
+										>
+											<MenuItem value="">
+												<em>None</em>
+											</MenuItem>
+											{securityClassifications.map((item) => (
+												<MenuItem key={item.id} value={item.id}>
+													{item.name}
+												</MenuItem>
+											))}
+										</TextField>
+									);
+								}
+
+								if (column.key === 'decimalPlaces') {
+									return (
+										<TextField
+											variant="outlined"
+											size="small"
+											fullWidth
+											value={draftValue}
+											type="number"
+											disabled={disabled}
+											onChange={(event) => handleDraftChange(definitionField.field, draftKey, event.target.value)}
+											onBlur={() => {
+												void handleSubmitChange(definitionField.field, draftKey);
+											}}
+											sx={textFieldSx}
+										/>
+									);
+								}
+
 								const inputType = column.kind === 'number' ? 'number' : 'text';
 
 								if (isMultiline) {
 									return (
 										<GridTextarea
-											value={draftValue ?? ''}
-											disabled={fieldActionsDisabled || saving}
+											value={draftValue}
+											disabled={disabled}
 											onChange={(event) => handleDraftChange(definitionField.field, draftKey, event.target.value)}
 											onBlur={() => {
 												void handleSubmitChange(definitionField.field, draftKey);
@@ -1879,34 +2220,12 @@ const DataDefinitionDetails = ({
 										fullWidth
 										value={draftValue}
 										type={inputType}
-										disabled={fieldActionsDisabled || saving}
+										disabled={disabled}
 										onChange={(event) => handleDraftChange(definitionField.field, draftKey, event.target.value)}
 										onBlur={() => {
 											void handleSubmitChange(definitionField.field, draftKey);
 										}}
-										sx={{
-											'& .MuiOutlinedInput-root': {
-												borderRadius: 0.75,
-												backgroundColor: inlineInputBackground,
-												'& fieldset': {
-													borderColor: inlineInputBorder
-												},
-												'&:hover fieldset': {
-													borderColor: inlineInputHoverBorder
-												},
-												'&.Mui-focused fieldset': {
-													borderColor: theme.palette.primary.main
-												},
-												'&.Mui-focused': {
-													boxShadow: `0 0 0 2px ${inlineInputFocusShadow}`
-												}
-											},
-											'& .MuiOutlinedInput-input': {
-												fontSize: 13.5,
-												lineHeight: 1.35,
-												padding: theme.spacing(0.55, 1)
-											}
-										}}
+										sx={textFieldSx}
 									/>
 								);
 							}
@@ -1967,7 +2286,16 @@ const DataDefinitionDetails = ({
 								return renderNumber(value as string | number | null | undefined);
 							}
 
-							const textValue = renderText(value as string | null | undefined);
+							let transformedValue = value as string | null | undefined;
+							if (column.key === 'legalRequirementId') {
+								const id = value as string | null | undefined;
+								transformedValue = id ? legalRequirementNameById.get(id) ?? null : null;
+							}
+							if (column.key === 'securityClassificationId') {
+								const id = value as string | null | undefined;
+								transformedValue = id ? securityClassificationNameById.get(id) ?? null : null;
+							}
+							const textValue = renderText(transformedValue);
 							return (
 								<Typography
 									variant="body2"
@@ -2071,31 +2399,36 @@ const DataDefinitionDetails = ({
 							/>
 						)
 					},
-					...baseColumns,
-					uniqueColumn,
-					notesColumn,
-						{
-							field: '__actions',
-							headerName: '',
-							width: 56,
-							minWidth: 52,
-							sortable: false,
-							filterable: false,
-							disableColumnMenu: true,
-							headerAlign: 'center',
-							align: 'center',
-							renderCell: (params) => (
-								<RowActionsCell
-									{...params}
-									canEdit={canEdit}
-									disableActions={actionsDisabled}
-									onDelete={(definitionFieldId) => handleDeleteField(table.id, definitionFieldId)}
-								/>
-							)
-						}
-					];
+					...baseColumns
+				];
 
-					const dataGridElement = (
+				const activeColumnIndex = columns.findIndex((column) => column.field === 'active');
+				const uniqueInsertIndex = activeColumnIndex >= 0 ? activeColumnIndex + 1 : columns.length;
+				columns.splice(uniqueInsertIndex, 0, uniqueColumn);
+				columns.push(
+					notesColumn,
+					{
+						field: '__actions',
+						headerName: '',
+						width: 56,
+						minWidth: 52,
+						sortable: false,
+						filterable: false,
+						disableColumnMenu: true,
+						headerAlign: 'center',
+						align: 'center',
+						renderCell: (params) => (
+							<RowActionsCell
+								{...params}
+								canEdit={canEdit}
+								disableActions={actionsDisabled}
+								onDelete={(definitionFieldId) => handleDeleteField(table.id, definitionFieldId)}
+							/>
+						)
+					}
+				);
+
+				const dataGridElement = (
 						<DataGrid
 							autoHeight
 							rows={orderedRows}
@@ -2547,212 +2880,295 @@ const DataDefinitionDetails = ({
 										</DialogActions>
 									</>
 								)}
-								{inlineType === 'create-new' && inlineState?.type === 'create-new' && (
-									<>
-										<DialogTitle id={dialogTitleId}>Create new field</DialogTitle>
-										<DialogContent dividers>
-											<Stack spacing={2}>
-												<TextField
-													label="Name"
-													value={inlineState.draft.name}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'name', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													error={Boolean(inlineState.errors.name)}
-													helperText={inlineState.errors.name}
-												/>
-												<TextField
-													label="Description"
-													value={inlineState.draft.description}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'description', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													multiline
-													minRows={3}
-												/>
-												<TextField
-													label="Application Usage"
-													value={inlineState.draft.applicationUsage}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'applicationUsage', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													multiline
-													minRows={2}
-												/>
-												<TextField
-													label="Business Definition"
-													value={inlineState.draft.businessDefinition}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'businessDefinition', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													multiline
-													minRows={2}
-												/>
-												<TextField
-													label="Enterprise Attribute"
-													value={inlineState.draft.enterpriseAttribute}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'enterpriseAttribute', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-												/>
-												<TextField
-													label="Field Type"
-													value={inlineState.draft.fieldType}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'fieldType', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													error={Boolean(inlineState.errors.fieldType)}
-													helperText={inlineState.errors.fieldType}
-												/>
-												<Grid container spacing={2}>
-													<Grid item xs={6}>
-														<TextField
-															label="Length"
-															value={inlineState.draft.fieldLength}
-															onChange={(event) => handleCreateDraftTextChange(table.id, 'fieldLength', event.target.value)}
-															disabled={fieldActionsDisabled || tableSaving}
-															fullWidth
-															size="small"
-															type="number"
-														/>
-													</Grid>
-													<Grid item xs={6}>
-														<TextField
-															label="Decimal Places"
-															value={inlineState.draft.decimalPlaces}
-															onChange={(event) => handleCreateDraftTextChange(table.id, 'decimalPlaces', event.target.value)}
-															disabled={fieldActionsDisabled || tableSaving}
-															fullWidth
-															size="small"
-															type="number"
-														/>
-													</Grid>
-												</Grid>
-												<Stack spacing={1}>
-													<Typography variant="subtitle2" color="text.secondary">
-														Legal / Regulatory Implications
-													</Typography>
+								{inlineType === 'create-new' && inlineState?.type === 'create-new' && (() => {
+									return (
+										<>
+											<DialogTitle id={dialogTitleId}>Create new field</DialogTitle>
+											<DialogContent dividers>
+												<Stack spacing={2}>
 													<TextField
-														value={inlineState.draft.legalRegulatoryImplications}
-														onChange={(event) => handleCreateDraftTextChange(table.id, 'legalRegulatoryImplications', event.target.value)}
+														label="Name"
+														value={inlineState.draft.name}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'name', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														error={Boolean(inlineState.errors.name)}
+														helperText={inlineState.errors.name}
+													/>
+													<TextField
+														label="Description"
+														value={inlineState.draft.description}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'description', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														multiline
+														minRows={3}
+													/>
+													<TextField
+														label="Application Usage"
+														value={inlineState.draft.applicationUsage}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'applicationUsage', event.target.value)}
 														disabled={fieldActionsDisabled || tableSaving}
 														fullWidth
 														size="small"
 														multiline
 														minRows={2}
 													/>
-												</Stack>
-												<Stack spacing={1}>
-													<Typography variant="subtitle2" color="text.secondary">
-														Security Classification
-													</Typography>
 													<TextField
-														value={inlineState.draft.securityClassification}
-														onChange={(event) => handleCreateDraftTextChange(table.id, 'securityClassification', event.target.value)}
+														label="Business Definition"
+														value={inlineState.draft.businessDefinition}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'businessDefinition', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														multiline
+														minRows={2}
+													/>
+													<TextField
+														select
+														label="Enterprise Attribute"
+														value={inlineState.draft.enterpriseAttribute}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'enterpriseAttribute', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														SelectProps={{ displayEmpty: true }}
+													>
+														<MenuItem value="">
+															<em>Not specified</em>
+														</MenuItem>
+														{ENTERPRISE_ATTRIBUTE_OPTIONS.map((option) => (
+															<MenuItem key={option.value} value={option.value}>
+																{option.label}
+															</MenuItem>
+														))}
+													</TextField>
+													<TextField
+														select
+														label="Field Type"
+														value={inlineState.draft.fieldType}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'fieldType', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														error={Boolean(inlineState.errors.fieldType)}
+														helperText={inlineState.errors.fieldType}
+														SelectProps={{ displayEmpty: true }}
+													>
+														<MenuItem value="">
+															<em>Select a data type</em>
+														</MenuItem>
+														{dataTypes.map((type) => (
+															<MenuItem key={type.name} value={type.name}>
+																{type.name}
+															</MenuItem>
+														))}
+													</TextField>
+													<Grid container spacing={2}>
+														<Grid item xs={6}>
+															<TextField
+																label="Length"
+																value={inlineState.draft.fieldLength}
+																onChange={(event) => handleCreateDraftTextChange(table.id, 'fieldLength', event.target.value)}
+																disabled={fieldActionsDisabled || tableSaving}
+																fullWidth
+																size="small"
+																type="number"
+															/>
+														</Grid>
+														<Grid item xs={6}>
+															<TextField
+																label="Decimal Places"
+																value={inlineState.draft.decimalPlaces}
+																onChange={(event) => handleCreateDraftTextChange(table.id, 'decimalPlaces', event.target.value)}
+																disabled={fieldActionsDisabled || tableSaving}
+																fullWidth
+																size="small"
+																type="number"
+																error={Boolean(inlineState.errors.decimalPlaces)}
+																helperText={inlineState.errors.decimalPlaces}
+															/>
+														</Grid>
+													</Grid>
+													<TextField
+														select
+														label="Legal Requirement"
+														value={inlineState.draft.legalRequirementId}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'legalRequirementId', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														SelectProps={{ displayEmpty: true }}
+													>
+														<MenuItem value="">
+															<em>None</em>
+														</MenuItem>
+														{legalRequirements.map((item) => (
+															<MenuItem key={item.id} value={item.id}>
+																{item.name}
+															</MenuItem>
+														))}
+													</TextField>
+													<TextField
+														select
+														label="Security Classification"
+														value={inlineState.draft.securityClassificationId}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'securityClassificationId', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														SelectProps={{ displayEmpty: true }}
+													>
+														<MenuItem value="">
+															<em>None</em>
+														</MenuItem>
+														{securityClassifications.map((item) => (
+															<MenuItem key={item.id} value={item.id}>
+																{item.name}
+															</MenuItem>
+														))}
+													</TextField>
+													<Stack spacing={1}>
+														<Typography variant="subtitle2" color="text.secondary">
+															Legal / Regulatory Notes
+														</Typography>
+														<TextField
+															value={inlineState.draft.legalRegulatoryImplications}
+															onChange={(event) =>
+																handleCreateDraftTextChange(
+																	table.id,
+																	'legalRegulatoryImplications',
+																	event.target.value
+																)
+															}
+															disabled={fieldActionsDisabled || tableSaving}
+															fullWidth
+															size="small"
+															multiline
+															minRows={2}
+														/>
+													</Stack>
+													<TextField
+														label="Data Validation"
+														value={inlineState.draft.dataValidation}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'dataValidation', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														multiline
+														minRows={2}
+													/>
+													<TextField
+														label="Reference Table"
+														value={inlineState.draft.referenceTable}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'referenceTable', event.target.value)}
 														disabled={fieldActionsDisabled || tableSaving}
 														fullWidth
 														size="small"
 													/>
+													<TextField
+														label="Grouping Tab"
+														value={inlineState.draft.groupingTab}
+														onChange={(event) => handleCreateDraftTextChange(table.id, 'groupingTab', event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+													/>
+													<TextField
+														label="Notes"
+														value={inlineState.notes}
+														onChange={(event) => handleInlineNotesChange(table.id, event.target.value)}
+														disabled={fieldActionsDisabled || tableSaving}
+														fullWidth
+														size="small"
+														multiline
+														minRows={3}
+													/>
+													<FormControlLabel
+														control={
+															<Checkbox
+																checked={inlineState.draft.systemRequired}
+																onChange={(event) =>
+																	handleCreateDraftBooleanChange(
+																		table.id,
+																		'systemRequired',
+																		event.target.checked
+																	)
+																}
+																disabled={fieldActionsDisabled || tableSaving}
+															/>
+														}
+														label="System Required"
+													/>
+													<FormControlLabel
+														control={
+															<Checkbox
+																checked={inlineState.draft.businessProcessRequired}
+																onChange={(event) =>
+																	handleCreateDraftBooleanChange(
+																		table.id,
+																		'businessProcessRequired',
+																		event.target.checked
+																	)
+																}
+																disabled={fieldActionsDisabled || tableSaving}
+															/>
+														}
+														label="Business Process Required"
+													/>
+													<FormControlLabel
+														control={
+															<Checkbox
+																checked={inlineState.draft.suppressedField}
+																onChange={(event) =>
+																	handleCreateDraftBooleanChange(
+																		table.id,
+																		'suppressedField',
+																		event.target.checked
+																	)
+																}
+																disabled={fieldActionsDisabled || tableSaving}
+															/>
+														}
+														label="Suppressed"
+													/>
+													<FormControlLabel
+														control={
+															<Checkbox
+																checked={inlineState.draft.active}
+																onChange={(event) =>
+																	handleCreateDraftBooleanChange(table.id, 'active', event.target.checked)
+																}
+																disabled={fieldActionsDisabled || tableSaving}
+															/>
+														}
+														label="Active"
+													/>
 												</Stack>
-												<TextField
-													label="Data Validation"
-													value={inlineState.draft.dataValidation}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'dataValidation', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													multiline
-													minRows={2}
-												/>
-												<TextField
-													label="Reference Table"
-													value={inlineState.draft.referenceTable}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'referenceTable', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-												/>
-												<TextField
-													label="Grouping Tab"
-													value={inlineState.draft.groupingTab}
-													onChange={(event) => handleCreateDraftTextChange(table.id, 'groupingTab', event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-												/>
-												<TextField
-													label="Notes"
-													value={inlineState.notes}
-													onChange={(event) => handleInlineNotesChange(table.id, event.target.value)}
-													disabled={fieldActionsDisabled || tableSaving}
-													fullWidth
-													size="small"
-													multiline
-													minRows={3}
-												/>
-												<FormControlLabel
-													control={
-														<Checkbox
-															checked={inlineState.draft.systemRequired}
-															onChange={(event) => handleCreateDraftBooleanChange(table.id, 'systemRequired', event.target.checked)}
-															disabled={fieldActionsDisabled || tableSaving}
-														/>
+											</DialogContent>
+											<DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+												{tableSaving && <CircularProgress size={18} />}
+												<Button onClick={() => clearInlineRow(table.id)} disabled={tableSaving}>
+													Cancel
+												</Button>
+												<Button
+													variant="contained"
+													onClick={() => handleInlineSave(table, tableName, inlineState, tableSaving)}
+													disabled={
+														fieldActionsDisabled ||
+														tableSaving ||
+														!inlineState.draft.name.trim() ||
+														!inlineState.draft.fieldType.trim()
 													}
-													label="System Required"
-												/>
-												<FormControlLabel
-													control={
-														<Checkbox
-															checked={inlineState.draft.businessProcessRequired}
-															onChange={(event) => handleCreateDraftBooleanChange(table.id, 'businessProcessRequired', event.target.checked)}
-															disabled={fieldActionsDisabled || tableSaving}
-														/>
-													}
-													label="Business Process Required"
-												/>
-												<FormControlLabel
-													control={
-														<Checkbox
-															checked={inlineState.draft.suppressedField}
-															onChange={(event) => handleCreateDraftBooleanChange(table.id, 'suppressedField', event.target.checked)}
-															disabled={fieldActionsDisabled || tableSaving}
-														/>
-													}
-													label="Suppressed"
-												/>
-												<FormControlLabel
-													control={
-														<Checkbox
-															checked={inlineState.draft.active}
-															onChange={(event) => handleCreateDraftBooleanChange(table.id, 'active', event.target.checked)}
-															disabled={fieldActionsDisabled || tableSaving}
-														/>
-													}
-													label="Active"
-												/>
-											</Stack>
-										</DialogContent>
-										<DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-											{tableSaving && <CircularProgress size={18} />}
-											<Button onClick={() => clearInlineRow(table.id)} disabled={tableSaving}>
-												Cancel
-											</Button>
-											<Button
-												variant="contained"
-												onClick={() => handleInlineSave(table, tableName, inlineState, tableSaving)}
-												disabled={fieldActionsDisabled || tableSaving || !inlineState.draft.name.trim() || !inlineState.draft.fieldType.trim()}
-											>
-												Create field
-											</Button>
-										</DialogActions>
-									</>
-								)}
+												>
+													Create field
+												</Button>
+											</DialogActions>
+										</>
+									);
+								})()}
 							</Dialog>
 						</Stack>
 					</Paper>

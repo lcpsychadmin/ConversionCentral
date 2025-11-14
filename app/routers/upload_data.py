@@ -101,8 +101,8 @@ async def create_table_from_upload(
     column_overrides: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ) -> UploadDataCreateResponse:
-    if target is DataWarehouseTarget.SAP_HANA:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SAP HANA uploads are not supported yet.")
+    # SAP HANA is not a supported warehouse target; only Databricks is allowed.
+    # If the frontend were to supply a SAP HANA target it will be rejected by schema validation now.
 
     overrides_raw = column_overrides
     if overrides_raw is None:

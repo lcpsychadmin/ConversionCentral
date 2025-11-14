@@ -22,7 +22,8 @@
       "@services/*": ["services/*"],
       "@context/*": ["context/*"],
       "@hooks/*": ["hooks/*"],
-      "@types/*": ["types/*"],
+  "@types/*": ["types/*"],
+  "@cc-types/*": ["types/*"],
       "@routes/*": ["routes/*"],
       "@theme/*": ["theme/*"],
       "@utils/*": ["utils/*"]

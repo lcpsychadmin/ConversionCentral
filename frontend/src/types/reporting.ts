@@ -58,3 +58,37 @@ export interface ReportDesignerDefinition {
   criteriaRowCount: number;
   groupingEnabled: boolean;
 }
+
+export type ReportStatus = 'draft' | 'published';
+
+export interface ReportSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: ReportStatus;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string | null;
+  productTeamId?: string | null;
+  productTeamName?: string | null;
+  dataObjectId?: string | null;
+  dataObjectName?: string | null;
+}
+
+export interface ReportDetail extends ReportSummary {
+  definition: ReportDesignerDefinition;
+}
+
+export interface ReportDatasetPayload {
+  limit?: number;
+}
+
+export interface ReportDatasetResponse {
+  reportId: string;
+  name: string;
+  limit: number;
+  rowCount: number;
+  generatedAt: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}

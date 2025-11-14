@@ -1,4 +1,16 @@
-import { Fragment, useMemo, useState, useCallback, useRef, useEffect, type DragEvent, type MouseEvent, type ReactNode } from 'react';
+import {
+  Fragment,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+  type SyntheticEvent
+} from 'react';
+import useDesignerStore from '../stores/designerStore';
 import {
   Alert,
   Box,
@@ -18,6 +30,7 @@ import {
   InputAdornment,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   MenuItem,
   Paper,
@@ -36,33 +49,37 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import SearchIcon from '@mui/icons-material/Search';
-import PageHeader from '../components/common/PageHeader';
-import SaveIcon from '@mui/icons-material/Save';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PublishIcon from '@mui/icons-material/Publish';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SaveIcon from '@mui/icons-material/Save';
+import SearchIcon from '@mui/icons-material/Search';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import { isAxiosError } from 'axios';
-import { useQuery } from 'react-query';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
 import ReactFlow, {
-  ReactFlowInstance,
-  ReactFlowProvider,
-  XYPosition,
   Background,
   Connection,
   Controls,
+  MarkerType,
   MiniMap,
   Node,
-  MarkerType,
+  ReactFlowInstance,
+  ReactFlowProvider,
+  XYPosition,
   type Edge,
   useEdgesState,
   useNodesState
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-
 import {
   DndContext,
   KeyboardSensor,
@@ -75,22 +92,41 @@ import {
 import {
   SortableContext,
   arrayMove,
-  sortableKeyboardCoordinates,
   horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import { fetchTables, fetchFields } from '@services/tableService';
-import { fetchReportPreview, type ReportPreviewResponse } from '@services/reportingService';
+import PageHeader from '@components/common/PageHeader';
+import ReportTableNode, { REPORTING_FIELD_DRAG_TYPE, ReportTableNodeData } from '@components/reporting/ReportTableNode';
+import { fetchAllDataDefinitions } from '@services/dataDefinitionService';
+import { fetchDataObjects } from '@services/dataObjectService';
+import { fetchProcessAreas } from '@services/processAreaService';
+import { fetchFields, fetchTables } from '@services/tableService';
+import {
+  createReport,
+  deleteReport,
+  fetchReport,
+  fetchReportPreview,
+  listReports,
+  publishReport,
+  reportQueryKeys,
+  updateReport,
+  type ReportPreviewResponse,
+  type ReportPublishPayload,
+  type ReportSavePayload,
+  type ReportUpdatePayload
+} from '@services/reportingService';
+import type { DataDefinition, DataObject, Field, ProcessArea, Table } from '../types/data';
 import type {
   ReportAggregateFn,
+  ReportDetail,
   ReportDesignerDefinition,
   ReportJoinType,
-  ReportSortDirection
+  ReportSortDirection,
+  ReportSummary
 } from '../types/reporting';
-import { Field, Table } from '../types/data';
-import ReportTableNode, { ReportTableNodeData, REPORTING_FIELD_DRAG_TYPE } from '@components/reporting/ReportTableNode';
 
 type DesignerNode = Node<ReportTableNodeData>;
 
@@ -140,12 +176,28 @@ interface JoinEdgeData {
   joinType?: JoinType;
 }
 
+type RecentDropSentinelWindow = Window & {
+  __CC_RECENT_DROP?: boolean;
+};
+
 interface OutputColumnRowDescriptor {
   key: string;
   label: string;
   paddingY: number;
   justifyContent?: 'center' | 'flex-start';
   minHeight?: number;
+}
+
+type PaletteNodeType = 'productTeam' | 'dataObject' | 'system' | 'table';
+
+interface PaletteTreeNode {
+  id: string;
+  label: string;
+  secondary?: string | null;
+  type: PaletteNodeType;
+  tableCount?: number;
+  table?: Table;
+  children?: PaletteTreeNode[];
 }
 
 interface SortableOutputColumnProps {
@@ -358,8 +410,87 @@ const defaultNodeHeight = 320;
 const minNodeWidth = 220;
 const minNodeHeight = 200;
 
+const arraysShallowEqual = (first: readonly string[], second: readonly string[]): boolean => {
+  if (first.length !== second.length) {
+    return false;
+  }
+
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 const ReportingDesignerContent = () => {
-  const { data: tables = [], isLoading: tablesLoading, isError: tablesError } = useQuery<Table[]>(['reporting-tables'], fetchTables);
+  const {
+    data: tables = [],
+    isLoading: tablesLoading,
+    isError: tablesLoadError,
+    error: tablesError
+  } = useQuery<Table[]>(['reporting-tables'], fetchTables);
+  const {
+    data: dataDefinitions = [],
+    isLoading: definitionsLoading,
+    isError: definitionsLoadError,
+    error: definitionsError
+  } = useQuery<DataDefinition[]>(['reporting-data-definitions'], fetchAllDataDefinitions);
+  const {
+    data: dataObjects = [],
+    isLoading: dataObjectsLoading,
+    isError: dataObjectsLoadError,
+    error: dataObjectsError
+  } = useQuery<DataObject[]>(['reporting-data-objects'], fetchDataObjects);
+  const {
+    data: processAreas = [],
+    isLoading: processAreasLoading,
+    isError: processAreasLoadError,
+    error: processAreasError
+  } = useQuery<ProcessArea[]>(['reporting-process-areas'], fetchProcessAreas);
+  const queryClient = useQueryClient();
+  const {
+    data: draftReports = [],
+    isLoading: draftReportsLoading,
+    isFetching: draftReportsFetching,
+    refetch: refetchDraftReports
+  } = useQuery(reportQueryKeys.list('draft'), () => listReports('draft'), {
+    staleTime: 30_000
+  });
+
+  const createReportMutation = useMutation<ReportDetail, unknown, ReportSavePayload>(createReport);
+  const updateReportMutation = useMutation<
+    ReportDetail,
+    unknown,
+    { reportId: string; payload: ReportUpdatePayload }
+  >(({ reportId, payload }) => updateReport(reportId, payload));
+  const publishReportMutation = useMutation<
+    ReportDetail,
+    unknown,
+    { reportId: string; payload: ReportPublishPayload }
+  >(({ reportId, payload }) => publishReport(reportId, payload));
+  const deleteReportMutation = useMutation<void, unknown, string>((reportId) => deleteReport(reportId));
+
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const paletteLoading = tablesLoading || definitionsLoading || dataObjectsLoading || processAreasLoading;
+  const paletteError = tablesLoadError || definitionsLoadError || dataObjectsLoadError || processAreasLoadError;
+  const paletteErrorMessage = useMemo(() => {
+    const rawError =
+      (tablesError as unknown) ??
+      (definitionsError as unknown) ??
+      (dataObjectsError as unknown) ??
+      (processAreasError as unknown);
+    if (isAxiosError(rawError)) {
+      return rawError.response?.data?.detail ?? rawError.message ?? 'Unable to load table palette data.';
+    }
+    if (rawError instanceof Error) {
+      return rawError.message;
+    }
+    return 'Unable to load table palette data.';
+  }, [dataObjectsError, definitionsError, processAreasError, tablesError]);
   const { data: fields = [] } = useQuery<Field[]>(['reporting-fields'], fetchFields);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -369,18 +500,44 @@ const ReportingDesignerContent = () => {
   const [fieldSettings, setFieldSettings] = useState<Record<string, FieldColumnSettings>>({});
   const [criteriaRowCount, setCriteriaRowCount] = useState(2);
   const [groupingEnabled, setGroupingEnabled] = useState(false);
+  const [activeReport, setActiveReport] = useState<ReportSummary | null>(null);
+  const [reportName, setReportName] = useState('');
+  const [reportDescription, setReportDescription] = useState('');
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [draftListOpen, setDraftListOpen] = useState(false);
+  const [draftNameInput, setDraftNameInput] = useState('');
+  const [draftDescriptionInput, setDraftDescriptionInput] = useState('');
+  const [pendingPersistAction, setPendingPersistAction] = useState<'draft' | 'publish'>('draft');
+  const [persisting, setPersisting] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [loadingReportId, setLoadingReportId] = useState<string | null>(null);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const [outputDropActive, setOutputDropActive] = useState(false);
   const [statusBanner, setStatusBanner] = useState<{ message: string; color: string } | null>(null);
+  const [selectedProductTeamId, setSelectedProductTeamId] = useState<string | null>(null);
+  const [selectedDataObjectId, setSelectedDataObjectId] = useState<string | null>(null);
+  const [draftProductTeamIdInput, setDraftProductTeamIdInput] = useState<string | null>(null);
+  const [draftDataObjectIdInput, setDraftDataObjectIdInput] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<ReportPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [joinDialogState, setJoinDialogState] = useState<JoinDialogState | null>(null);
+  const [pendingCatalogReportId, setPendingCatalogReportId] = useState<string | null>(null);
 
   const reactFlowInstanceRef = useRef<ReactFlowInstance<ReportTableNodeData> | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
   const hasHydratedDraftRef = useRef(false);
   const draggedFieldRef = useRef<FieldDragPayload | null>(null);
+  const previousExpandedNodesRef = useRef<string[] | null>(null);
+  const draftNameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (saveDialogOpen) {
+      draftNameInputRef.current?.focus();
+    }
+  }, [saveDialogOpen]);
+
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === 'dark';
   const canvasBackground = useMemo(
@@ -461,8 +618,276 @@ const ReportingDesignerContent = () => {
   const tablesById = useMemo(() => {
     const map = new Map<string, Table>();
     tables.forEach((table) => map.set(table.id, table));
+    dataDefinitions.forEach((definition) => {
+      definition.tables.forEach((definitionTable) => {
+        map.set(definitionTable.tableId, definitionTable.table);
+      });
+    });
     return map;
-  }, [tables]);
+  }, [dataDefinitions, tables]);
+
+  const allowedTableIds = useMemo(() => {
+    const set = new Set<string>();
+    dataDefinitions.forEach((definition) => {
+      definition.tables.forEach((definitionTable) => {
+        set.add(definitionTable.tableId);
+      });
+    });
+    return set;
+  }, [dataDefinitions]);
+
+  const dataObjectsById = useMemo(() => {
+    const map = new Map<string, DataObject>();
+    dataObjects.forEach((dataObject) => {
+      map.set(dataObject.id, dataObject);
+    });
+    return map;
+  }, [dataObjects]);
+
+  const processAreasById = useMemo(() => {
+    const map = new Map<string, ProcessArea>();
+    processAreas.forEach((processArea) => {
+      map.set(processArea.id, processArea);
+    });
+    return map;
+  }, [processAreas]);
+
+  const sortedProcessAreas = useMemo(() => {
+    const items = [...processAreas];
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    return items;
+  }, [processAreas]);
+
+  const sortedDataObjects = useMemo(() => {
+    const items = [...dataObjects];
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    return items;
+  }, [dataObjects]);
+
+  const filteredDataObjects = useMemo(() => {
+    if (!draftProductTeamIdInput) {
+      return sortedDataObjects;
+    }
+    return sortedDataObjects.filter(
+      (dataObject) => (dataObject.processAreaId ?? null) === draftProductTeamIdInput
+    );
+  }, [draftProductTeamIdInput, sortedDataObjects]);
+
+  const paletteHierarchy = useMemo<PaletteTreeNode[]>(() => {
+    if (!dataDefinitions.length) {
+      return [];
+    }
+
+    const productTeamNodes = new Map<string, PaletteTreeNode>();
+    const dataObjectNodes = new Map<string, PaletteTreeNode>();
+    const systemNodes = new Map<string, PaletteTreeNode>();
+
+    const ensureProductTeamNode = (processAreaId: string | null): PaletteTreeNode => {
+      const key = processAreaId ?? 'unassigned';
+      let existing = productTeamNodes.get(key);
+      if (!existing) {
+        const processArea = processAreaId ? processAreasById.get(processAreaId) : null;
+        existing = {
+          id: `pt-${key}`,
+          label: processArea?.name ?? 'Unassigned Product Team',
+          secondary: processArea?.description ?? null,
+          type: 'productTeam',
+          children: [],
+          tableCount: 0
+        };
+        productTeamNodes.set(key, existing);
+      }
+      return existing;
+    };
+
+    const ensureDataObjectNode = (productTeamNode: PaletteTreeNode, dataObjectId: string): PaletteTreeNode => {
+      let node = dataObjectNodes.get(dataObjectId);
+      if (!node) {
+        const dataObject = dataObjectsById.get(dataObjectId);
+        node = {
+          id: `do-${dataObjectId}`,
+          label: dataObject?.name ?? 'Unassigned Data Object',
+          secondary: dataObject?.description ?? null,
+          type: 'dataObject',
+          children: [],
+          tableCount: 0
+        };
+        dataObjectNodes.set(dataObjectId, node);
+        productTeamNode.children!.push(node);
+      }
+      return node;
+    };
+
+    const ensureSystemNode = (
+      dataObjectNode: PaletteTreeNode,
+      dataObjectId: string,
+      definition: DataDefinition
+    ): PaletteTreeNode => {
+      const systemKey = `${dataObjectId}::${definition.systemId ?? 'unassigned'}`;
+      let node = systemNodes.get(systemKey);
+      if (!node) {
+        const referencedSystem =
+          definition.system ??
+          dataObjectsById.get(dataObjectId)?.systems?.find((system) => system.id === definition.systemId) ??
+          null;
+        const systemLabel = referencedSystem?.name ?? referencedSystem?.physicalName ?? 'Unassigned System';
+        const systemSecondary = referencedSystem?.physicalName && referencedSystem?.physicalName !== systemLabel
+          ? referencedSystem.physicalName
+          : definition.description ?? null;
+        node = {
+          id: `sys-${systemKey}`,
+          label: systemLabel,
+          secondary: systemSecondary,
+          type: 'system',
+          children: [],
+          tableCount: 0
+        };
+        systemNodes.set(systemKey, node);
+        dataObjectNode.children!.push(node);
+      }
+      return node;
+    };
+
+    dataDefinitions.forEach((definition) => {
+      if (!definition.tables.length) {
+        return;
+      }
+
+      const dataObject = dataObjectsById.get(definition.dataObjectId);
+      const productTeamNode = ensureProductTeamNode(dataObject?.processAreaId ?? null);
+      const dataObjectNode = ensureDataObjectNode(productTeamNode, definition.dataObjectId);
+      const systemNode = ensureSystemNode(dataObjectNode, definition.dataObjectId, definition);
+
+      definition.tables.forEach((definitionTable) => {
+        const table = tablesById.get(definitionTable.tableId) ?? definitionTable.table;
+        if (!table) {
+          return;
+        }
+
+        const duplicate = systemNode.children?.some(
+          (child: PaletteTreeNode) =>
+            child.type === 'table' && child.table?.id === table.id && child.id === `tbl-${definitionTable.id}`
+        );
+        if (duplicate) {
+          return;
+        }
+
+        const tableNode: PaletteTreeNode = {
+          id: `tbl-${definitionTable.id}`,
+          label: definitionTable.alias ?? table.name,
+          secondary: table.schemaName ? `${table.schemaName}.${table.physicalName}` : table.physicalName,
+          type: 'table',
+          table
+        };
+
+        systemNode.children!.push(tableNode);
+        systemNode.tableCount = (systemNode.tableCount ?? 0) + 1;
+        dataObjectNode.tableCount = (dataObjectNode.tableCount ?? 0) + 1;
+        productTeamNode.tableCount = (productTeamNode.tableCount ?? 0) + 1;
+      });
+    });
+
+    const sortNodes = (nodes?: PaletteTreeNode[]) => {
+      if (!nodes) {
+        return;
+      }
+      nodes.sort((a, b) => a.label.localeCompare(b.label));
+      nodes.forEach((node) => {
+        if (node.children && node.children.length) {
+          sortNodes(node.children);
+        }
+      });
+    };
+
+    const hierarchy = Array.from(productTeamNodes.values());
+    sortNodes(hierarchy);
+    return hierarchy;
+  }, [dataDefinitions, dataObjectsById, processAreasById, tablesById]);
+
+  const filteredPaletteHierarchy = useMemo<PaletteTreeNode[]>(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      return paletteHierarchy;
+    }
+
+    const filterNode = (node: PaletteTreeNode): PaletteTreeNode | null => {
+      const labelMatches = node.label.toLowerCase().includes(term);
+      const secondaryMatches = node.secondary ? node.secondary.toLowerCase().includes(term) : false;
+      if (node.type === 'table') {
+        return labelMatches || secondaryMatches ? node : null;
+      }
+
+      const filteredChildren = (node.children ?? [])
+        .map(filterNode)
+        .filter((child): child is PaletteTreeNode => Boolean(child));
+
+      if (filteredChildren.length > 0 || labelMatches || secondaryMatches) {
+        const tableCount = filteredChildren.reduce<number>((total, child) => {
+          if (child.type === 'table') {
+            return total + 1;
+          }
+          return total + (child.tableCount ?? 0);
+        }, 0);
+        return {
+          ...node,
+          children: filteredChildren,
+          tableCount
+        };
+      }
+
+      return null;
+    };
+
+    return paletteHierarchy
+      .map(filterNode)
+      .filter((node): node is PaletteTreeNode => Boolean(node));
+  }, [paletteHierarchy, searchTerm]);
+
+  const autoExpandedNodeIds = useMemo(() => {
+    const ids: string[] = [];
+    const collect = (node: PaletteTreeNode) => {
+      if (node.type !== 'table') {
+        ids.push(node.id);
+        node.children?.forEach(collect);
+      }
+    };
+    paletteHierarchy.forEach(collect);
+    return ids;
+  }, [paletteHierarchy]);
+
+  const [expandedNodes, setExpandedNodes] = useState<string[]>([]);
+  const validExpandedNodeIds = useMemo(() => new Set(autoExpandedNodeIds), [autoExpandedNodeIds]);
+
+  useEffect(() => {
+    setExpandedNodes((current) => {
+      const filtered = current.filter((id) => validExpandedNodeIds.has(id));
+      return arraysShallowEqual(current, filtered) ? current : filtered;
+    });
+  }, [validExpandedNodeIds]);
+
+  useEffect(() => {
+    const hasSearchTerm = searchTerm.trim().length > 0;
+
+    if (hasSearchTerm) {
+      if (previousExpandedNodesRef.current === null) {
+        previousExpandedNodesRef.current = expandedNodes;
+      }
+
+      if (!arraysShallowEqual(expandedNodes, autoExpandedNodeIds)) {
+        setExpandedNodes(autoExpandedNodeIds);
+      }
+      return;
+    }
+
+    if (previousExpandedNodesRef.current !== null) {
+      const previousExpanded = previousExpandedNodesRef.current;
+      previousExpandedNodesRef.current = null;
+
+      if (!arraysShallowEqual(expandedNodes, previousExpanded)) {
+        setExpandedNodes(previousExpanded);
+      }
+    }
+  }, [autoExpandedNodeIds, expandedNodes, searchTerm]);
 
   const fieldsById = useMemo(() => {
     const map = new Map<string, Field>();
@@ -471,6 +896,100 @@ const ReportingDesignerContent = () => {
   }, [fields]);
 
   const fieldIdSet = useMemo(() => new Set(fields.map((field) => field.id)), [fields]);
+
+  const resetDesignerState = useCallback(
+    (options?: { message?: string; color?: string }) => {
+      setNodes([]);
+      setEdges([]);
+      setSelectedFieldOrder([]);
+      setFieldSettings({});
+      setCriteriaRowCount(2);
+      setGroupingEnabled(false);
+      setPreviewOpen(false);
+      setPreviewData(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      setActiveReport(null);
+      setReportName('');
+      setReportDescription('');
+      setDraftNameInput('');
+      setDraftDescriptionInput('');
+      setSaveDialogOpen(false);
+      setPendingPersistAction('draft');
+      setDialogError(null);
+      setPersisting(false);
+      setSelectedProductTeamId(null);
+      setSelectedDataObjectId(null);
+      setDraftProductTeamIdInput(null);
+      setDraftDataObjectIdInput(null);
+      if (options?.message) {
+        setStatusBanner({ message: options.message, color: options.color ?? 'text.secondary' });
+      }
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(designerStorageKey);
+      }
+      // mark as clean
+      try {
+        useDesignerStore.getState().setHasUnsaved(false);
+      } catch {
+        // ignore
+      }
+      hasHydratedDraftRef.current = true;
+    },
+    [
+      setActiveReport,
+      setCriteriaRowCount,
+      setDraftDescriptionInput,
+      setDraftNameInput,
+      setDraftDataObjectIdInput,
+      setDraftProductTeamIdInput,
+      setEdges,
+      setFieldSettings,
+      setGroupingEnabled,
+      setNodes,
+      setPendingPersistAction,
+      setPersisting,
+      setPreviewData,
+      setPreviewError,
+      setPreviewLoading,
+      setPreviewOpen,
+      setReportDescription,
+      setReportName,
+      setSaveDialogOpen,
+      setSelectedDataObjectId,
+      setSelectedFieldOrder,
+      setSelectedProductTeamId,
+      setStatusBanner
+    ]
+  );
+
+
+  const createNodeData = useCallback((table: Table, tableFields: Field[]): ReportTableNodeData => {
+    const uniqueFields: Field[] = [];
+    const seen = new Set<string>();
+    tableFields.forEach((field) => {
+      const normalizedName = field.name.trim().toLowerCase();
+      const normalizedType = (field.fieldType ?? '').trim().toLowerCase();
+      const key = `${normalizedName}|${normalizedType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueFields.push(field);
+      }
+    });
+    const sortedFields = uniqueFields.sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      tableId: table.id,
+      label: table.name,
+      subtitle: table.schemaName ? `${table.schemaName}.${table.physicalName}` : table.physicalName,
+      meta: table.status ? `Status: ${table.status}` : undefined,
+      fields: sortedFields.map((field) => ({
+        id: field.id,
+        name: field.name,
+        type: field.fieldType,
+        description: field.description ?? null
+      }))
+    };
+  }, []);
 
   const extractFieldIdFromHandle = useCallback((handleId?: string | null) => {
     if (!handleId) {
@@ -482,6 +1001,117 @@ const ReportingDesignerContent = () => {
     }
     return handleId.slice(separatorIndex + 1) || null;
   }, []);
+
+  const hydrateDesignerFromDefinition = useCallback(
+    (definition: ReportDesignerDefinition, message?: string) => {
+      const normalizedCriteriaCount = Math.max(1, definition.criteriaRowCount ?? 1);
+      const groupingFromDraft = Boolean(definition.groupingEnabled);
+
+      const restoredNodes = (definition.tables ?? [])
+        .filter((placement) => tablesById.has(placement.tableId))
+        .map((placement) => {
+          const table = tablesById.get(placement.tableId)!;
+          const tableFields = fieldsByTable.get(placement.tableId) ?? [];
+          const savedWidth = placement.dimensions?.width;
+          const savedHeight = placement.dimensions?.height;
+          const width = typeof savedWidth === 'number' && savedWidth >= minNodeWidth ? savedWidth : defaultNodeWidth;
+          const height = typeof savedHeight === 'number' && savedHeight >= minNodeHeight ? savedHeight : defaultNodeHeight;
+
+          return {
+            id: placement.tableId,
+            type: 'reportTable' as const,
+            position: {
+              x: placement.position?.x ?? 0,
+              y: placement.position?.y ?? 0
+            },
+            draggable: true,
+            selectable: true,
+            width,
+            height,
+            style: {
+              width,
+              height,
+              minWidth: minNodeWidth,
+              minHeight: minNodeHeight
+            },
+            data: createNodeData(table, tableFields)
+          } satisfies DesignerNode;
+        });
+
+      const restoredNodeIds = new Set(restoredNodes.map((node) => node.id));
+
+      const restoredEdges = (definition.joins ?? [])
+        .filter((join) => restoredNodeIds.has(join.sourceTableId) && restoredNodeIds.has(join.targetTableId))
+        .map((join) => {
+          const sourceFieldId = join.sourceFieldId ?? undefined;
+          const targetFieldId = join.targetFieldId ?? undefined;
+          const joinType = (join.joinType as JoinType | undefined) ?? 'inner';
+          const baseEdge = {
+            id: join.id ?? `${join.sourceTableId}-${join.targetTableId}`,
+            source: join.sourceTableId,
+            target: join.targetTableId,
+            sourceHandle: sourceFieldId ? `source:${sourceFieldId}` : undefined,
+            targetHandle: targetFieldId ? `target:${targetFieldId}` : undefined,
+            data: {
+              sourceFieldId,
+              targetFieldId,
+              joinType
+            }
+          };
+
+          return {
+            ...baseEdge,
+            ...joinEdgePresentation,
+            style: { ...joinEdgePresentation.style },
+            markerEnd: { ...joinEdgePresentation.markerEnd }
+          };
+        });
+
+      const orderedColumns = [...(definition.columns ?? [])].sort((a, b) => a.order - b.order);
+      const restoredFieldOrder: string[] = [];
+      const restoredFieldSettings: Record<string, FieldColumnSettings> = {};
+
+      orderedColumns.forEach((column) => {
+        if (!fieldIdSet.has(column.fieldId)) {
+          return;
+        }
+        const normalizedSort: SortDirection = column.sort === 'asc' || column.sort === 'desc' ? column.sort : 'none';
+        const normalizedAggregate: ReportAggregateFn | null = groupingFromDraft ? column.aggregate ?? 'groupBy' : null;
+        restoredFieldOrder.push(column.fieldId);
+        restoredFieldSettings[column.fieldId] = {
+          show: column.show ?? true,
+          sort: normalizedSort,
+          aggregate: normalizedAggregate,
+          criteria: Array.from({ length: normalizedCriteriaCount }, (_, index) => column.criteria?.[index] ?? '')
+        };
+      });
+
+      setCriteriaRowCount(normalizedCriteriaCount);
+      setGroupingEnabled(groupingFromDraft);
+      setNodes(restoredNodes);
+      setEdges(restoredEdges);
+      setSelectedFieldOrder(restoredFieldOrder);
+      setFieldSettings(restoredFieldSettings);
+
+      if (message) {
+        setStatusBanner({ message, color: 'success.main' });
+      }
+    },
+    [
+      createNodeData,
+      fieldIdSet,
+      fieldsByTable,
+      joinEdgePresentation,
+      setCriteriaRowCount,
+      setEdges,
+      setFieldSettings,
+      setGroupingEnabled,
+      setNodes,
+      setSelectedFieldOrder,
+      setStatusBanner,
+      tablesById
+    ]
+  );
 
   useEffect(() => {
     setSelectedFieldOrder((current) => {
@@ -533,33 +1163,6 @@ const ReportingDesignerContent = () => {
       return next;
     });
   }, [criteriaRowCount, fieldIdSet, groupingEnabled, selectedFieldOrder]);
-
-  const createNodeData = useCallback((table: Table, tableFields: Field[]): ReportTableNodeData => {
-    const uniqueFields: Field[] = [];
-    const seen = new Set<string>();
-    tableFields.forEach((field) => {
-      const normalizedName = field.name.trim().toLowerCase();
-      const normalizedType = (field.fieldType ?? '').trim().toLowerCase();
-      const key = `${normalizedName}|${normalizedType}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueFields.push(field);
-      }
-    });
-    const sortedFields = uniqueFields.sort((a, b) => a.name.localeCompare(b.name));
-    return {
-      tableId: table.id,
-      label: table.name,
-      subtitle: table.schemaName ? `${table.schemaName}.${table.physicalName}` : table.physicalName,
-      meta: table.status ? `Status: ${table.status}` : undefined,
-      fields: sortedFields.map((field) => ({
-        id: field.id,
-        name: field.name,
-        type: field.fieldType,
-        description: field.description ?? null
-      }))
-    };
-  }, []);
 
   useEffect(() => {
     if (hasHydratedDraftRef.current) {
@@ -892,18 +1495,6 @@ const ReportingDesignerContent = () => {
       return didChange ? nextNodes : current;
     });
   }, [createNodeData, fieldsByTable, handleRemoveNode, setNodes, tables]);
-
-  const filteredTables = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) {
-      return tables;
-    }
-    return tables.filter((item) =>
-      item.name.toLowerCase().includes(term) ||
-      item.physicalName.toLowerCase().includes(term) ||
-      (item.schemaName ? item.schemaName.toLowerCase().includes(term) : false)
-    );
-  }, [searchTerm, tables]);
 
   const nodesById = useMemo(() => new Set(nodes.map((node) => node.id)), [nodes]);
 
@@ -1417,8 +2008,14 @@ const ReportingDesignerContent = () => {
     return columns;
   }, [criteriaRowCount, fieldSettings, fieldsById, groupingEnabled, selectedFieldOrder, tablesById]);
 
+  // Add a short activation delay so quick clicks/taps do not activate
+  // the pointer sensor. Without this, the PointerSensor may call
+  // preventDefault on pointer events in some environments which can
+  // block normal link navigation that follows shortly after interacting
+  // with the designer. The small delay preserves drag UX while avoiding
+  // accidental activation for quick clicks.
   const outputColumnSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6, delay: 150 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -1533,6 +2130,21 @@ const ReportingDesignerContent = () => {
       groupingEnabled
     } satisfies ReportDesignerDefinition;
   }, [criteriaRowCount, edges, groupingEnabled, nodes, selectedFieldColumns, tablesById]);
+
+  // When the in-memory report definition changes after initial hydration,
+  // mark the designer as having unsaved changes so navigation guards can warn.
+  useEffect(() => {
+    try {
+      if (hasHydratedDraftRef.current) {
+        useDesignerStore.getState().setHasUnsaved(true);
+      } else {
+        // first build after hydration — treat as clean
+        hasHydratedDraftRef.current = true;
+      }
+    } catch {
+      // ignore
+    }
+  }, [reportDefinition]);
 
   const handleSortChange = useCallback((fieldId: string, sort: SortDirection) => {
     setFieldSettings((current) => {
@@ -1769,6 +2381,370 @@ const ReportingDesignerContent = () => {
   const selectedFieldCount = selectedFieldColumns.length;
   const actionButtonsDisabled = nodes.length === 0 || selectedFieldCount === 0;
 
+  const handleOpenPersistDialog = useCallback(
+    (action: 'draft' | 'publish') => {
+      if (persisting) {
+        return;
+      }
+      const initialName = reportName || activeReport?.name || '';
+      const initialDescription = reportDescription || activeReport?.description || '';
+      const initialProductTeamId = selectedProductTeamId ?? activeReport?.productTeamId ?? null;
+      const initialDataObjectId = selectedDataObjectId ?? activeReport?.dataObjectId ?? null;
+      setPendingPersistAction(action);
+      setDraftNameInput(initialName);
+      setDraftDescriptionInput(initialDescription);
+      setDraftProductTeamIdInput(initialProductTeamId);
+      setDraftDataObjectIdInput(initialDataObjectId);
+      setDialogError(null);
+      setSaveDialogOpen(true);
+    },
+    [
+      activeReport,
+      persisting,
+      reportDescription,
+      reportName,
+      selectedDataObjectId,
+      selectedProductTeamId
+    ]
+  );
+
+  const handlePersistDialogClose = useCallback(() => {
+    if (persisting) {
+      return;
+    }
+    setSaveDialogOpen(false);
+    setDialogError(null);
+  }, [persisting]);
+
+  const handlePersistConfirm = useCallback(async () => {
+    const trimmedName = draftNameInput.trim();
+    const trimmedDescription = draftDescriptionInput.trim();
+
+    if (!trimmedName) {
+      setDialogError('Report name is required.');
+      return;
+    }
+
+    const normalizedDescription = trimmedDescription.length > 0 ? trimmedDescription : null;
+    const selectedDataObject = draftDataObjectIdInput ? dataObjectsById.get(draftDataObjectIdInput) ?? null : null;
+    const resolvedProductTeamId = selectedDataObject
+      ? selectedDataObject.processAreaId ?? null
+      : draftProductTeamIdInput ?? null;
+    const resolvedDataObjectId = draftDataObjectIdInput ?? null;
+
+    if (resolvedDataObjectId && !selectedDataObject) {
+      setDialogError('Selected data object is no longer available.');
+      return;
+    }
+
+    if (selectedDataObject && resolvedProductTeamId && selectedDataObject.processAreaId && selectedDataObject.processAreaId !== resolvedProductTeamId) {
+      setDialogError('Selected data object belongs to a different product team.');
+      return;
+    }
+
+    if (pendingPersistAction === 'publish') {
+      if (!resolvedDataObjectId) {
+        setDialogError('Select a data object before publishing.');
+        return;
+      }
+      if (!resolvedProductTeamId) {
+        setDialogError('The selected data object is not assigned to a product team yet.');
+        return;
+      }
+    }
+
+    const payloadDefinition = reportDefinition;
+    const basePayload: ReportSavePayload = {
+      name: trimmedName,
+      description: normalizedDescription,
+      definition: payloadDefinition,
+      productTeamId: resolvedProductTeamId,
+      dataObjectId: resolvedDataObjectId
+    };
+
+    setPersisting(true);
+    setDialogError(null);
+
+    try {
+      let result: ReportDetail;
+
+      if (pendingPersistAction === 'draft') {
+        if (activeReport) {
+          const updatePayload: ReportUpdatePayload = {
+            name: trimmedName,
+            description: normalizedDescription,
+            definition: payloadDefinition,
+            productTeamId: resolvedProductTeamId,
+            dataObjectId: resolvedDataObjectId
+          };
+          result = await updateReportMutation.mutateAsync({ reportId: activeReport.id, payload: updatePayload });
+        } else {
+          result = await createReportMutation.mutateAsync(basePayload);
+        }
+
+        hydrateDesignerFromDefinition(result.definition, `Draft "${result.name}" saved.`);
+      } else {
+        if (activeReport) {
+          const publishPayload: ReportPublishPayload = {
+            name: trimmedName,
+            description: normalizedDescription,
+            definition: payloadDefinition,
+            productTeamId: resolvedProductTeamId!,
+            dataObjectId: resolvedDataObjectId!
+          };
+          result = await publishReportMutation.mutateAsync({ reportId: activeReport.id, payload: publishPayload });
+        } else {
+          const created = await createReportMutation.mutateAsync(basePayload);
+          const publishPayload: ReportPublishPayload = {
+            name: trimmedName,
+            description: normalizedDescription,
+            definition: payloadDefinition,
+            productTeamId: resolvedProductTeamId!,
+            dataObjectId: resolvedDataObjectId!
+          };
+          result = await publishReportMutation.mutateAsync({ reportId: created.id, payload: publishPayload });
+        }
+
+        hydrateDesignerFromDefinition(result.definition, `Report "${result.name}" published.`);
+      }
+
+      setActiveReport(result);
+      setReportName(result.name);
+      setReportDescription(result.description ?? '');
+      setDraftNameInput(result.name);
+      setDraftDescriptionInput(result.description ?? '');
+      setSelectedProductTeamId(result.productTeamId ?? null);
+      setSelectedDataObjectId(result.dataObjectId ?? null);
+      setDraftProductTeamIdInput(result.productTeamId ?? null);
+      setDraftDataObjectIdInput(result.dataObjectId ?? null);
+      setSaveDialogOpen(false);
+      setDialogError(null);
+      setPendingPersistAction('draft');
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(designerStorageKey);
+      }
+      hasHydratedDraftRef.current = true;
+
+      await Promise.all([
+        queryClient.invalidateQueries(reportQueryKeys.list()),
+        queryClient.invalidateQueries(reportQueryKeys.list('draft')),
+        queryClient.invalidateQueries(reportQueryKeys.detail(result.id))
+      ]);
+
+      refetchDraftReports();
+    } catch (error) {
+      const message = isAxiosError(error)
+        ? error.response?.data?.detail ?? error.message
+        : error instanceof Error
+          ? error.message
+          : 'Unable to persist the report. Please try again.';
+      setDialogError(message);
+      setStatusBanner({ message, color: 'error.main' });
+    } finally {
+      setPersisting(false);
+    }
+  }, [
+    activeReport,
+    createReportMutation,
+    dataObjectsById,
+    draftDataObjectIdInput,
+    draftDescriptionInput,
+    draftNameInput,
+    draftProductTeamIdInput,
+    hydrateDesignerFromDefinition,
+    pendingPersistAction,
+    publishReportMutation,
+    queryClient,
+    refetchDraftReports,
+    reportDefinition,
+    setActiveReport,
+    setDraftDataObjectIdInput,
+    setDraftProductTeamIdInput,
+    setReportDescription,
+    setReportName,
+    setSelectedDataObjectId,
+    setSelectedProductTeamId,
+    setStatusBanner,
+    updateReportMutation
+  ]);
+
+  const formatTimestamp = (value?: string | null) => {
+    if (!value) {
+      return '—';
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const handleOpenDraftList = useCallback(() => {
+    setDraftListOpen(true);
+    refetchDraftReports();
+  }, [refetchDraftReports]);
+
+  const handleDraftListClose = useCallback(() => {
+    if (persisting) {
+      return;
+    }
+    setDraftListOpen(false);
+  }, [persisting]);
+
+  const loadReportDetail = useCallback(
+    async (reportId: string, messageFactory?: (detail: ReportDetail) => string) => {
+      setLoadingReportId(reportId);
+      setDialogError(null);
+      try {
+        const detail = await fetchReport(reportId);
+        const bannerMessage = messageFactory ? messageFactory(detail) : `Report "${detail.name}" loaded.`;
+        hydrateDesignerFromDefinition(detail.definition, bannerMessage);
+        setActiveReport(detail);
+        setReportName(detail.name);
+        setReportDescription(detail.description ?? '');
+        setDraftNameInput(detail.name);
+        setDraftDescriptionInput(detail.description ?? '');
+        setSelectedProductTeamId(detail.productTeamId ?? null);
+        setSelectedDataObjectId(detail.dataObjectId ?? null);
+        setDraftProductTeamIdInput(detail.productTeamId ?? null);
+        setDraftDataObjectIdInput(detail.dataObjectId ?? null);
+        setDraftListOpen(false);
+        setSaveDialogOpen(false);
+        setPendingPersistAction('draft');
+        setPreviewOpen(false);
+        setPreviewData(null);
+        setPreviewError(null);
+        setPreviewLoading(false);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(designerStorageKey);
+        }
+        hasHydratedDraftRef.current = true;
+      } catch (error) {
+        const message = isAxiosError(error)
+          ? error.response?.data?.detail ?? error.message
+          : error instanceof Error
+            ? error.message
+            : 'Unable to load the selected report. Please try again.';
+        setStatusBanner({ message, color: 'error.main' });
+      } finally {
+        setLoadingReportId(null);
+      }
+    },
+    [
+      setDialogError,
+      setDraftListOpen,
+      hydrateDesignerFromDefinition,
+      setActiveReport,
+      setDraftDescriptionInput,
+      setDraftNameInput,
+      setDraftDataObjectIdInput,
+      setDraftProductTeamIdInput,
+      setPendingPersistAction,
+      setPreviewData,
+      setPreviewError,
+      setPreviewLoading,
+      setPreviewOpen,
+      setReportDescription,
+      setReportName,
+      setSelectedDataObjectId,
+      setSelectedProductTeamId,
+      setSaveDialogOpen,
+      setLoadingReportId,
+      setStatusBanner
+    ]
+  );
+
+  // Only process any router-provided state once on initial mount. Previously
+  // this effect ran whenever `location` changed and could call
+  // `navigate(location.pathname, { replace: true })` repeatedly which
+  // interfered with subsequent client-side navigation in some cases. Guard
+  // with a ref so we only consume the initial `location.state` once.
+  const initialLocationStateProcessedRef = useRef(false);
+  useEffect(() => {
+    if (initialLocationStateProcessedRef.current) {
+      return;
+    }
+    initialLocationStateProcessedRef.current = true;
+    const state = location.state as { reportId?: string } | null;
+    if (state?.reportId) {
+      setPendingCatalogReportId(state.reportId);
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
+
+  useEffect(() => {
+    if (!pendingCatalogReportId) {
+      return;
+    }
+    if (tablesLoading || definitionsLoading || dataObjectsLoading || processAreasLoading) {
+      return;
+    }
+
+    void loadReportDetail(pendingCatalogReportId, (detail) => `Report "${detail.name}" loaded for editing.`).finally(() => {
+      setPendingCatalogReportId(null);
+    });
+  }, [
+    dataObjectsLoading,
+    definitionsLoading,
+    loadReportDetail,
+    pendingCatalogReportId,
+    processAreasLoading,
+    tablesLoading
+  ]);
+
+  const handleLoadDraftReport = useCallback(
+    async (report: ReportSummary) => {
+      await loadReportDetail(report.id, (detail) => `Draft "${detail.name}" loaded.`);
+    },
+    [loadReportDetail]
+  );
+
+  const handleDeleteDraftReport = useCallback(
+    async (report: ReportSummary) => {
+      if (typeof window !== 'undefined') {
+        const confirmDelete = window.confirm(`Delete draft "${report.name}"? This action cannot be undone.`);
+        if (!confirmDelete) {
+          return;
+        }
+      }
+
+      setDeletingReportId(report.id);
+
+      try {
+        await deleteReportMutation.mutateAsync(report.id);
+
+        await Promise.all([
+          queryClient.invalidateQueries(reportQueryKeys.list()),
+          queryClient.invalidateQueries(reportQueryKeys.list('draft')),
+          queryClient.invalidateQueries(reportQueryKeys.detail(report.id))
+        ]);
+
+        refetchDraftReports();
+
+        if (activeReport?.id === report.id) {
+          resetDesignerState({ message: `Draft "${report.name}" deleted.`, color: 'warning.main' });
+        } else {
+          setStatusBanner({ message: `Draft "${report.name}" deleted.`, color: 'warning.main' });
+        }
+      } catch (error) {
+        const message = isAxiosError(error)
+          ? error.response?.data?.detail ?? error.message
+          : error instanceof Error
+            ? error.message
+            : 'Unable to delete the draft. Please try again.';
+        setStatusBanner({ message, color: 'error.main' });
+      } finally {
+        setDeletingReportId(null);
+      }
+    },
+    [
+      activeReport,
+      deleteReportMutation,
+      queryClient,
+      refetchDraftReports,
+      resetDesignerState,
+      setStatusBanner
+    ]
+  );
+
   const handlePreviewResults = useCallback(async () => {
     setPreviewOpen(true);
     setPreviewLoading(true);
@@ -1799,28 +2775,8 @@ const ReportingDesignerContent = () => {
   }, [reportDefinition, setStatusBanner]);
 
   const handleSaveDraft = useCallback(() => {
-    if (typeof window === 'undefined') {
-      setStatusBanner({
-        message: 'Unable to persist draft outside a browser environment.',
-        color: 'error.main'
-      });
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(designerStorageKey, JSON.stringify(reportDefinition));
-      setStatusBanner({
-        message: 'Draft stored locally. Replace this with a reporting API call once backend endpoints land.',
-        color: 'success.main'
-      });
-    } catch (error) {
-      console.error('Failed to persist reporting draft', error);
-      setStatusBanner({
-        message: 'Unable to persist draft locally. Refer to console for details.',
-        color: 'error.main'
-      });
-    }
-  }, [reportDefinition]);
+    handleOpenPersistDialog('draft');
+  }, [handleOpenPersistDialog]);
 
   const handlePreviewClose = useCallback(() => {
     setPreviewOpen(false);
@@ -1867,14 +2823,8 @@ const ReportingDesignerContent = () => {
   }, []);
 
   const handlePublish = useCallback(() => {
-    console.groupCollapsed('Reporting designer publish payload');
-    console.info(reportDefinition);
-    console.groupEnd();
-    setStatusBanner({
-      message: 'Publish workflow is not wired yet. Payload logged for integration.',
-      color: 'text.secondary'
-    });
-  }, [reportDefinition]);
+    handleOpenPersistDialog('publish');
+  }, [handleOpenPersistDialog]);
 
   const handleGroupingToggle = useCallback(() => {
     setGroupingEnabled((prev) => {
@@ -1941,45 +2891,33 @@ const ReportingDesignerContent = () => {
     if (!proceed) {
       return;
     }
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(designerStorageKey);
-    }
-
-    setNodes([]);
-    setEdges([]);
-    setSelectedFieldOrder([]);
-    setFieldSettings({});
-    setCriteriaRowCount(2);
-    setGroupingEnabled(false);
-    setPreviewOpen(false);
-    setPreviewData(null);
-    setPreviewError(null);
-    setPreviewLoading(false);
-    hasHydratedDraftRef.current = true;
-    setStatusBanner({
-      message: 'Draft cleared and canvas reset.',
-      color: 'warning.main'
-    });
-  }, [setEdges, setFieldSettings, setGroupingEnabled, setNodes, setSelectedFieldOrder, setStatusBanner]);
+    resetDesignerState({ message: 'Draft cleared and canvas reset.', color: 'warning.main' });
+  }, [resetDesignerState]);
 
   const handleDragStart = useCallback((event: React.DragEvent<HTMLElement>, table: Table) => {
     const payload: DragPayload = { tableId: table.id };
-  event.dataTransfer.setData(tableDragMimeType, JSON.stringify(payload));
+    event.dataTransfer.setData(tableDragMimeType, JSON.stringify(payload));
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    // Only prevent default when the drag payload matches our table drag MIME type.
+    // Preventing default for unrelated drag events can cause navigation clicks to be suppressed.
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    if (!types.includes(tableDragMimeType)) {
+      return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-  const raw = event.dataTransfer.getData(tableDragMimeType);
+    // Check for our specific table drag payload first. Avoid preventing default for unrelated drops.
+    const raw = event.dataTransfer.getData(tableDragMimeType);
     if (!raw) {
       return;
     }
+    event.preventDefault();
 
     let parsed: DragPayload | null = null;
     try {
@@ -2011,6 +2949,18 @@ const ReportingDesignerContent = () => {
 
     const node = addTableNode(table, flowPoint);
     focusNode(node);
+    // Set a short-lived sentinel so the global click-inspector can ignore
+    // a spurious defaultPrevented state that sometimes persists after a
+    // React Flow drop. Cleared after 300ms.
+    try {
+      const sentinelWindow = window as RecentDropSentinelWindow;
+      sentinelWindow.__CC_RECENT_DROP = true;
+      setTimeout(() => {
+        sentinelWindow.__CC_RECENT_DROP = false;
+      }, 300);
+    } catch {
+      // noop
+    }
   }, [addTableNode, focusNode, tables]);
 
   const handleOutputDragOver = useCallback((event: DragEvent<HTMLElement>) => {
@@ -2028,12 +2978,13 @@ const ReportingDesignerContent = () => {
   }, []);
 
   const handleFieldDrop = useCallback((event: DragEvent<HTMLElement>) => {
-    event.preventDefault();
-    setOutputDropActive(false);
+    // Only treat drops that include our reporting field drag type as a field drop.
     const raw = event.dataTransfer.getData(REPORTING_FIELD_DRAG_TYPE);
+    setOutputDropActive(false);
     if (!raw) {
       return;
     }
+    event.preventDefault();
 
     let parsed: FieldDragPayload | null = null;
     try {
@@ -2049,13 +3000,149 @@ const ReportingDesignerContent = () => {
     ensureFieldAdded(parsed.fieldId);
   }, [ensureFieldAdded]);
 
+  const renderTreeItem = useCallback(
+    (node: PaletteTreeNode): ReactNode => {
+      if (node.type === 'table' && node.table) {
+        const alreadySelected = nodesById.has(node.table.id);
+        return (
+          <TreeItem
+            key={node.id}
+            itemId={node.id}
+            label={
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                draggable={!alreadySelected}
+                onDragStart={(event) => {
+                  if (alreadySelected) {
+                    event.preventDefault();
+                    return;
+                  }
+                  event.stopPropagation();
+                  handleDragStart(event, node.table!);
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  if (!alreadySelected) {
+                    handlePaletteAdd(node.table!);
+                  }
+                }}
+                sx={{ cursor: alreadySelected ? 'default' : 'grab', py: 0.5, pr: 0.5 }}
+              >
+                <DragIndicatorIcon fontSize="small" color={alreadySelected ? 'disabled' : 'action'} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {node.label}
+                  </Typography>
+                  {node.secondary && (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    >
+                      {node.secondary}
+                    </Typography>
+                  )}
+                </Box>
+                <Tooltip title={alreadySelected ? 'Already on canvas' : 'Add to canvas'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      disabled={alreadySelected}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!alreadySelected) {
+                          handlePaletteAdd(node.table!);
+                        }
+                      }}
+                    >
+                      <AddCircleOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            }
+          />
+        );
+      }
+
+      const childCount = node.children?.reduce<number>((total, child) => {
+        if (child.type === 'table') {
+          return total + 1;
+        }
+        return total + (child.tableCount ?? 0);
+      }, 0) ?? node.tableCount ?? 0;
+
+      return (
+        <TreeItem
+          key={node.id}
+          itemId={node.id}
+          label={
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ py: 0.5, pr: 0.5 }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: node.type === 'productTeam' ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                >
+                  {node.label}
+                </Typography>
+                {node.secondary && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {node.secondary}
+                  </Typography>
+                )}
+              </Box>
+              {childCount > 0 && (
+                <Chip size="small" label={childCount} sx={{ height: 18 }} />
+              )}
+            </Stack>
+          }
+        >
+          {node.children?.map((child: PaletteTreeNode) => renderTreeItem(child))}
+        </TreeItem>
+      );
+    },
+    [handleDragStart, handlePaletteAdd, nodesById]
+  );
+
+  const selectedProductTeam = selectedProductTeamId
+    ? processAreasById.get(selectedProductTeamId) ?? null
+    : null;
+  const selectedProductTeamLabel = selectedProductTeam?.name
+    ?? (selectedProductTeamId ? activeReport?.productTeamName ?? 'Unknown product team' : 'Unassigned');
+  const selectedDataObject = selectedDataObjectId
+    ? dataObjectsById.get(selectedDataObjectId) ?? null
+    : null;
+  const selectedDataObjectLabel = selectedDataObject?.name
+    ?? (selectedDataObjectId ? activeReport?.dataObjectName ?? 'Unknown data object' : 'Unassigned');
+  const selectedDataObjectTeamName = selectedDataObject?.processAreaId
+    ? processAreasById.get(selectedDataObject.processAreaId)?.name ?? null
+    : null;
+  const productTeamHelperText =
+    pendingPersistAction === 'publish' ? 'Product team required to publish.' : 'Optional for drafts.';
+  const dataObjectHelperText =
+    pendingPersistAction === 'publish' ? 'Data object required to publish.' : 'Optional for drafts.';
+  const dataObjectPlaceholderLabel = dataObjects.length === 0
+    ? 'No data objects available'
+    : draftProductTeamIdInput && filteredDataObjects.length === 0
+      ? 'No data objects for selected product team'
+      : 'Select data object';
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minHeight: '100vh' }}>
       <PageHeader
         title="Report Designer"
         subtitle="Compose relational-style report definitions by combining enterprise tables, mapping joins, and shaping output fields prior to publishing."
       />
-
       <Paper
         elevation={2}
         sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }}
@@ -2084,72 +3171,41 @@ const ReportingDesignerContent = () => {
               }}
             />
             <Paper variant="outlined" sx={{ flex: 1, minHeight: 280, overflowY: 'auto' }}>
-              {tablesLoading && (
+              {paletteLoading && (
                 <Stack sx={{ py: 6 }} alignItems="center" spacing={1}>
                   <CircularProgress size={24} />
                   <Typography variant="body2" color="text.secondary">
-                    Loading tables…
+                    Loading table palette…
                   </Typography>
                 </Stack>
               )}
-              {tablesError && (
+              {paletteError && (
                 <Stack sx={{ py: 6, px: 2 }} spacing={1}>
                   <Typography variant="body2" color="error">
-                    Unable to load table catalog. Verify backend availability.
+                    {paletteErrorMessage}
                   </Typography>
                 </Stack>
               )}
-              {!tablesLoading && !tablesError && (
-                <List dense disablePadding>
-                  {filteredTables.length === 0 && (
-                    <ListItem>
-                      <ListItemText
-                        primary="No matching tables"
-                        primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                      />
-                    </ListItem>
-                  )}
-                  {filteredTables.map((item) => {
-                    const alreadySelected = nodesById.has(item.id);
-                    const subtitle = item.schemaName ? `${item.schemaName}.${item.physicalName}` : item.physicalName;
-                    return (
-                      <ListItem
-                        key={item.id}
-                        secondaryAction={
-                          <Tooltip title={alreadySelected ? 'Already on canvas' : 'Add to canvas'}>
-                            <span>
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                disabled={alreadySelected}
-                                onClick={() => handlePaletteAdd(item)}
-                              >
-                                <AddCircleOutlineIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        }
-                      >
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          alignItems="center"
-                          draggable={!alreadySelected}
-                          onDragStart={(event) => handleDragStart(event, item)}
-                          sx={{ cursor: alreadySelected ? 'default' : 'grab', flex: 1 }}
-                        >
-                          <DragIndicatorIcon fontSize="small" color={alreadySelected ? 'disabled' : 'action'} />
-                          <ListItemText
-                            primary={item.name}
-                            secondary={subtitle}
-                            primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }}
-                            secondaryTypographyProps={{ fontSize: 12 }}
-                          />
-                        </Stack>
-                      </ListItem>
-                    );
-                  })}
-                </List>
+              {!paletteLoading && !paletteError && (
+                filteredPaletteHierarchy.length === 0 ? (
+                  <Stack sx={{ py: 6, px: 2 }} spacing={1} alignItems="center">
+                    <Typography variant="body2" color="text.secondary" align="center">
+                      {allowedTableIds.size === 0
+                        ? 'No tables are linked to data definitions yet. Add tables to a data definition to make them available here.'
+                        : 'No matching tables. Refine your search or clear the filter.'}
+                    </Typography>
+                  </Stack>
+                ) : (
+                  <SimpleTreeView
+                    expandedItems={expandedNodes}
+                    onExpandedItemsChange={(_: SyntheticEvent | null, itemIds: string[]) => setExpandedNodes(itemIds)}
+                    disableSelection
+                    slots={{ collapseIcon: ExpandMoreIcon, expandIcon: ChevronRightIcon }}
+                    sx={{ py: 1, pr: 1 }}
+                  >
+                    {filteredPaletteHierarchy.map((node) => renderTreeItem(node))}
+                  </SimpleTreeView>
+                )
               )}
             </Paper>
           </Box>
@@ -2205,6 +3261,27 @@ const ReportingDesignerContent = () => {
                 <Background color={canvasGridColor} gap={24} size={0.6} />
               </ReactFlow>
             </Paper>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'flex-start', sm: 'center' }}
+              sx={{ flexWrap: 'wrap' }}
+            >
+              <Chip
+                variant="outlined"
+                color={selectedProductTeamId ? 'primary' : 'default'}
+                label={`Product Team: ${selectedProductTeamLabel}`}
+              />
+              <Chip
+                variant="outlined"
+                color={selectedDataObjectId ? 'primary' : 'default'}
+                label={
+                  selectedDataObjectTeamName && selectedDataObjectLabel !== 'Unassigned'
+                    ? `Data Object: ${selectedDataObjectLabel} (${selectedDataObjectTeamName})`
+                    : `Data Object: ${selectedDataObjectLabel}`
+                }
+              />
+            </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <Button
                 variant="contained"
@@ -2217,15 +3294,23 @@ const ReportingDesignerContent = () => {
               <Button
                 variant="outlined"
                 startIcon={<SaveIcon />}
-                disabled={actionButtonsDisabled}
+                disabled={actionButtonsDisabled || persisting}
                 onClick={handleSaveDraft}
               >
                 Save Draft
               </Button>
               <Button
                 variant="outlined"
+                startIcon={<FolderOpenIcon />}
+                onClick={handleOpenDraftList}
+                disabled={persisting}
+              >
+                Load Draft
+              </Button>
+              <Button
+                variant="outlined"
                 startIcon={<PublishIcon />}
-                disabled={actionButtonsDisabled}
+                disabled={actionButtonsDisabled || persisting}
                 onClick={handlePublish}
               >
                 Publish to Data Object
@@ -2234,6 +3319,7 @@ const ReportingDesignerContent = () => {
                 variant="text"
                 color="warning"
                 startIcon={<RestartAltIcon />}
+                disabled={persisting}
                 onClick={handleResetDraft}
               >
                 Reset Draft
@@ -2390,6 +3476,201 @@ const ReportingDesignerContent = () => {
           </Paper>
         </Box>
       </Paper>
+
+      <Dialog open={saveDialogOpen} onClose={handlePersistDialogClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            {pendingPersistAction === 'draft' ? 'Save Draft' : 'Publish Report'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              {pendingPersistAction === 'draft'
+                ? 'Name this draft and provide an optional description before saving to the reporting catalog.'
+                : 'Confirm the report details before publishing to the reporting catalog.'}
+            </Typography>
+            <TextField
+              label="Report Name"
+              value={draftNameInput}
+              onChange={(event) => setDraftNameInput(event.target.value)}
+              inputRef={draftNameInputRef}
+              required
+              disabled={persisting}
+            />
+            <TextField
+              label="Description"
+              value={draftDescriptionInput}
+              onChange={(event) => setDraftDescriptionInput(event.target.value)}
+              multiline
+              minRows={2}
+              disabled={persisting}
+            />
+            <TextField
+              select
+              label="Product Team"
+              value={draftProductTeamIdInput ?? ''}
+              onChange={(event) => {
+                const value = event.target.value as string;
+                const nextValue = value ? value : null;
+                setDraftProductTeamIdInput(nextValue);
+                if (draftDataObjectIdInput) {
+                  const currentDataObject = dataObjectsById.get(draftDataObjectIdInput);
+                  if (!currentDataObject) {
+                    setDraftDataObjectIdInput(null);
+                    return;
+                  }
+                  const currentProcessAreaId = currentDataObject.processAreaId ?? null;
+                  const mismatchedSelectedTeam = currentProcessAreaId && nextValue && currentProcessAreaId !== nextValue;
+                  const clearedTeamWhileAssigned = currentProcessAreaId && !nextValue;
+                  const assignedTeamWhileUnassigned = !currentProcessAreaId && nextValue;
+                  if (mismatchedSelectedTeam || clearedTeamWhileAssigned || assignedTeamWhileUnassigned) {
+                    setDraftDataObjectIdInput(null);
+                  }
+                }
+              }}
+              helperText={productTeamHelperText}
+              disabled={persisting}
+            >
+              <MenuItem value="">Unassigned</MenuItem>
+              {sortedProcessAreas.map((processArea) => (
+                <MenuItem key={processArea.id} value={processArea.id}>
+                  {processArea.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Data Object"
+              value={draftDataObjectIdInput ?? ''}
+              onChange={(event) => {
+                const value = event.target.value as string;
+                const nextValue = value ? value : null;
+                setDraftDataObjectIdInput(nextValue);
+                if (nextValue) {
+                  const nextDataObject = dataObjectsById.get(nextValue);
+                  setDraftProductTeamIdInput(nextDataObject?.processAreaId ?? null);
+                }
+              }}
+              helperText={dataObjectHelperText}
+              disabled={persisting || dataObjects.length === 0}
+            >
+              <MenuItem value="">
+                {dataObjectPlaceholderLabel}
+              </MenuItem>
+              {filteredDataObjects.map((dataObject) => {
+                const associatedTeamName = dataObject.processAreaId
+                  ? processAreasById.get(dataObject.processAreaId)?.name ?? 'Unknown product team'
+                  : 'Unassigned';
+                return (
+                  <MenuItem key={dataObject.id} value={dataObject.id}>
+                    {associatedTeamName === 'Unassigned'
+                      ? dataObject.name
+                      : `${dataObject.name} — ${associatedTeamName}`}
+                  </MenuItem>
+                );
+              })}
+            </TextField>
+            {dialogError && <Alert severity="error">{dialogError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, py: 1.5 }}>
+          <Button onClick={handlePersistDialogClose} disabled={persisting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handlePersistConfirm}
+            variant="contained"
+            startIcon={
+              persisting ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : pendingPersistAction === 'draft' ? (
+                <SaveIcon />
+              ) : (
+                <PublishIcon />
+              )
+            }
+            disabled={persisting || !draftNameInput.trim()}
+          >
+            {pendingPersistAction === 'draft' ? 'Save Draft' : 'Publish Report'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={draftListOpen} onClose={handleDraftListClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Load Saved Draft
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {draftReportsLoading || draftReportsFetching ? (
+            <Stack spacing={1.5} alignItems="center" sx={{ py: 4 }}>
+              <CircularProgress size={24} />
+              <Typography variant="body2" color="text.secondary">
+                Fetching drafts…
+              </Typography>
+            </Stack>
+          ) : draftReports.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No saved drafts are available yet. Save a draft to see it listed here.
+            </Typography>
+          ) : (
+            <List dense disablePadding>
+              {draftReports.map((report) => (
+                <ListItem
+                  key={report.id}
+                  disablePadding
+                  secondaryAction={
+                    <Tooltip title="Delete draft">
+                      <span>
+                        <IconButton
+                          edge="end"
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteDraftReport(report)}
+                          disabled={deletingReportId === report.id || persisting}
+                        >
+                          {deletingReportId === report.id ? (
+                            <CircularProgress size={18} color="inherit" />
+                          ) : (
+                            <DeleteOutlineIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  }
+                >
+                  <ListItemButton
+                    onClick={() => handleLoadDraftReport(report)}
+                    disabled={loadingReportId === report.id || persisting}
+                  >
+                    <ListItemText
+                      primary={report.name}
+                      primaryTypographyProps={{ fontWeight: 600 }}
+                      secondary={`Updated ${formatTimestamp(report.updatedAt)}`}
+                      secondaryTypographyProps={{ variant: 'caption' }}
+                    />
+                    {(loadingReportId === report.id || activeReport?.id === report.id) && (
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 1 }}>
+                        {loadingReportId === report.id ? (
+                          <CircularProgress size={18} />
+                        ) : (
+                          <Chip label="Active" color="primary" size="small" />
+                        )}
+                      </Stack>
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, py: 1.5 }}>
+          <Button onClick={handleDraftListClose}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(joinDialogState)} onClose={handleJoinDialogClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ pb: 1.5 }}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
 from uuid import UUID
@@ -89,6 +90,83 @@ class ReportPreviewResponse(BaseModel):
     rows: List[dict[str, Any]]
 
 
+class ReportStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class ReportCreateRequest(BaseModel):
+    name: str = Field(..., max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    definition: ReportDesignerDefinition
+    status: ReportStatus = Field(default=ReportStatus.DRAFT)
+    product_team_id: Optional[UUID] = Field(None, alias="productTeamId")
+    data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
+
+    class Config:
+        allow_population_by_field_name = True
+        anystr_strip_whitespace = True
+
+
+class ReportUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    definition: Optional[ReportDesignerDefinition] = None
+    status: Optional[ReportStatus] = None
+    product_team_id: Optional[UUID] = Field(None, alias="productTeamId")
+    data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
+
+    class Config:
+        allow_population_by_field_name = True
+        anystr_strip_whitespace = True
+
+
+class ReportPublishRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    definition: Optional[ReportDesignerDefinition] = None
+    product_team_id: UUID = Field(..., alias="productTeamId")
+    data_object_id: UUID = Field(..., alias="dataObjectId")
+
+    class Config:
+        allow_population_by_field_name = True
+        anystr_strip_whitespace = True
+
+
+class ReportListItem(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    status: ReportStatus
+    created_at: datetime = Field(..., alias="createdAt")
+    updated_at: datetime = Field(..., alias="updatedAt")
+    published_at: Optional[datetime] = Field(None, alias="publishedAt")
+    product_team_id: Optional[UUID] = Field(None, alias="productTeamId")
+    product_team_name: Optional[str] = Field(None, alias="productTeamName")
+    data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
+    data_object_name: Optional[str] = Field(None, alias="dataObjectName")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class ReportResponse(ReportListItem):
+    definition: ReportDesignerDefinition
+
+
+class ReportDatasetResponse(BaseModel):
+    report_id: UUID = Field(..., alias="reportId")
+    name: str
+    limit: int
+    row_count: int = Field(..., alias="rowCount")
+    generated_at: datetime = Field(..., alias="generatedAt")
+    columns: List[str]
+    rows: List[dict[str, Any]]
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 __all__ = [
     "ReportAggregateFn",
     "ReportDesignerColumn",
@@ -99,4 +177,11 @@ __all__ = [
     "ReportPreviewRequest",
     "ReportPreviewResponse",
     "ReportSortDirection",
+    "ReportStatus",
+    "ReportCreateRequest",
+    "ReportUpdateRequest",
+    "ReportPublishRequest",
+    "ReportListItem",
+    "ReportResponse",
+    "ReportDatasetResponse",
 ]

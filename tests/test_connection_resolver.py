@@ -25,6 +25,17 @@ def test_resolve_sqlserver_jdbc_url_adds_defaults():
     assert "driver" in url.query
 
 
+def test_resolve_sap_hana_jdbc_url():
+    url = resolve_sqlalchemy_url(
+        SystemConnectionType.JDBC,
+        "jdbc:sap://hana.example.com:30015/coredb",
+    )
+    assert isinstance(url, URL)
+    assert url.drivername == "hana"
+    assert url.host == "hana.example.com"
+    assert url.database == "coredb"
+
+
 def test_unsupported_dialect_raises():
     try:
         resolve_sqlalchemy_url(SystemConnectionType.JDBC, "jdbc:mysql://db/app")

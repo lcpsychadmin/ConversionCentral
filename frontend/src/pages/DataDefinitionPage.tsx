@@ -21,6 +21,9 @@ import { useAuth } from '../context/AuthContext';
 import { useDataDefinition } from '../hooks/useDataDefinition';
 import { useDataObjects } from '../hooks/useDataObjects';
 import { useToast } from '../hooks/useToast';
+import { useDatabricksDataTypes } from '../hooks/useDatabricksDataTypes';
+import { useLegalRequirements } from '../hooks/useLegalRequirements';
+import { useSecurityClassifications } from '../hooks/useSecurityClassifications';
 import CreateFieldDialog, { FieldFormValues } from '../components/data-definition/CreateFieldDialog';
 import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
 import PageHeader from '../components/common/PageHeader';
@@ -86,7 +89,8 @@ type InlineFieldDraft = {
   suppressedField?: boolean;
   active?: boolean;
   legalRegulatoryImplications?: string;
-  securityClassification?: string;
+  legalRequirementId?: string;
+  securityClassificationId?: string;
   dataValidation?: string;
   referenceTable?: string;
   groupingTab?: string;
@@ -129,6 +133,30 @@ const DataDefinitionsPage = () => {
     isError: processAreasError,
     error: processAreasErrorDetails
   } = processAreasQuery;
+
+  const databricksDataTypesQuery = useDatabricksDataTypes();
+  const {
+    data: databricksDataTypes = [],
+    isLoading: databricksDataTypesLoading,
+    isError: databricksDataTypesError,
+    error: databricksDataTypesErrorDetails
+  } = databricksDataTypesQuery;
+
+  const { legalRequirementsQuery } = useLegalRequirements();
+  const {
+    data: legalRequirements = [],
+    isLoading: legalRequirementsLoading,
+    isError: legalRequirementsError,
+    error: legalRequirementsErrorDetails
+  } = legalRequirementsQuery;
+
+  const { securityClassificationsQuery } = useSecurityClassifications();
+  const {
+    data: securityClassifications = [],
+    isLoading: securityClassificationsLoading,
+    isError: securityClassificationsError,
+    error: securityClassificationsErrorDetails
+  } = securityClassificationsQuery;
 
   const refreshMetadata = useCallback(async () => {
     await Promise.all([tablesQuery.refetch(), fieldsQuery.refetch()]);
@@ -254,7 +282,12 @@ const DataDefinitionsPage = () => {
   }, [fieldsForSystem]);
 
   const busy = creating || updating || deleting;
-  const metadataLoading = tablesLoading || fieldsLoading;
+  const metadataLoading =
+    tablesLoading ||
+    fieldsLoading ||
+    legalRequirementsLoading ||
+    securityClassificationsLoading ||
+    databricksDataTypesLoading;
   const canInlineEdit = canManage && !busy && !metadataLoading;
   const anyTableSaving = Object.values(tableSavingState).some(Boolean);
   const fieldActionsDisabled =
@@ -434,7 +467,12 @@ const DataDefinitionsPage = () => {
         field.legalRegulatoryImplications,
         'legalRegulatoryImplications'
       );
-      applyOptionalString(changes.securityClassification, field.securityClassification, 'securityClassification');
+      applyOptionalString(changes.legalRequirementId, field.legalRequirementId, 'legalRequirementId');
+      applyOptionalString(
+        changes.securityClassificationId,
+        field.securityClassificationId,
+        'securityClassificationId'
+      );
       applyOptionalString(changes.dataValidation, field.dataValidation, 'dataValidation');
       applyOptionalString(changes.referenceTable, field.referenceTable, 'referenceTable');
       applyOptionalString(changes.groupingTab, field.groupingTab, 'groupingTab');
@@ -624,7 +662,8 @@ const DataDefinitionsPage = () => {
             suppressedField: values.suppressedField,
             active: values.active,
             legalRegulatoryImplications: values.legalRegulatoryImplications,
-            securityClassification: values.securityClassification,
+            legalRequirementId: values.legalRequirementId,
+            securityClassificationId: values.securityClassificationId,
             dataValidation: values.dataValidation,
             referenceTable: values.referenceTable,
             groupingTab: values.groupingTab
@@ -707,7 +746,8 @@ const DataDefinitionsPage = () => {
         suppressedField: boolean;
         active: boolean;
         legalRegulatoryImplications: string;
-        securityClassification: string;
+        legalRequirementId: string;
+        securityClassificationId: string;
         dataValidation: string;
         referenceTable: string;
         groupingTab: string;
@@ -776,7 +816,8 @@ const DataDefinitionsPage = () => {
           suppressedField: field.suppressedField,
           active: field.active,
           legalRegulatoryImplications: sanitizeOptionalString(field.legalRegulatoryImplications),
-          securityClassification: sanitizeOptionalString(field.securityClassification),
+          legalRequirementId: sanitizeOptionalString(field.legalRequirementId),
+          securityClassificationId: sanitizeOptionalString(field.securityClassificationId),
           dataValidation: sanitizeOptionalString(field.dataValidation),
           referenceTable: sanitizeOptionalString(field.referenceTable),
           groupingTab: sanitizeOptionalString(field.groupingTab)
@@ -1033,6 +1074,18 @@ const DataDefinitionsPage = () => {
     ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
     : null;
 
+  const legalRequirementsErrorMessage = legalRequirementsError
+    ? getErrorMessage(legalRequirementsErrorDetails, 'Unable to load legal requirements.')
+    : null;
+
+  const securityClassificationsErrorMessage = securityClassificationsError
+    ? getErrorMessage(securityClassificationsErrorDetails, 'Unable to load security classifications.')
+    : null;
+
+  const databricksDataTypesErrorMessage = databricksDataTypesError
+    ? getErrorMessage(databricksDataTypesErrorDetails, 'Unable to load Databricks data types.')
+    : null;
+
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === 'dark';
 
@@ -1208,6 +1261,13 @@ const DataDefinitionsPage = () => {
         {dataObjectsErrorMessage && <Alert severity="error">{dataObjectsErrorMessage}</Alert>}
         {tablesErrorMessage && <Alert severity="error">{tablesErrorMessage}</Alert>}
         {fieldsErrorMessage && <Alert severity="error">{fieldsErrorMessage}</Alert>}
+        {legalRequirementsErrorMessage && <Alert severity="error">{legalRequirementsErrorMessage}</Alert>}
+        {securityClassificationsErrorMessage && (
+          <Alert severity="error">{securityClassificationsErrorMessage}</Alert>
+        )}
+        {databricksDataTypesErrorMessage && (
+          <Alert severity="error">{databricksDataTypesErrorMessage}</Alert>
+        )}
         {definitionErrorMessage && <Alert severity="error">{definitionErrorMessage}</Alert>}
         {noSystemsAssigned && (
           <Alert severity="info">
@@ -1293,6 +1353,9 @@ const DataDefinitionsPage = () => {
                 onReorderFields={handleReorderDefinitionFields}
                 onDeleteField={handleDeleteDefinitionField}
                 onBulkPasteResult={handleBulkPasteResult}
+                dataTypes={databricksDataTypes}
+                legalRequirements={legalRequirements}
+                securityClassifications={securityClassifications}
               />
             </Paper>
             {definitionFetching && (
@@ -1363,11 +1426,24 @@ const DataDefinitionsPage = () => {
             isUnique: Boolean(fieldEditDialog.definitionField.isUnique),
             legalRegulatoryImplications:
               fieldEditDialog.definitionField.field.legalRegulatoryImplications ?? null,
-            securityClassification: fieldEditDialog.definitionField.field.securityClassification ?? null,
+            legalRequirementId:
+              fieldEditDialog.definitionField.field.legalRequirementId ??
+              fieldEditDialog.definitionField.field.legalRequirement?.id ??
+              null,
+            securityClassificationId:
+              fieldEditDialog.definitionField.field.securityClassificationId ??
+              fieldEditDialog.definitionField.field.securityClassification?.id ??
+              null,
             dataValidation: fieldEditDialog.definitionField.field.dataValidation ?? null,
             referenceTable: fieldEditDialog.definitionField.field.referenceTable ?? null,
             groupingTab: fieldEditDialog.definitionField.field.groupingTab ?? null
           }}
+          fieldTypeOptions={databricksDataTypes}
+          fieldTypeLoading={databricksDataTypesLoading}
+          legalRequirements={legalRequirements}
+          legalRequirementsLoading={legalRequirementsLoading}
+          securityClassifications={securityClassifications}
+          securityClassificationsLoading={securityClassificationsLoading}
           onClose={handleFieldDialogClose}
           onSubmit={handleFieldDialogSubmit}
         />

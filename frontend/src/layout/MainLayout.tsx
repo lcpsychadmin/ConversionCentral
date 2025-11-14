@@ -1,9 +1,9 @@
-import { AppBar, Box, Collapse, Drawer, IconButton, List, ListItem, ListItemButton, ListItemText, Toolbar, Typography, ListItemIcon } from '@mui/material';
+import { AppBar, Box, Collapse, Drawer, IconButton, List, ListItem, ListItemButton, ListItemText, Toolbar, Typography, ListItemIcon, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from 'react-query';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useNavigate } from 'react-router-dom';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -22,6 +22,7 @@ import {
 } from '../services/applicationSettingsService';
 
 import { ReactNode } from 'react';
+import useDesignerStore from '../stores/designerStore';
 
 const drawerWidth = 280;
 
@@ -40,9 +41,10 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <SettingsIcon />,
     children: [
-      { label: 'Applications', path: '/applications' },
       { label: 'Company Settings', path: '/application-settings/company' },
-      { label: 'Product Teams', path: '/process-areas' }
+      { label: 'Product Teams', path: '/process-areas' },
+      { label: 'Legal Requirements', path: '/application-settings/legal-requirements' },
+      { label: 'Security Classifications', path: '/application-settings/security-classifications' }
     ]
   },
   {
@@ -50,10 +52,10 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <TuneIcon />,
     children: [
-      { label: 'Source Catalog', path: '/data-configuration/source-catalog' },
-      { label: 'Ingestion Schedules', path: '/data-configuration/ingestion-schedules' },
       { label: 'Application Database', path: '/data-configuration/application-database' },
-      { label: 'Data Warehouse', path: '/data-configuration/data-warehouse' }
+      { label: 'Data Warehouse', path: '/data-configuration/data-warehouse' },
+      { label: 'Source Systems', path: '/data-configuration/source-systems' },
+      { label: 'Ingestion Schedules', path: '/data-configuration/ingestion-schedules' }
     ]
   },
   {
@@ -74,38 +76,85 @@ const navItems: NavItem[] = [
       { label: 'Data Object Definition', path: '/data-definitions' }
     ]
   },
-  {
-    label: 'Project Settings',
-    collapsible: true,
-    icon: <ProjectsIcon />,
-    children: [
-      { label: 'Projects', path: '/project-settings/projects' },
-      { label: 'Releases', path: '/project-settings/releases' }
-    ]
-  },
+  // Project settings will be moved under Data Migration (see below)
   {
     label: 'Reporting',
     collapsible: true,
     icon: <AssessmentIcon />,
     children: [
       { label: 'Report Designer', path: '/reporting/designer' },
-      { label: 'Reports & Outputs', path: '/reporting/catalog' }
+      { label: 'Report Catalog', path: '/reporting/catalog' }
+    ]
+  }
+  ,
+  {
+    label: 'Data Migration',
+    collapsible: true,
+    icon: <ProjectsIcon />,
+    children: [
+      {
+        label: 'Project Settings',
+        collapsible: true,
+        children: [
+          { label: 'Projects', path: '/project-settings/projects' },
+          { label: 'Releases', path: '/project-settings/releases' }
+        ]
+      }
     ]
   }
 ];
 
+type NavigationSentinelWindow = Window & {
+  __CC_SUPPRESS_BEFOREUNLOAD?: boolean;
+};
+
 const MainLayout = () => {
   const theme = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const hasUnsaved = useDesignerStore((s) => s.hasUnsaved);
+  const setHasUnsaved = useDesignerStore((s) => s.setHasUnsaved);
+
+  // warn on full unload if there are unsaved changes
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      // If we've intentionally suppressed beforeunload (e.g., user confirmed
+      // navigation via the in-app modal), allow the unload to proceed without
+      // showing the browser default popup.
+      try {
+        const sentinelWindow = window as NavigationSentinelWindow;
+        if (sentinelWindow.__CC_SUPPRESS_BEFOREUNLOAD) {
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      if (!hasUnsaved) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsaved]);
+  // Create expand/collapse state for any collapsible section at any depth.
+  const buildCollapseMap = (items: NavItem[], parentKey?: string) =>
+    items.reduce<Record<string, boolean>>((acc, it) => {
+      const key = parentKey ? `${parentKey}::${it.label}` : it.label;
+      if (it.collapsible) acc[key] = false;
+      if (it.children) {
+        Object.assign(acc, buildCollapseMap(it.children, key));
+      }
+      return acc;
+    }, {});
+
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() =>
-    navItems
-      .filter((item) => item.collapsible)
-      .reduce<Record<string, boolean>>((acc, item) => {
-        acc[item.label] = false;
-        return acc;
-      }, {})
+    buildCollapseMap(navItems)
   );
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const isDarkMode = theme.palette.mode === 'dark';
   const navTextColor = isDarkMode ? theme.palette.common.white : theme.palette.text.primary;
@@ -128,48 +177,146 @@ const MainLayout = () => {
     setMobileOpen((prev) => !prev);
   };
 
-  const handleSectionToggle = (label: string) => {
+  const handleSectionToggle = (key: string) => {
     setOpenSections((prev) => ({
       ...prev,
-      [label]: !prev[label]
+      [key]: !prev[key]
     }));
   };
 
-  const renderChildItems = (children: NavItem[]) => (
+  const renderNestedChildren = (items: NavItem[], parentKey?: string) => (
     <List component="div" disablePadding>
-      {children.map((child) => (
-        <ListItem key={child.label} disablePadding>
-          <ListItemButton
-            component={Link}
-            to={child.path ?? '#'}
-            sx={{
-              pl: 4,
-              color: navTextColor,
-              '&:hover': {
-                backgroundColor: navHoverBackground
-              }
-            }}
-            disabled={!child.path}
-            onClick={() => {
-              if (child.path) {
-                setMobileOpen(false);
-              }
-            }}
-          >
-            <ListItemText
-              primary={child.label}
-              primaryTypographyProps={{
-                sx: {
-                  color: navTextColor,
-                  fontWeight: 500
+      {items.map((item) => {
+        const key = parentKey ? `${parentKey}::${item.label}` : item.label;
+        if (item.collapsible) {
+          const isOpen = Boolean(openSections[key]);
+          return (
+            <Box key={key}>
+              <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => handleSectionToggle(key)}
+                  sx={{
+                    pl: 4,
+                    color: navHeadingColor,
+                    '&:hover': {
+                      backgroundColor: navHoverBackground
+                    }
+                  }}
+                >
+                  <ListItemText
+                    primary={item.label}
+                    primaryTypographyProps={{ sx: { color: navHeadingColor } }}
+                  />
+                  {isOpen ? (
+                    <ExpandLessIcon sx={{ fontSize: 22, color: navIconColor }} />
+                  ) : (
+                    <ExpandMoreIcon sx={{ fontSize: 22, color: navIconColor }} />
+                  )}
+                </ListItemButton>
+              </ListItem>
+              <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                {item.children ? renderNestedChildren(item.children, key) : null}
+              </Collapse>
+            </Box>
+          );
+        }
+
+        return (
+          <ListItem key={key} disablePadding>
+            <ListItemButton
+              component={Link}
+              to={item.path ?? '#'}
+              sx={{
+                pl: 6,
+                color: navTextColor,
+                '&:hover': {
+                  backgroundColor: navHoverBackground
                 }
               }}
-            />
-          </ListItemButton>
-        </ListItem>
-      ))}
+              disabled={!item.path}
+                onClick={(ev) => {
+                  if (!item.path) return;
+                  if (ev.button !== 0 || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+                  // DEBUG: log whether the event was already defaultPrevented before we act
+                  // eslint-disable-next-line no-console
+                  console.debug('[nav] pre-handler defaultPrevented', { before: !!ev.defaultPrevented, href: item.path });
+                  if (hasUnsaved) {
+                    ev.preventDefault();
+                    setPendingHref(item.path);
+                    setConfirmOpen(true);
+                    return;
+                  }
+                  setMobileOpen(false);
+                }}
+            >
+              <ListItemText
+                primary={item.label}
+                primaryTypographyProps={{
+                  sx: {
+                    color: navTextColor,
+                    fontWeight: 500
+                  }
+                }}
+              />
+            </ListItemButton>
+          </ListItem>
+        );
+      })}
     </List>
   );
+
+  // Confirmation dialog shown when user attempts to navigate away with unsaved changes
+  const handleConfirmLeave = useCallback(() => {
+    const href = pendingHref;
+    if (href) {
+      try {
+        // Clear flag and close dialog synchronously to avoid re-triggering
+        setHasUnsaved(false);
+        setConfirmOpen(false);
+        setPendingHref(null);
+        setMobileOpen(false);
+        // Log and navigate on next tick so any current event handlers finish.
+        // eslint-disable-next-line no-console
+        console.debug('[nav][confirm] navigating to', href);
+        // Aggressive navigation: set a sentinel to suppress our beforeunload
+        // handler, patch Event behavior so other beforeunload listeners cannot
+        // block the unload, perform SPA navigate and then force a full reload.
+        // Restore patched behavior afterwards.
+        try {
+          // set sentinel so beforeunload handlers respect the in-app confirm
+          // while we perform SPA navigation.
+          (window as NavigationSentinelWindow).__CC_SUPPRESS_BEFOREUNLOAD = true;
+        } catch {
+          // ignore
+        }
+        setTimeout(() => {
+          try {
+            navigate(href);
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('[nav][confirm] navigate failed', e);
+          } finally {
+            try {
+              // clear sentinel after navigation attempt
+              delete (window as NavigationSentinelWindow).__CC_SUPPRESS_BEFOREUNLOAD;
+            } catch {
+              // ignore
+            }
+          }
+        }, 0);
+      } catch (e) {
+        // ignore
+      }
+    } else {
+      setConfirmOpen(false);
+    }
+  }, [navigate, pendingHref, setHasUnsaved]);
+
+  const handleCancelLeave = useCallback(() => {
+    setConfirmOpen(false);
+    setPendingHref(null);
+  }, []);
+
 
   const drawer = (
     <Box
@@ -300,10 +447,10 @@ const MainLayout = () => {
               {hasChildren && (
                 isCollapsible ? (
                   <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                    {renderChildItems(item.children!)}
+                    {renderNestedChildren(item.children!, item.label)}
                   </Collapse>
                 ) : (
-                  renderChildItems(item.children!)
+                  renderNestedChildren(item.children!, item.label)
                 )
               )}
             </Box>
@@ -313,8 +460,23 @@ const MainLayout = () => {
     </Box>
   );
 
+  // Confirmation dialog UI
+  const confirmDialog = (
+    <Dialog open={confirmOpen} onClose={handleCancelLeave} aria-labelledby="unsaved-dialog-title">
+      <DialogTitle id="unsaved-dialog-title">Unsaved changes</DialogTitle>
+      <DialogContent>
+        You have unsaved changes in the Report Designer. Leaving this page will discard those changes. Continue?
+      </DialogContent>
+      <DialogActions>
+  <Button onClick={handleCancelLeave}>Cancel</Button>
+  <Button onClick={handleConfirmLeave} color="error">Leave</Button>
+      </DialogActions>
+    </Dialog>
+  );
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      {confirmDialog}
       <AppBar
         position="fixed"
         sx={{

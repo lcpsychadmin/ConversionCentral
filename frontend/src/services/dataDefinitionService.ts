@@ -1,4 +1,5 @@
 import client from './api/client';
+import { ensureArrayResponse, PaginatedResponse } from './api/responseUtils';
 import {
   DataDefinition,
   DataDefinitionField,
@@ -146,18 +147,31 @@ export const fetchDataDefinition = async (
   dataObjectId: string,
   systemId: string
 ): Promise<DataDefinition | null> => {
-  const response = await client.get<DataDefinitionResponse[]>('/data-definitions', {
-    params: {
-      data_object_id: dataObjectId,
-      system_id: systemId
+  const response = await client.get<DataDefinitionResponse[] | PaginatedResponse<DataDefinitionResponse>>(
+    '/data-definitions',
+    {
+      params: {
+        data_object_id: dataObjectId,
+        system_id: systemId
+      }
     }
-  });
+  );
 
-  if (!response.data.length) {
+  const definitions = ensureArrayResponse(response.data);
+
+  if (!definitions.length) {
     return null;
   }
 
-  return mapDataDefinition(response.data[0]);
+  return mapDataDefinition(definitions[0]);
+};
+
+export const fetchAllDataDefinitions = async (): Promise<DataDefinition[]> => {
+  const response = await client.get<DataDefinitionResponse[] | PaginatedResponse<DataDefinitionResponse>>(
+    '/data-definitions'
+  );
+  const definitions = ensureArrayResponse(response.data);
+  return definitions.map(mapDataDefinition);
 };
 
 export const createDataDefinition = async (

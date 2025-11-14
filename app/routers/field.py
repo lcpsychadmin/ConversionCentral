@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Field, Table
+from app.models import Field, Table, LegalRequirement, SecurityClassification
 from app.schemas import FieldCreate, FieldRead, FieldUpdate
 
 router = APIRouter(prefix="/fields", tags=["Fields"])
@@ -21,6 +21,20 @@ def _get_field_or_404(field_id: UUID, db: Session) -> Field:
 def create_field(payload: FieldCreate, db: Session = Depends(get_db)) -> FieldRead:
     if not db.get(Table, payload.table_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
+
+    if payload.legal_requirement_id and not db.get(LegalRequirement, payload.legal_requirement_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Legal or regulatory requirement not found",
+        )
+
+    if payload.security_classification_id and not db.get(
+        SecurityClassification, payload.security_classification_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Security classification not found",
+        )
 
     field = Field(**payload.dict())
     db.add(field)
@@ -55,6 +69,22 @@ def update_field(
     table_id = update_data.get("table_id")
     if table_id and not db.get(Table, table_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
+
+    requirement_id = update_data.get("legal_requirement_id")
+    if requirement_id is not None and requirement_id:
+        if not db.get(LegalRequirement, requirement_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Legal or regulatory requirement not found",
+            )
+
+    classification_id = update_data.get("security_classification_id")
+    if classification_id is not None and classification_id:
+        if not db.get(SecurityClassification, classification_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Security classification not found",
+            )
 
     for field_name, value in update_data.items():
         setattr(field, field_name, value)

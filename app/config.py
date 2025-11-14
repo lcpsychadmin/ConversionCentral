@@ -51,6 +51,13 @@ class Settings(BaseSettings):
         env="DATABRICKS_INGESTION_METHOD",
         description="Preferred Databricks ingestion method ('sql' or 'spark') when no database setting overrides it.",
     )
+    databricks_spark_compute: str | None = Field(
+        default=None,
+        env="DATABRICKS_SPARK_COMPUTE",
+        description=(
+            "Preferred compute mode for Spark ingestion ('classic' for all-purpose clusters or 'serverless' for SQL warehouses)."
+        ),
+    )
     databricks_ingestion_batch_rows: int | None = Field(
         default=None,
         env="DATABRICKS_INGESTION_BATCH_ROWS",
@@ -102,6 +109,9 @@ class Settings(BaseSettings):
         def parse_env_var(cls, field_name, raw_value):
             if field_name == "frontend_origins" and isinstance(raw_value, str):
                 return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+            if field_name == "databricks_spark_compute" and isinstance(raw_value, str):
+                lowered = raw_value.strip().lower()
+                return lowered or None
             return raw_value
 
 

@@ -92,8 +92,7 @@ const sanitizeTableName = (value: string): string => {
 };
 
 const TARGET_OPTIONS: Array<{ value: DataWarehouseTarget; label: string; disabled?: boolean }> = [
-  { value: 'databricks_sql', label: 'Databricks SQL Warehouse' },
-  { value: 'sap_hana', label: 'SAP HANA (coming soon)', disabled: true }
+  { value: 'databricks_sql', label: 'Databricks SQL Warehouse' }
 ];
 
 type UploadColumnType = 'string' | 'integer' | 'float' | 'timestamp' | 'boolean';

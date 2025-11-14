@@ -63,6 +63,7 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
     constructed_schema = settings.databricks_constructed_schema
     ingestion_batch_rows = settings.databricks_ingestion_batch_rows
     ingestion_method = settings.databricks_ingestion_method or "sql"
+    spark_compute = settings.databricks_spark_compute
 
     record = None
     with SessionLocal() as session:
@@ -86,6 +87,7 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
                 constructed_schema = record.constructed_schema or constructed_schema
                 ingestion_batch_rows = record.ingestion_batch_rows or ingestion_batch_rows
                 ingestion_method = record.ingestion_method or ingestion_method
+                spark_compute = record.spark_compute or spark_compute
 
     if not host or not http_path or not token:
         raise RuntimeError(
@@ -111,6 +113,7 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
         if isinstance(ingestion_batch_rows, int) and ingestion_batch_rows > 0
         else None,
         ingestion_method=(ingestion_method or "sql").strip().lower(),
+        spark_compute=(spark_compute.strip().lower() if isinstance(spark_compute, str) and spark_compute.strip() else None),
     )
 
 

@@ -650,6 +650,50 @@ class TableRead(TableBase, TimestampSchema):
     id: UUID
 
 
+class LegalRequirementBase(BaseModel):
+    name: str = Field(..., max_length=200)
+    description: Optional[str] = None
+    status: str = Field("active", max_length=50)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
+class LegalRequirementCreate(LegalRequirementBase):
+    pass
+
+
+class LegalRequirementUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    status: Optional[str] = Field(None, max_length=50)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
+class LegalRequirementRead(LegalRequirementBase, TimestampSchema):
+    id: UUID
+
+
+class SecurityClassificationBase(BaseModel):
+    name: str = Field(..., max_length=120)
+    description: Optional[str] = None
+    status: str = Field("active", max_length=50)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
+class SecurityClassificationCreate(SecurityClassificationBase):
+    pass
+
+
+class SecurityClassificationUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=120)
+    description: Optional[str] = None
+    status: Optional[str] = Field(None, max_length=50)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
+class SecurityClassificationRead(SecurityClassificationBase, TimestampSchema):
+    id: UUID
+
+
 class FieldBase(BaseModel):
     table_id: UUID
     name: str = Field(..., max_length=200)
@@ -665,7 +709,8 @@ class FieldBase(BaseModel):
     suppressed_field: bool = False
     active: bool = True
     legal_regulatory_implications: Optional[str] = None
-    security_classification: Optional[str] = Field(None, max_length=100)
+    legal_requirement_id: Optional[UUID] = None
+    security_classification_id: Optional[UUID] = None
     data_validation: Optional[str] = None
     reference_table: Optional[str] = Field(None, max_length=200)
     grouping_tab: Optional[str] = Field(None, max_length=200)
@@ -690,7 +735,8 @@ class FieldUpdate(BaseModel):
     suppressed_field: Optional[bool] = None
     active: Optional[bool] = None
     legal_regulatory_implications: Optional[str] = None
-    security_classification: Optional[str] = Field(None, max_length=100)
+    legal_requirement_id: Optional[UUID] = None
+    security_classification_id: Optional[UUID] = None
     data_validation: Optional[str] = None
     reference_table: Optional[str] = Field(None, max_length=200)
     grouping_tab: Optional[str] = Field(None, max_length=200)
@@ -698,6 +744,8 @@ class FieldUpdate(BaseModel):
 
 class FieldRead(FieldBase, TimestampSchema):
     id: UUID
+    legal_requirement: Optional[LegalRequirementRead] = None
+    security_classification: Optional[SecurityClassificationRead] = None
 
 
 class DataDefinitionFieldInput(BaseModel):
@@ -999,6 +1047,11 @@ class DatabricksSqlSettingBase(BaseModel):
         le=100_000,
         description="Maximum number of rows to include in each Databricks insert batch.",
     )
+    spark_compute: Optional[str] = Field(
+        None,
+        regex=r"^(classic|serverless)$",
+        description="Compute mode to use for Spark Connect ingestion (classic cluster vs serverless).",
+    )
 
     @validator("workspace_host", "http_path", pre=True)
     def _strip_value(cls, value: str | None) -> str | None:
@@ -1006,11 +1059,20 @@ class DatabricksSqlSettingBase(BaseModel):
             return value.strip()
         return value
 
-    @validator("catalog", "schema_name", "constructed_schema", "warehouse_name", pre=True)
+    @validator("catalog", "schema_name", "constructed_schema", "warehouse_name", "spark_compute", pre=True)
     def _strip_optional_value(cls, value: str | None) -> str | None:
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @validator("spark_compute", pre=True, always=False)
+    def _normalize_compute(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lowered = value.strip().lower()
+        if lowered not in {"classic", "serverless"}:
+            raise ValueError("spark compute must be 'classic' or 'serverless'")
+        return lowered
 
 
 class DatabricksSqlSettingCreate(DatabricksSqlSettingBase):
@@ -1043,6 +1105,7 @@ class DatabricksSqlSettingUpdate(BaseModel):
         ge=1,
         le=100_000,
     )
+    spark_compute: Optional[str | None] = Field(None, regex=r"^(classic|serverless)$")
     is_active: Optional[bool] = None
 
     @validator(
@@ -1053,6 +1116,7 @@ class DatabricksSqlSettingUpdate(BaseModel):
         "schema_name",
         "constructed_schema",
         "warehouse_name",
+        "spark_compute",
         pre=True,
     )
     def _strip_optional(cls, value: str | None) -> str | None:
@@ -1076,6 +1140,7 @@ class DatabricksSqlSettingTestRequest(BaseModel):
     constructed_schema: Optional[str] = Field(None, max_length=120)
     ingestion_method: Optional[str] = Field(None, regex=r"^(sql|spark)$")
     ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
+    spark_compute: Optional[str] = Field(None, regex=r"^(classic|serverless)$")
 
 
 class DatabricksSqlSettingTestResult(BaseModel):
@@ -1242,7 +1307,6 @@ class IngestionLoadStrategy(str, Enum):
 
 class DataWarehouseTarget(str, Enum):
     DATABRICKS_SQL = "databricks_sql"
-    SAP_HANA = "sap_hana"
 
 
 class IngestionScheduleBase(BaseModel):

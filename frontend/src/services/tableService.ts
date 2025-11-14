@@ -1,5 +1,14 @@
 import client from './api/client';
-import { Field, FieldInput, Table, TableInput, ConnectionTablePreview } from '../types/data';
+import { ensureArrayResponse, PaginatedResponse } from './api/responseUtils';
+import {
+  Field,
+  FieldInput,
+  Table,
+  TableInput,
+  ConnectionTablePreview,
+  LegalRequirement,
+  SecurityClassification
+} from '../types/data';
 
 export interface TableResponse {
   id: string;
@@ -30,10 +39,33 @@ export interface FieldResponse {
   suppressedField: boolean;
   active: boolean;
   legalRegulatoryImplications?: string | null;
-  securityClassification?: string | null;
+  legalRequirementId?: string | null;
+  legalRequirement?: LegalRequirementResponse | null;
+  securityClassificationId?: string | null;
+  securityClassification?: SecurityClassificationResponse | null;
   dataValidation?: string | null;
   referenceTable?: string | null;
   groupingTab?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface LegalRequirementResponse {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface SecurityClassificationResponse {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -47,6 +79,27 @@ export const mapTable = (payload: TableResponse): Table => ({
   description: payload.description ?? null,
   tableType: payload.tableType ?? null,
   status: payload.status,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
+});
+const mapLegalRequirement = (payload: LegalRequirementResponse): LegalRequirement => ({
+  id: payload.id,
+  name: payload.name,
+  description: payload.description ?? null,
+  status: payload.status,
+  displayOrder: payload.displayOrder ?? null,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
+});
+
+const mapSecurityClassification = (
+  payload: SecurityClassificationResponse
+): SecurityClassification => ({
+  id: payload.id,
+  name: payload.name,
+  description: payload.description ?? null,
+  status: payload.status,
+  displayOrder: payload.displayOrder ?? null,
   createdAt: payload.createdAt,
   updatedAt: payload.updatedAt
 });
@@ -67,7 +120,12 @@ export const mapField = (payload: FieldResponse): Field => ({
   suppressedField: payload.suppressedField,
   active: payload.active,
   legalRegulatoryImplications: payload.legalRegulatoryImplications ?? null,
-  securityClassification: payload.securityClassification ?? null,
+  legalRequirementId: payload.legalRequirementId ?? null,
+  legalRequirement: payload.legalRequirement ? mapLegalRequirement(payload.legalRequirement) : null,
+  securityClassificationId: payload.securityClassificationId ?? null,
+  securityClassification: payload.securityClassification
+    ? mapSecurityClassification(payload.securityClassification)
+    : null,
   dataValidation: payload.dataValidation ?? null,
   referenceTable: payload.referenceTable ?? null,
   groupingTab: payload.groupingTab ?? null,
@@ -76,15 +134,17 @@ export const mapField = (payload: FieldResponse): Field => ({
 });
 
 export const fetchTables = async (): Promise<Table[]> => {
-  const response = await client.get<TableResponse[]>('/tables');
-  return response.data.map(mapTable);
+  const response = await client.get<TableResponse[] | PaginatedResponse<TableResponse>>('/tables');
+  const tables = ensureArrayResponse(response.data);
+  return tables.map(mapTable);
 };
 
 export const fetchFields = async (): Promise<Field[]> => {
-  const response = await client.get<FieldResponse[]>('/fields');
+  const response = await client.get<FieldResponse[] | PaginatedResponse<FieldResponse>>('/fields');
+  const fieldPayloads = ensureArrayResponse(response.data);
   const seen = new Set<string>();
   const results: Field[] = [];
-  for (const payload of response.data) {
+  for (const payload of fieldPayloads) {
     if (seen.has(payload.id)) {
       continue;
     }
@@ -147,7 +207,8 @@ export const createField = async (input: FieldInput): Promise<Field> => {
     suppressed_field: input.suppressedField ?? false,
     active: input.active ?? true,
     legal_regulatory_implications: input.legalRegulatoryImplications ?? null,
-    security_classification: input.securityClassification ?? null,
+    legal_requirement_id: input.legalRequirementId ?? null,
+    security_classification_id: input.securityClassificationId ?? null,
     data_validation: input.dataValidation ?? null,
     reference_table: input.referenceTable ?? null,
     grouping_tab: input.groupingTab ?? null
@@ -170,7 +231,8 @@ export interface FieldUpdateInput {
   suppressedField?: boolean;
   active?: boolean;
   legalRegulatoryImplications?: string | null;
-  securityClassification?: string | null;
+  legalRequirementId?: string | null;
+  securityClassificationId?: string | null;
   dataValidation?: string | null;
   referenceTable?: string | null;
   groupingTab?: string | null;
@@ -196,8 +258,11 @@ export const updateField = async (id: string, input: FieldUpdateInput): Promise<
   if (input.legalRegulatoryImplications !== undefined) {
     payload.legal_regulatory_implications = input.legalRegulatoryImplications;
   }
-  if (input.securityClassification !== undefined) {
-    payload.security_classification = input.securityClassification;
+  if (input.legalRequirementId !== undefined) {
+    payload.legal_requirement_id = input.legalRequirementId;
+  }
+  if (input.securityClassificationId !== undefined) {
+    payload.security_classification_id = input.securityClassificationId;
   }
   if (input.dataValidation !== undefined) payload.data_validation = input.dataValidation;
   if (input.referenceTable !== undefined) payload.reference_table = input.referenceTable;

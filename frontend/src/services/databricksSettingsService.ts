@@ -16,6 +16,7 @@ interface DatabricksSettingsResponse {
   constructedSchema?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
+  sparkCompute?: 'classic' | 'serverless' | null;
   warehouseName?: string | null;
   isActive: boolean;
   hasAccessToken: boolean;
@@ -32,6 +33,7 @@ interface DatabricksSettingsTestPayload {
   constructed_schema?: string | null;
   ingestion_batch_rows?: number | null;
   ingestion_method?: 'sql' | 'spark';
+  spark_compute?: 'classic' | 'serverless' | null;
 }
 
 interface DatabricksSettingsTestResponse {
@@ -52,6 +54,7 @@ const mapDatabricksSettings = (
   constructedSchema: payload.constructedSchema ?? null,
   ingestionBatchRows: payload.ingestionBatchRows ?? null,
   ingestionMethod: payload.ingestionMethod ?? 'sql',
+  sparkCompute: payload.sparkCompute ?? null,
   warehouseName: payload.warehouseName ?? null,
   isActive: payload.isActive,
   hasAccessToken: payload.hasAccessToken,
@@ -77,6 +80,7 @@ export const createDatabricksSettings = async (
     constructed_schema: input.constructedSchema ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
+    spark_compute: input.sparkCompute ?? 'classic',
     warehouse_name: input.warehouseName ?? null
   });
   return mapDatabricksSettings(response.data);
@@ -97,6 +101,7 @@ export const updateDatabricksSettings = async (
       : {}),
     ...(input.ingestionBatchRows !== undefined ? { ingestion_batch_rows: input.ingestionBatchRows } : {}),
     ...(input.ingestionMethod !== undefined ? { ingestion_method: input.ingestionMethod } : {}),
+    ...(input.sparkCompute !== undefined ? { spark_compute: input.sparkCompute } : {}),
     ...(input.warehouseName !== undefined ? { warehouse_name: input.warehouseName } : {}),
     ...(input.accessToken !== undefined ? { access_token: input.accessToken } : {}),
     ...(input.isActive !== undefined ? { is_active: input.isActive } : {})
@@ -115,7 +120,8 @@ export const testDatabricksSettings = async (
     schema_name: input.schemaName ?? null,
     constructed_schema: input.constructedSchema ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
-    ingestion_method: input.ingestionMethod ?? 'sql'
+    ingestion_method: input.ingestionMethod ?? 'sql',
+    spark_compute: input.sparkCompute ?? 'classic'
   };
   const response = await client.post<DatabricksSettingsTestResponse>(
     '/databricks/settings/test',

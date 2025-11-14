@@ -1,0 +1,39 @@
+--- Instructions --
+
+- After executing each task run lint and tests with the following commands:
+cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral\frontend"; npm.cmd run lint
+cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral"; py -m pytest
+- Correct errors and run lint and tests again to confirm
+- Run any migrations that are required
+- Then rebuild and bring up the containers with the following command:
+cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral"; docker compose up --build -d
+- Correct any issues identified and then rebuild and bring up the containers to confirm
+- I will test and confirm the changes are correct or offer any adjustemnts that need to be made
+- Once I confirm we can mark task in todo.txt as [DONE]
+- After all piror steps succeed commit and push the application changes to git
+- Once git is updated we can proceed to the next task that is not marked [DONE]
+
+--- Enhancements to Existing Code ---
+
+1. [DONE] combine applications and the source catalog into one page and move the page to the Data Connections Menu Item and call it Source Systems
+2. [DONE] Reorder the Page Links under Data Connections as follows
+	a. Application Database
+	b. Data Warehouse
+	c. Source Systems
+	d. Ingestion Schedules
+3. [DONE] Add in better filter capabilities in the ingestion schedules page. This will grow as we add more source systems into the application. Perhaps add in
+a Tree view at the top that is by source system, connection, and then schema
+4. [DONE] in the data definition table set Enterprise Attribute to a Yes/No field. The field type should be a drop down of the available data types in the Databricks SQL Warehouse. Grey out Decimal places unless a float/decimal field type is used. Legal/Regulatory Requirements and Security Classifications should be dropdown boxes based on new models for each. The admin pages for both should be under the application settings menu item.
+5. On the report designer page, rename the publish to data object button to publish to report catalog
+6. Ensure that the sql that is run in the reporting designer runs on the databricks server. This will mean that we need to change the tables that are available for reporting should only be from tables in databricks
+7. Add a sub menu item under Data Configuration labled "Data Definition Settings" and move the Legal Requirements and SEcurity Classifications page under this menu
+8. Move the Data Management menu item below Data Configuration
+
+--- Data Quality Implementation ---
+
+
+
+
+
+
+--- Data Migration Implementation ---

@@ -114,7 +114,6 @@ export const createIngestionSchedule = async (
     target_schema: input.targetSchema ?? null,
     target_table_name: input.targetTableName ?? null,
     target_warehouse: input.targetWarehouse,
-    sap_hana_setting_id: input.sapHanaSettingId ?? null,
     batch_size: input.batchSize,
     is_active: input.isActive
   });
@@ -139,8 +138,7 @@ export const updateIngestionSchedule = async (
     ...(input.targetTableName !== undefined
       ? { target_table_name: input.targetTableName }
       : {}),
-    ...(input.targetWarehouse !== undefined ? { target_warehouse: input.targetWarehouse } : {}),
-    ...(input.sapHanaSettingId !== undefined ? { sap_hana_setting_id: input.sapHanaSettingId } : {}),
+  ...(input.targetWarehouse !== undefined ? { target_warehouse: input.targetWarehouse } : {}),
     ...(input.batchSize !== undefined ? { batch_size: input.batchSize } : {}),
     ...(input.isActive !== undefined ? { is_active: input.isActive } : {})
   });

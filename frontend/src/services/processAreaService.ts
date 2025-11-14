@@ -1,4 +1,5 @@
 import client from './api/client';
+import { ensureArrayResponse, PaginatedResponse } from './api/responseUtils';
 import { ProcessArea } from '../types/data';
 
 interface ProcessAreaResponse {
@@ -26,8 +27,9 @@ export interface ProcessAreaInput {
 }
 
 export const fetchProcessAreas = async (): Promise<ProcessArea[]> => {
-  const response = await client.get<ProcessAreaResponse[]>('/process-areas');
-  return response.data.map(mapProcessArea);
+  const response = await client.get<ProcessAreaResponse[] | PaginatedResponse<ProcessAreaResponse>>('/process-areas');
+  const processAreas = ensureArrayResponse(response.data);
+  return processAreas.map(mapProcessArea);
 };
 
 export const createProcessArea = async (input: ProcessAreaInput): Promise<ProcessArea> => {

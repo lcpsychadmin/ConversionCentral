@@ -107,8 +107,14 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
       return;
     }
 
-  event.preventDefault();
-  event.dataTransfer.dropEffect = 'copy';
+    // Only allow drag-over behavior for our reporting field drag type.
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    if (!types.includes(REPORTING_FIELD_DRAG_TYPE)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
     setActiveDropFieldId(targetFieldId);
   };
 
@@ -120,12 +126,17 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
     if (!data.onFieldJoin) {
       return;
     }
+    // Read the drag payload first and only prevent default when the payload
+    // matches our reporting field type. This avoids cancelling unrelated drops
+    // or clicks that may occur nearby.
+    const raw = event.dataTransfer.getData(REPORTING_FIELD_DRAG_TYPE);
+    if (!raw) {
+      return;
+    }
 
     event.preventDefault();
     event.stopPropagation();
     setActiveDropFieldId(null);
-
-    const raw = event.dataTransfer.getData(REPORTING_FIELD_DRAG_TYPE);
     let payload: { tableId: string; fieldId: string } | null = null;
 
     try {

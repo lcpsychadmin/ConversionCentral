@@ -24,6 +24,8 @@ _SUPPORTED_JDBC_DIALECTS: dict[str, str] = {
     "postgresql": "postgresql+psycopg",
     "sqlserver": "mssql+pyodbc",
     "mssql": "mssql+pyodbc",
+    "sap": "hana",
+    "hana": "hana",
 }
 
 
@@ -110,5 +112,6 @@ def _convert_databricks_connection(parsed) -> URL:
         constructed_schema=params.constructed_schema,
         ingestion_batch_rows=params.ingestion_batch_rows,
         ingestion_method=params.ingestion_method,
+        spark_compute=params.spark_compute,
     )
     return build_sqlalchemy_url(effective)

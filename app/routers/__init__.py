@@ -12,6 +12,8 @@ from app.routers import (
 	constructed_data,
 	constructed_table_approval,
 	constructed_data_validation_rule,
+	databricks_metadata,
+    legal_requirement,
 	role,
 	user,
 	field,
@@ -42,6 +44,7 @@ from app.routers import (
 	dependency_dag,
 	reporting,
 	databricks_settings,
+    security_classification,
 	sap_hana_settings,
 	application_database,
 	application_settings,
@@ -60,6 +63,7 @@ api_router.include_router(constructed_field.router)
 api_router.include_router(constructed_data.router)
 api_router.include_router(constructed_table_approval.router)
 api_router.include_router(constructed_data_validation_rule.router)
+api_router.include_router(legal_requirement.router)
 api_router.include_router(role.router)
 api_router.include_router(user.router)
 api_router.include_router(process_area.router)
@@ -89,7 +93,9 @@ api_router.include_router(table_load_order_approval.router)
 api_router.include_router(dependency_approval.router)
 api_router.include_router(dependency_dag.router)
 api_router.include_router(reporting.router)
+api_router.include_router(databricks_metadata.router)
 api_router.include_router(databricks_settings.router)
+api_router.include_router(security_classification.router)
 api_router.include_router(sap_hana_settings.router)
 api_router.include_router(application_database.router)
 api_router.include_router(application_settings.router)

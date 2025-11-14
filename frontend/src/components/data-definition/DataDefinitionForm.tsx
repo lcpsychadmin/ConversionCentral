@@ -783,7 +783,8 @@ const DataDefinitionForm = ({
           businessDefinition: null,
           enterpriseAttribute: null,
           legalRegulatoryImplications: null,
-          securityClassification: null,
+          legalRequirementId: null,
+          securityClassificationId: null,
           dataValidation: null,
           referenceTable: null,
           groupingTab: null

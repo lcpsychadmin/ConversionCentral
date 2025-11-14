@@ -70,34 +70,12 @@ def _resolve_target_warehouse(
     target: DataWarehouseTarget,
     sap_hana_setting_id: UUID | None,
 ) -> tuple[str, UUID | None]:
-    if target is DataWarehouseTarget.SAP_HANA:
-        if sap_hana_setting_id is not None:
-            setting = db.get(SapHanaSetting, sap_hana_setting_id)
-            if setting is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SAP HANA setting not found")
-        else:
-            stmt = (
-                select(SapHanaSetting)
-                .order_by(SapHanaSetting.is_active.desc(), SapHanaSetting.updated_at.desc())
-                .limit(1)
-            )
-            setting = db.execute(stmt).scalars().first()
-            if setting is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="SAP HANA warehouse is not configured.",
-                )
-        if not setting.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Selected SAP HANA configuration is inactive.",
-            )
-        return (DataWarehouseTarget.SAP_HANA.value, setting.id)
-
+    # SAP HANA is no longer a supported ingestion target (we only support Databricks as the warehouse).
+    # Reject any sap_hana_setting_id provided as part of schedule payloads and always return Databricks.
     if sap_hana_setting_id is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="sap_hana_setting_id is only valid when targeting the SAP HANA warehouse.",
+            detail="sap_hana_setting_id is no longer valid. SAP HANA is not a warehouse target.",
         )
     return (DataWarehouseTarget.DATABRICKS_SQL.value, None)
 
@@ -234,19 +212,14 @@ def update_schedule(
     if target_override is not None:
         current_target = DataWarehouseTarget(target_override)
 
-    if current_target is DataWarehouseTarget.DATABRICKS_SQL:
-        if hana_override is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="sap_hana_setting_id is only valid when targeting the SAP HANA warehouse.",
-            )
-        requested_hana_id: UUID | None = None
-    elif hana_override is not None:
-        requested_hana_id = hana_override
-    else:
-        requested_hana_id = schedule.sap_hana_setting_id
+    # SAP HANA is not a valid warehouse target. Reject any sap_hana overrides.
+    if hana_override is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sap_hana_setting_id is no longer valid. SAP HANA is not a warehouse target.",
+        )
 
-    target_value, sap_hana_setting_id = _resolve_target_warehouse(db, current_target, requested_hana_id)
+    target_value, sap_hana_setting_id = _resolve_target_warehouse(db, current_target, None)
     schedule.target_warehouse = target_value
     schedule.sap_hana_setting_id = sap_hana_setting_id
 

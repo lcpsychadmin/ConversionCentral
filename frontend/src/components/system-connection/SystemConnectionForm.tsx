@@ -37,7 +37,25 @@ interface SystemConnectionFormProps {
 
 type FieldErrorMap = Partial<Record<keyof SystemConnectionFormValues | 'form', string>>;
 
-const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql'];
+const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql', 'sap'];
+
+const DATABASE_LABELS: Record<RelationalDatabaseType, string> = {
+  postgresql: 'PostgreSQL',
+  databricks: 'Databricks SQL Warehouse',
+  sap: 'SAP HANA',
+};
+
+const DEFAULT_PORT_BY_DATABASE: Record<RelationalDatabaseType, string> = {
+  postgresql: '5432',
+  databricks: '443',
+  sap: '30015',
+};
+
+const DATABASE_HELPER_TEXT: Partial<Record<RelationalDatabaseType, string>> = {
+  sap: 'Tenant database name (case-sensitive).',
+};
+
+const getDefaultPort = (databaseType: RelationalDatabaseType): string => DEFAULT_PORT_BY_DATABASE[databaseType] ?? '5432';
 
 const sanitizeNotes = (notes?: string | null) => notes ?? '';
 
@@ -51,7 +69,7 @@ const buildInitialSnapshot = (
     systemId: initialValues?.systemId ?? '',
     databaseType: parsed?.databaseType ?? 'postgresql',
     host: parsed?.host ?? '',
-    port: parsed?.port || '5432',
+    port: parsed?.port || getDefaultPort(parsed?.databaseType ?? 'postgresql'),
     database: parsed?.database ?? '',
     username: parsed?.username ?? '',
     password: parsed?.password ?? '',
@@ -133,8 +151,26 @@ const SystemConnectionForm = ({
   const handleChange = (field: keyof SystemConnectionFormValues) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const value = event.target.value;
-      setValues((prev) => ({ ...prev, [field]: value }));
-      setErrors((prev) => ({ ...prev, [field]: undefined, form: undefined }));
+      setValues((prev) => {
+        if (field === 'databaseType') {
+          const nextType = value as RelationalDatabaseType;
+          const currentDefault = getDefaultPort(prev.databaseType);
+          const shouldResetPort = !prev.port || prev.port === currentDefault;
+          return {
+            ...prev,
+            databaseType: nextType,
+            port: shouldResetPort ? getDefaultPort(nextType) : prev.port,
+          };
+        }
+        return { ...prev, [field]: value };
+      });
+      setErrors((prev) => {
+        const next = { ...prev, [field]: undefined, form: undefined };
+        if (field === 'databaseType') {
+          next.port = undefined;
+        }
+        return next;
+      });
     };
 
   const handleToggleActive = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
@@ -214,6 +250,10 @@ const SystemConnectionForm = ({
       values.password.trim()
   );
 
+  const databaseLabel = values.databaseType === 'sap' ? 'Database / Tenant' : 'Database';
+  const databaseHelper = errors.database ?? DATABASE_HELPER_TEXT[values.databaseType];
+  const portHelper = errors.port ?? `Default ${getDefaultPort(values.databaseType)}`;
+
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
       <Box component="form" noValidate onSubmit={handleSubmit}>
@@ -254,7 +294,7 @@ const SystemConnectionForm = ({
             >
               {DATABASE_OPTIONS.map((option) => (
                 <MenuItem key={option} value={option}>
-                  {option === 'postgresql' ? 'PostgreSQL' : option}
+                  {DATABASE_LABELS[option] ?? option}
                 </MenuItem>
               ))}
             </TextField>
@@ -279,11 +319,11 @@ const SystemConnectionForm = ({
                 value={values.port}
                 onChange={handleChange('port')}
                 error={!!errors.port}
-                helperText={errors.port ?? 'Default 5432'}
+                helperText={portHelper}
               />
             </Stack>
             <TextField
-              label="Database"
+              label={databaseLabel}
               fullWidth
               required
               id="connection-database"
@@ -291,7 +331,7 @@ const SystemConnectionForm = ({
               value={values.database}
               onChange={handleChange('database')}
               error={!!errors.database}
-              helperText={errors.database}
+              helperText={databaseHelper}
             />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField

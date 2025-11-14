@@ -15,8 +15,7 @@ import {
   Stack,
   Switch,
   TextField,
-  Typography,
-  Link
+  Typography
 } from '@mui/material';
 import Select, { SelectChangeEvent } from '@mui/material/Select';
 
@@ -55,7 +54,6 @@ interface IngestionScheduleFormProps {
   onClose: () => void;
   onSubmit: (values: FormValues) => void;
   disableSelectionChange?: boolean;
-  sapHanaSettingsPath?: string;
 }
 
 export interface FormValues {
@@ -133,9 +131,7 @@ const validate = (values: FormValues): FieldErrorMap => {
     errors.primaryKeyColumn = 'Primary key column is required for numeric key strategy.';
   }
 
-  if (values.targetWarehouse === 'sap_hana' && !values.sapHanaSettingId) {
-    errors.sapHanaSettingId = 'Select an SAP HANA configuration.';
-  }
+  // SAP HANA is no longer a warehouse target; no additional validation required here.
 
   if (values.batchSize < 1) {
     errors.batchSize = 'Batch size must be positive.';
@@ -168,8 +164,7 @@ const IngestionScheduleForm = ({
   loading = false,
   onClose,
   onSubmit,
-  disableSelectionChange = false,
-  sapHanaSettingsPath
+  disableSelectionChange = false
 }: IngestionScheduleFormProps) => {
   const initialSnapshot = useMemo(
     () => buildInitialValues(initialValues, options),
@@ -185,16 +180,7 @@ const IngestionScheduleForm = ({
   }, [initialSnapshot, open]);
 
   useEffect(() => {
-    if (values.targetWarehouse !== 'sap_hana') {
-      return;
-    }
-    if (values.sapHanaSettingId && values.sapHanaSettingId.length > 0) {
-      return;
-    }
-    const firstAvailable = sapHanaOptions.find((option) => !option.disabled)?.id;
-    if (firstAvailable) {
-      setValues((prev) => ({ ...prev, sapHanaSettingId: firstAvailable }));
-    }
+    // SAP HANA is no longer a warehouse target; leave sapHanaSetting untouched by warehouse selection.
   }, [sapHanaOptions, values.targetWarehouse, values.sapHanaSettingId]);
 
   const handleChange = <K extends keyof FormValues>(field: K) =>
@@ -212,18 +198,7 @@ const IngestionScheduleForm = ({
 
   const handleWarehouseChange = (event: SelectChangeEvent<DataWarehouseTarget>) => {
     const next = event.target.value as DataWarehouseTarget;
-    const defaultSetting = next === 'sap_hana' ? sapHanaOptions.find((option) => !option.disabled)?.id ?? '' : '';
-    setValues((prev) => ({
-      ...prev,
-      targetWarehouse: next,
-      sapHanaSettingId: next === 'sap_hana' ? (prev.sapHanaSettingId || defaultSetting) : ''
-    }));
-    setErrors((prev) => ({ ...prev, sapHanaSettingId: undefined }));
-  };
-
-  const handleSapHanaSettingChange = (event: SelectChangeEvent<string>) => {
-    const next = event.target.value ?? '';
-    setValues((prev) => ({ ...prev, sapHanaSettingId: next }));
+    setValues((prev) => ({ ...prev, targetWarehouse: next }));
     setErrors((prev) => ({ ...prev, sapHanaSettingId: undefined }));
   };
 
@@ -256,8 +231,6 @@ const IngestionScheduleForm = ({
 
   const selectedOption = options.find((option) => option.id === values.connectionTableSelectionId);
   const targetPreview = selectedOption?.targetPreview;
-  const sapHanaConfigured = sapHanaOptions.length > 0;
-
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
       <Box component="form" noValidate onSubmit={handleSubmit}>
@@ -317,40 +290,7 @@ const IngestionScheduleForm = ({
               </FormHelperText>
             </FormControl>
 
-            {values.targetWarehouse === 'sap_hana' && (
-              sapHanaConfigured ? (
-                <FormControl fullWidth required error={!!errors.sapHanaSettingId}>
-                  <InputLabel id="sap-hana-setting-label">SAP HANA Configuration</InputLabel>
-                  <Select
-                    labelId="sap-hana-setting-label"
-                    label="SAP HANA Configuration"
-                    value={values.sapHanaSettingId ?? ''}
-                    onChange={handleSapHanaSettingChange}
-                  >
-                    {sapHanaOptions.map((option) => (
-                      <MenuItem key={option.id} value={option.id} disabled={option.disabled}>
-                        {option.label}
-                        {option.disabled ? ' (inactive)' : ''}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>{errors.sapHanaSettingId}</FormHelperText>
-                </FormControl>
-              ) : (
-                <Alert severity="warning">
-                  No SAP HANA warehouse is configured. Configure one in the data warehouse settings
-                  {sapHanaSettingsPath ? ' page.' : '.'}
-                  {sapHanaSettingsPath && (
-                    <>
-                      {' '}
-                      <Link href={sapHanaSettingsPath} target="_blank" rel="noreferrer">
-                        Open settings
-                      </Link>
-                    </>
-                  )}
-                </Alert>
-              )
-            )}
+            {/* SAP HANA is no longer displayed as a target warehouse option. */}
 
             <TextField
               label="Cron Expression"
