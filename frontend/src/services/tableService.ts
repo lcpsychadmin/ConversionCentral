@@ -139,6 +139,16 @@ export const fetchTables = async (): Promise<Table[]> => {
   return tables.map(mapTable);
 };
 
+export const fetchReportingTables = async (): Promise<Table[]> => {
+  const response = await client.get<TableResponse[]>('/reporting/tables');
+  return response.data.map(mapTable);
+};
+
+export const fetchDatabricksTables = async (): Promise<Table[]> => {
+  const response = await client.get<TableResponse[]>('/data-definitions/databricks-tables');
+  return response.data.map(mapTable);
+};
+
 export const fetchFields = async (): Promise<Field[]> => {
   const response = await client.get<FieldResponse[] | PaginatedResponse<FieldResponse>>('/fields');
   const fieldPayloads = ensureArrayResponse(response.data);

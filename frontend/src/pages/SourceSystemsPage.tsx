@@ -13,6 +13,7 @@ import ConnectionDataPreviewDialog from '../components/system-connection/Connect
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { useSystems } from '../hooks/useSystems';
 import { useSystemConnections } from '../hooks/useSystemConnections';
+import { useDatabricksSettings } from '../hooks/useDatabricksSettings';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchSystemConnectionCatalog,
@@ -26,11 +27,10 @@ import {
   System,
   SystemConnection,
   SystemConnectionFormValues,
+  SystemConnectionInput,
   SystemFormValues
 } from '../types/data';
 import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
-
-const IGNORED_SYSTEM_PHYSICAL_NAMES = new Set(['databricks_warehouse']);
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (!error) return fallback;
@@ -78,21 +78,18 @@ const SourceSystemsPage = () => {
     error: systemsErrorObj
   } = systemsQuery;
 
-  const ignoredSystemIds = useMemo(() => {
-    return new Set(
-      systems
-        .filter((system) => {
-          const physical = system.physicalName?.trim().toLowerCase();
-          return Boolean(physical && IGNORED_SYSTEM_PHYSICAL_NAMES.has(physical));
-        })
-        .map((system) => system.id)
-    );
-  }, [systems]);
+  const managedSystemIds = useMemo(
+    () => systems.filter((system) => system.systemType === 'warehouse').map((system) => system.id),
+    [systems]
+  );
 
   const visibleSystems = useMemo(
-    () => systems.filter((system) => !ignoredSystemIds.has(system.id)),
-    [ignoredSystemIds, systems]
+    () => systems.filter((system) => system.systemType !== 'warehouse'),
+    [systems]
   );
+
+  const { settingsQuery: databricksSettingsQuery } = useDatabricksSettings();
+  const hasManagedWarehouse = Boolean(databricksSettingsQuery.data);
 
   const [selectedSystem, setSelectedSystem] = useState<System | null>(null);
   const [systemFormMode, setSystemFormMode] = useState<'create' | 'edit'>('create');
@@ -210,6 +207,11 @@ const SourceSystemsPage = () => {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogConfirmOpen, setCatalogConfirmOpen] = useState(false);
+  const [catalogPendingChange, setCatalogPendingChange] = useState<{
+    nextSelectionIds: string[];
+    removedRows: CatalogRow[];
+  } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<{ schemaName: string | null; tableName: string } | null>(null);
   const [previewConnectionId, setPreviewConnectionId] = useState<string | null>(null);
@@ -225,8 +227,8 @@ const SourceSystemsPage = () => {
   );
 
   const visibleConnections = useMemo(
-    () => connections.filter((connection) => !ignoredSystemIds.has(connection.systemId)),
-    [connections, ignoredSystemIds]
+    () => connections.filter((connection) => !managedSystemIds.includes(connection.systemId)),
+    [connections, managedSystemIds]
   );
 
   const sortedConnections = useMemo(() => {
@@ -303,6 +305,11 @@ const SourceSystemsPage = () => {
       setSelectedConnection(null);
     }
   }, [filteredConnectionsBySchema, selectedConnection]);
+
+  useEffect(() => {
+    setCatalogPendingChange(null);
+    setCatalogConfirmOpen(false);
+  }, [selectedConnection?.id]);
 
   useEffect(() => {
     if (selectedSystem) {
@@ -382,11 +389,11 @@ const SourceSystemsPage = () => {
     loadCatalog(selectedConnection.id);
   }, [selectedConnection, canBrowseCatalog, loadCatalog]);
 
-  const handleCatalogSelectionChange = useCallback(
-    async (nextSelection: string[]) => {
+  const persistCatalogSelection = useCallback(
+    async (selectionIds: string[]) => {
       if (!selectedConnection) return;
 
-      const selectionSet = new Set(nextSelection);
+      const selectionSet = new Set(selectionIds);
       const payload: ConnectionCatalogSelectionInput[] = catalogRows
         .filter((row) => selectionSet.has(`${row.schemaName}.${row.tableName}`))
         .map((row) => ({
@@ -411,6 +418,70 @@ const SourceSystemsPage = () => {
     },
     [selectedConnection, catalogRows, loadCatalog]
   );
+
+  const handleCatalogSelectionChange = useCallback(
+    (nextSelection: string[]) => {
+      if (!selectedConnection) return;
+
+      const previousSelection = catalogRows
+        .filter((row) => row.selected)
+        .map((row) => `${row.schemaName}.${row.tableName}`);
+      const previousSet = new Set(previousSelection);
+      const nextSet = new Set(nextSelection);
+
+      const removedIds = previousSelection.filter((id) => !nextSet.has(id));
+      const addedIds = Array.from(nextSet).filter((id) => !previousSet.has(id));
+
+      if (removedIds.length === 0 && addedIds.length === 0) {
+        return;
+      }
+
+      const normalizedNextSelection = Array.from(nextSet).sort();
+
+      if (removedIds.length > 0) {
+        const removedIdSet = new Set(removedIds);
+        const removedRows = catalogRows.filter((row) => removedIdSet.has(`${row.schemaName}.${row.tableName}`));
+        setCatalogPendingChange({
+          nextSelectionIds: normalizedNextSelection,
+          removedRows
+        });
+        setCatalogConfirmOpen(true);
+        return;
+      }
+
+      void persistCatalogSelection(normalizedNextSelection);
+    },
+    [selectedConnection, catalogRows, persistCatalogSelection]
+  );
+
+  const catalogConfirmDescription = useMemo(() => {
+    if (!catalogPendingChange || catalogPendingChange.removedRows.length === 0) {
+      return '';
+    }
+    const targets = catalogPendingChange.removedRows
+      .map((row) => {
+        const schema = row.schemaName?.trim();
+        return schema ? `${schema}.${row.tableName}` : row.tableName;
+      })
+      .join(', ');
+
+    return `Unselecting these tables will remove their constructed tables, data definitions, related reports, and Databricks ingestion tables. This action cannot be undone. Impacted tables: ${targets}.`;
+  }, [catalogPendingChange]);
+
+  const handleCatalogConfirmCascade = useCallback(async () => {
+    if (!catalogPendingChange) return;
+    await persistCatalogSelection(catalogPendingChange.nextSelectionIds);
+    setCatalogPendingChange(null);
+    setCatalogConfirmOpen(false);
+  }, [catalogPendingChange, persistCatalogSelection]);
+
+  const handleCatalogCancelCascade = useCallback(() => {
+    setCatalogConfirmOpen(false);
+    setCatalogPendingChange(null);
+    if (selectedConnection) {
+      void loadCatalog(selectedConnection.id);
+    }
+  }, [selectedConnection, loadCatalog]);
 
   const handleCatalogRefresh = useCallback(() => {
     if (selectedConnection && canBrowseCatalog) {
@@ -479,16 +550,23 @@ const SourceSystemsPage = () => {
     setConnectionFormOpen(false);
   };
 
-  const handleConnectionFormSubmit = async (values: SystemConnectionFormValues, connectionString: string) => {
-    const payload = {
+  const handleConnectionFormSubmit = async (
+    values: SystemConnectionFormValues,
+    connectionString: string | null
+  ) => {
+    const payload: SystemConnectionInput = {
       systemId: values.systemId,
       connectionType: 'jdbc' as const,
-      connectionString,
       authMethod: 'username_password' as const,
       notes: values.notes ?? null,
       active: values.active,
-      ingestionEnabled: values.ingestionEnabled
+      ingestionEnabled: values.ingestionEnabled,
+      useDatabricksManagedConnection: values.useDatabricksManagedConnection
     };
+
+    if (connectionString !== null) {
+      payload.connectionString = connectionString;
+    }
 
     try {
       if (connectionFormMode === 'create') {
@@ -505,7 +583,13 @@ const SourceSystemsPage = () => {
     }
   };
 
-  const handleConnectionFormTest = async (_values: SystemConnectionFormValues, connectionString: string) => {
+  const handleConnectionFormTest = async (
+    _values: SystemConnectionFormValues,
+    connectionString: string | null
+  ) => {
+    if (!connectionString) {
+      return;
+    }
     try {
       await testConnection({
         connectionType: 'jdbc',
@@ -737,6 +821,15 @@ const SourceSystemsPage = () => {
 
       {canManage && (
         <>
+          <ConfirmDialog
+            open={catalogConfirmOpen}
+            title="Remove Selected Tables"
+            description={catalogConfirmDescription}
+            confirmLabel="Remove"
+            onClose={handleCatalogCancelCascade}
+            onConfirm={handleCatalogConfirmCascade}
+            loading={catalogSaving}
+          />
           <SystemForm
             open={systemFormOpen}
             title={systemFormMode === 'create' ? 'Create Application' : 'Edit Application'}
@@ -766,6 +859,8 @@ const SourceSystemsPage = () => {
             onClose={handleConnectionFormClose}
             onSubmit={handleConnectionFormSubmit}
             onTest={handleConnectionFormTest}
+            hasManagedWarehouse={hasManagedWarehouse}
+            managedWarehouseLoaded={databricksSettingsQuery.isSuccess}
           />
 
           <ConfirmDialog

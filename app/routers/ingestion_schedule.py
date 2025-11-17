@@ -21,9 +21,11 @@ from app.schemas import (
     DataWarehouseTarget,
 )
 from app.services.scheduled_ingestion import (
+    build_ingestion_schema_name,
     build_ingestion_table_name,
     scheduled_ingestion_engine,
 )
+from app.services.data_quality_provisioning import trigger_data_quality_provisioning
 
 router = APIRouter(prefix="/ingestion-schedules", tags=["Ingestion Schedules"])
 
@@ -116,6 +118,7 @@ def create_schedule(
         selection.system_connection,
         selection,
     )
+    target_schema = payload.target_schema or build_ingestion_schema_name(selection.system_connection)
 
     target_value, sap_hana_setting_id = _resolve_target_warehouse(
         db,
@@ -142,7 +145,7 @@ def create_schedule(
         load_strategy=payload.load_strategy.value,
         watermark_column=payload.watermark_column,
         primary_key_column=payload.primary_key_column,
-        target_schema=payload.target_schema,
+        target_schema=target_schema,
         target_table_name=target_table_name,
         target_warehouse=target_value,
         sap_hana_setting_id=sap_hana_setting_id,
@@ -153,6 +156,7 @@ def create_schedule(
     db.commit()
     db.refresh(schedule)
     scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="schedule-created")
     return schedule
 
 
@@ -170,6 +174,7 @@ def delete_schedule(schedule_id: UUID, db: Session = Depends(get_db)) -> Respons
     db.delete(schedule)
     db.commit()
     scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="schedule-deleted")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -233,11 +238,14 @@ def update_schedule(
         schedule.table_selection.system_connection,
         schedule.table_selection,
     )
+    if schedule.target_schema is None:
+        schedule.target_schema = build_ingestion_schema_name(schedule.table_selection.system_connection)
 
     db.add(schedule)
     db.commit()
     db.refresh(schedule)
     scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="schedule-updated")
     return schedule
 
 

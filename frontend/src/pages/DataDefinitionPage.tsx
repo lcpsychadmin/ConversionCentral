@@ -29,8 +29,8 @@ import { getPanelSurface, getSectionSurface } from '../theme/surfaceStyles';
 import PageHeader from '../components/common/PageHeader';
 import {
   createField,
+  fetchDatabricksTables,
   fetchFields,
-  fetchTables,
   updateField,
   FieldUpdateInput
 } from '../services/tableService';
@@ -110,7 +110,7 @@ const DataDefinitionsPage = () => {
     error: dataObjectsErrorDetails
   } = dataObjectsQuery;
 
-  const tablesQuery = useQuery<Table[]>(['tables'], fetchTables);
+  const tablesQuery = useQuery<Table[]>(['databricksTables'], fetchDatabricksTables);
   const {
     data: tables = [],
     isLoading: tablesLoading,
@@ -1391,7 +1391,6 @@ const DataDefinitionsPage = () => {
           onSubmit={handleFormSubmit}
           initialDefinition={formMode === 'edit' ? definition : null}
           tables={tablesForSystem}
-          fields={fieldsForSystem}
           systemId={selectedSystemId}
           dataObjectId={dataObjectId}
           onMetadataRefresh={refreshMetadata}

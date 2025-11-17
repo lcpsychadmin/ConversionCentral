@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
@@ -11,13 +11,14 @@ from app.schemas import (
     ConnectionCatalogSelectionUpdate,
     ConnectionCatalogTable,
     ConnectionTablePreview,
+    SystemConnectionAuthMethod,
     SystemConnectionCreate,
     SystemConnectionRead,
     SystemConnectionTestRequest,
     SystemConnectionTestResult,
+    SystemConnectionType,
     SystemConnectionUpdate,
 )
-from app.schemas import SystemConnectionType
 from app.services.catalog_browser import (
     CatalogTable,
     ConnectionCatalogError,
@@ -27,6 +28,12 @@ from app.services.catalog_browser import (
 )
 from app.services.scheduled_ingestion import scheduled_ingestion_engine
 from app.services.connection_testing import ConnectionTestError, test_connection
+from app.services.connection_catalog_cleanup import (
+    CatalogRemoval,
+    cascade_cleanup_for_catalog_removals,
+)
+from app.services.databricks_bootstrap import get_managed_databricks_connection_string
+from app.services.data_quality_provisioning import trigger_data_quality_provisioning
 
 router = APIRouter(prefix="/system-connections", tags=["System Connections"])
 
@@ -62,7 +69,7 @@ def _assemble_catalog_response(
         for selection in system_connection.catalog_selections
     }
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     updated = False
     rows: list[ConnectionCatalogTable] = []
     seen: set[tuple[str, str]] = set()
@@ -127,11 +134,28 @@ def create_system_connection(
 ) -> SystemConnectionRead:
     _ensure_system_exists(payload.system_id, db)
 
-    system_connection = SystemConnection(**_normalize_payload(payload.dict()))
+    raw_payload = payload.dict()
+    use_managed = raw_payload.pop("use_databricks_managed_connection", False)
+    ingestion_explicit = "ingestion_enabled" in payload.__fields_set__
+    data = _normalize_payload(raw_payload)
+
+    if use_managed:
+        try:
+            connection_string = get_managed_databricks_connection_string()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        data["connection_type"] = SystemConnectionType.JDBC.value
+        data["auth_method"] = SystemConnectionAuthMethod.USERNAME_PASSWORD.value
+        data["connection_string"] = connection_string
+        if not ingestion_explicit:
+            data["ingestion_enabled"] = False
+
+    system_connection = SystemConnection(**data)
     db.add(system_connection)
     db.commit()
     db.refresh(system_connection)
     scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="connection-created")
     return system_connection
 
 
@@ -230,8 +254,22 @@ def update_system_connection(
 ) -> SystemConnectionRead:
     system_connection = _get_system_connection_or_404(system_connection_id, db)
 
-    update_data = _normalize_payload(payload.dict(exclude_unset=True))
+    raw_payload = payload.dict(exclude_unset=True)
+    use_managed = raw_payload.pop("use_databricks_managed_connection", None)
+    ingestion_explicit = "ingestion_enabled" in raw_payload
+    update_data = _normalize_payload(raw_payload)
     _ensure_system_exists(update_data.get("system_id"), db)
+
+    if use_managed:
+        try:
+            connection_string = get_managed_databricks_connection_string()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        update_data["connection_type"] = SystemConnectionType.JDBC.value
+        update_data["auth_method"] = SystemConnectionAuthMethod.USERNAME_PASSWORD.value
+        update_data["connection_string"] = connection_string
+        if not ingestion_explicit:
+            update_data["ingestion_enabled"] = False
 
     ingestion_before = system_connection.ingestion_enabled
     for field_name, value in update_data.items():
@@ -241,6 +279,7 @@ def update_system_connection(
     db.refresh(system_connection)
     if "ingestion_enabled" in update_data and system_connection.ingestion_enabled != ingestion_before:
         scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="connection-updated")
     return system_connection
 
 
@@ -261,11 +300,20 @@ def update_system_connection_catalog_selection(
         for selection in system_connection.catalog_selections
     }
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     changed = False
+    removed_catalogs: list[CatalogRemoval] = []
 
     for key, selection in list(existing.items()):
         if key not in desired:
+            removed_catalogs.append(
+                CatalogRemoval(
+                    system_connection_id=system_connection.id,
+                    system_id=system_connection.system_id,
+                    schema_name=selection.schema_name,
+                    table_name=selection.table_name,
+                )
+            )
             db.delete(selection)
             changed = True
 
@@ -299,9 +347,16 @@ def update_system_connection_catalog_selection(
             selection.last_seen_at = now
             changed = True
 
+    if removed_catalogs:
+        cascade_cleanup_for_catalog_removals(db, removed_catalogs)
+        changed = True
+
     if changed:
         db.commit()
         db.refresh(system_connection)
+        if removed_catalogs:
+            scheduled_ingestion_engine.reload_jobs()
+        trigger_data_quality_provisioning(reason="connection-catalog-updated")
 
 
 @router.delete("/{system_connection_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -309,7 +364,21 @@ def delete_system_connection(
     system_connection_id: UUID, db: Session = Depends(get_db)
 ) -> None:
     system_connection = _get_system_connection_or_404(system_connection_id, db)
+    removals = [
+        CatalogRemoval(
+            system_connection_id=system_connection.id,
+            system_id=system_connection.system_id,
+            schema_name=selection.schema_name,
+            table_name=selection.table_name,
+        )
+        for selection in system_connection.catalog_selections
+    ]
+
+    if removals:
+        cascade_cleanup_for_catalog_removals(db, removals)
+
     db.delete(system_connection)
     db.commit()
     scheduled_ingestion_engine.reload_jobs()
+    trigger_data_quality_provisioning(reason="connection-deleted")
 

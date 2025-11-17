@@ -34,10 +34,33 @@ def _serialize(
     ingestion_batch_rows_fallback: int | None = None,
     ingestion_method_fallback: str | None = None,
     spark_compute_fallback: str | None = None,
+    data_quality_schema_fallback: str | None = None,
+    data_quality_storage_format_fallback: str | None = None,
+    data_quality_auto_manage_tables_fallback: bool | None = None,
 ) -> DatabricksSqlSettingRead:
     constructed_schema = setting.constructed_schema
     if (constructed_schema is None or not constructed_schema.strip()) and constructed_schema_fallback:
         constructed_schema = constructed_schema_fallback.strip() or None
+
+    data_quality_schema = setting.data_quality_schema
+    if (data_quality_schema is None or not data_quality_schema.strip()) and data_quality_schema_fallback:
+        data_quality_schema = data_quality_schema_fallback.strip() or None
+
+    data_quality_storage_format = (
+        setting.data_quality_storage_format.strip().lower()
+        if isinstance(setting.data_quality_storage_format, str) and setting.data_quality_storage_format.strip()
+        else None
+    )
+    if not data_quality_storage_format and data_quality_storage_format_fallback:
+        data_quality_storage_format = data_quality_storage_format_fallback.strip().lower() or "delta"
+    data_quality_storage_format = data_quality_storage_format or "delta"
+
+    if setting.data_quality_auto_manage_tables is not None:
+        data_quality_auto_manage_tables = bool(setting.data_quality_auto_manage_tables)
+    elif data_quality_auto_manage_tables_fallback is not None:
+        data_quality_auto_manage_tables = bool(data_quality_auto_manage_tables_fallback)
+    else:
+        data_quality_auto_manage_tables = True
 
     ingestion_batch_rows = setting.ingestion_batch_rows
     if ingestion_batch_rows is None and ingestion_batch_rows_fallback:
@@ -65,6 +88,9 @@ def _serialize(
         created_at=setting.created_at,
         updated_at=setting.updated_at,
         has_access_token=bool(setting.access_token),
+        data_quality_schema=data_quality_schema,
+        data_quality_storage_format=data_quality_storage_format,
+        data_quality_auto_manage_tables=data_quality_auto_manage_tables,
     )
 
 
@@ -90,6 +116,9 @@ def get_databricks_setting(db: Session = Depends(get_db)) -> DatabricksSqlSettin
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
         spark_compute_fallback=config.databricks_spark_compute,
+        data_quality_schema_fallback=config.databricks_data_quality_schema,
+        data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
+        data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
     )
 
 
@@ -115,6 +144,9 @@ def create_databricks_setting(
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method,
         spark_compute=payload.spark_compute,
+        data_quality_schema=payload.data_quality_schema,
+        data_quality_storage_format=payload.data_quality_storage_format,
+        data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
     )
     try:
         test_databricks_connection(params)
@@ -129,6 +161,12 @@ def create_databricks_setting(
         catalog=payload.catalog.strip() if payload.catalog else None,
         schema_name=payload.schema_name.strip() if payload.schema_name else None,
         constructed_schema=payload.constructed_schema.strip() if payload.constructed_schema else None,
+        data_quality_schema=payload.data_quality_schema.strip() if payload.data_quality_schema else None,
+        data_quality_storage_format=
+            payload.data_quality_storage_format.strip().lower()
+            if isinstance(payload.data_quality_storage_format, str) and payload.data_quality_storage_format.strip()
+            else None,
+        data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method or "sql",
         spark_compute=payload.spark_compute,
@@ -147,6 +185,9 @@ def create_databricks_setting(
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
         spark_compute_fallback=config.databricks_spark_compute,
+        data_quality_schema_fallback=config.databricks_data_quality_schema,
+        data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
+        data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
     )
     reset_ingestion_engine()
     ensure_databricks_connection()
@@ -180,6 +221,14 @@ def update_databricks_setting(
             setting.constructed_schema = (
                 data["constructed_schema"].strip() if data["constructed_schema"] else None
             )
+        if "data_quality_schema" in data:
+            setting.data_quality_schema = (
+                data["data_quality_schema"].strip() if data["data_quality_schema"] else None
+            )
+        if "data_quality_storage_format" in data and data["data_quality_storage_format"]:
+            setting.data_quality_storage_format = data["data_quality_storage_format"].strip().lower()
+        if "data_quality_auto_manage_tables" in data and data["data_quality_auto_manage_tables"] is not None:
+            setting.data_quality_auto_manage_tables = bool(data["data_quality_auto_manage_tables"])
         if "ingestion_batch_rows" in data:
             setting.ingestion_batch_rows = data["ingestion_batch_rows"]
         if "ingestion_method" in data and data["ingestion_method"] is not None:
@@ -211,6 +260,9 @@ def update_databricks_setting(
             "catalog",
             "schema_name",
             "constructed_schema",
+            "data_quality_schema",
+            "data_quality_storage_format",
+            "data_quality_auto_manage_tables",
             "ingestion_batch_rows",
             "warehouse_name",
             "ingestion_method",
@@ -229,6 +281,12 @@ def update_databricks_setting(
             ingestion_batch_rows=setting.ingestion_batch_rows,
             ingestion_method=setting.ingestion_method,
             spark_compute=setting.spark_compute,
+            data_quality_schema=setting.data_quality_schema,
+            data_quality_storage_format=setting.data_quality_storage_format or "delta",
+            data_quality_auto_manage_tables=
+                bool(setting.data_quality_auto_manage_tables)
+                if setting.data_quality_auto_manage_tables is not None
+                else True,
         )
         try:
             test_databricks_connection(params)
@@ -244,6 +302,9 @@ def update_databricks_setting(
         ingestion_batch_rows_fallback=config.databricks_ingestion_batch_rows,
         ingestion_method_fallback=config.databricks_ingestion_method,
         spark_compute_fallback=config.databricks_spark_compute,
+        data_quality_schema_fallback=config.databricks_data_quality_schema,
+        data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
+        data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
     )
     reset_ingestion_engine()
     ensure_databricks_connection()
@@ -262,6 +323,9 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method or "sql",
         spark_compute=payload.spark_compute,
+        data_quality_schema=payload.data_quality_schema.strip() if payload.data_quality_schema else None,
+        data_quality_storage_format=payload.data_quality_storage_format,
+        data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
     )
     try:
         elapsed_ms, summary = test_databricks_connection(params)

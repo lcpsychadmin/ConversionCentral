@@ -1,17 +1,18 @@
 --- Instructions --
 
-- After executing each task run lint and tests with the following commands:
+Steps:
+1. After executing each task run lint and tests with the following commands:
 cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral\frontend"; npm.cmd run lint
 cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral"; py -m pytest
-- Correct errors and run lint and tests again to confirm
-- Run any migrations that are required
-- Then rebuild and bring up the containers with the following command:
+2. Correct errors and run lint and tests again to confirm
+3. Run any migrations that are required
+4. Then rebuild and bring up the containers with the following command:
 cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral"; docker compose up --build -d
-- Correct any issues identified and then rebuild and bring up the containers to confirm
-- I will test and confirm the changes are correct or offer any adjustemnts that need to be made
-- Once I confirm we can mark task in todo.txt as [DONE]
-- After all piror steps succeed commit and push the application changes to git
-- Once git is updated we can proceed to the next task that is not marked [DONE]
+5. Correct any issues identified and then rebuild and bring up the containers to confirm
+6. I will test and confirm the changes are correct or offer any adjustemnts that need to be made
+7. Once I confirm we can mark task in todo.txt as [DONE]
+8. After all piror steps succeed commit and push the application changes to git
+9. Once git is updated we can proceed to the next task that is not marked [DONE]
 
 --- Enhancements to Existing Code ---
 
@@ -24,16 +25,65 @@ cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral"; docke
 3. [DONE] Add in better filter capabilities in the ingestion schedules page. This will grow as we add more source systems into the application. Perhaps add in
 a Tree view at the top that is by source system, connection, and then schema
 4. [DONE] in the data definition table set Enterprise Attribute to a Yes/No field. The field type should be a drop down of the available data types in the Databricks SQL Warehouse. Grey out Decimal places unless a float/decimal field type is used. Legal/Regulatory Requirements and Security Classifications should be dropdown boxes based on new models for each. The admin pages for both should be under the application settings menu item.
-5. On the report designer page, rename the publish to data object button to publish to report catalog
-6. Ensure that the sql that is run in the reporting designer runs on the databricks server. This will mean that we need to change the tables that are available for reporting should only be from tables in databricks
-7. Add a sub menu item under Data Configuration labled "Data Definition Settings" and move the Legal Requirements and SEcurity Classifications page under this menu
-8. Move the Data Management menu item below Data Configuration
+5. [DONE] On the report designer page, rename the publish to data object button to publish to report catalog
+6. [DONE] Ensure that the sql that is run in the reporting designer runs on the databricks server. This will mean that we need to change the tables that are available for reporting should only be from tables in databricks
+7. [DONE] Remove the add table button from the data defintion creation process, we should only have two option; Add source table or create table. 
+8. [DONE] The amount of tables that will be available in the create data definition modal could be very large at some point in the future and having just a dropdown will not work. Can we add in functionality, possibley a tree structure
+that is by Datbricks Schema, source system, source system schema, and then table. We should also add in the abilty to be able to select multiple tables at once. Also, any table that is already in the data definiiton should not show
+9. [DONE] on the create/edit data definintion we can remove the ability to rearrange the fields since we can now do this in the grid. We can remove the fields displayed entirely from this modal
+10. [DONE] Add a sub menu item under Data Configuration labled "Data Definition Settings" and move the Legal Requirements and SEcurity Classifications page under this menu
+11. [DONE] Move the Data Management menu item below Data Configuration
+12. [DONE] On the report catalog page the refresh, expand all, and collapse all actions are overlaying other sections. Perhaps we move these actions to below the header and consolidate the expand and collapse into one action
+13. [DONE] Add in site styled delete confirmation on the report designer when removing a table from the canvas
+14. [DONE] Add in site styled delete confirmation on the report catalog when deleteing a report
+15. [DONE] Fix the length and decimal places fields in the create new field modal in the data definition page to align with the inputs above and below
+16. [DONE] Rework table ingestion to create schemas in databricks for each source system instead of appending the source system to the table name. Tables would then be ingested into databricks based on the system assigned to the connection.
+we can use the schema defined in the databricks warehouse settings as a fallback.
+17. [DONE] Unselecting a table from the source catalog should cascade the delete to the ingestion schedules, data definitions, and reports in the catalog. If an ingestion schedule had been crated then the table should also be dropped from databricks.
+18. [DONE] remove "No tables are available for the selected system yet. Use the Create Table action below to add one before building the data definition." from the Edit data definition modal. Also, only new tables or tables from the constructed schema should have the constructed data toggle
+19. [DONE] Move Data Definition Settings as the first sub menu item under data configuration.
+20. [DONE] In the report designer table pallete can we add an unassigned section to the tree and include any table from the dtaabricks source catalag that is not assigned to a data object
+21. [DONE] Move the product teams menu item to the Data Configuration Top menu, place it above data objects
+22. [DONE] Export to CSV is not working on the report catalog "Failed to execute 'createObjectURL' on 'URL': Overload resolution failed."
+23. [DONE] The refresh when selecting tables in the source catalog takes a long time. Can we add a save button, so the user can select multiple tables without the refresh and then hit save.
+24. [DONE] In the create new field data definition modal, the enterprise attribute dropdown should be changed to a checkbox and moved to where the other checkboxes are in the form.
+25. [DONE] Application needs to run on https
+26. [DONE] Is it possible to push the docker file to heroku
 
 --- Data Quality Implementation ---
+https://github.com/DataKitchen/dataops-testgen
+This is the URL for Open Source Data Quality Application that I would like to implement into our application. Some things will need to change to fit into our data hierarchy, but the functionality that is here is what I want to implement.
+I also have this application running locally at http://localhost:8501/
+1. [DONE] Can you review the code and design a plan on how we can integrate this funtionality into our application. I do know that we will have one top level menu item called "Data Quality" all other sub menus and pages will reside under this.
 
+Detailed Implementation Plan:
+1. Inventory the DataOps TestGen repositories (UI, CLI, Docker) and document integration points we must preserve (profiling, test generation, run history, alerts).
+2. Design a Databricks-backed persistence layer that mirrors TestGen metadata tables; define schema defaults and configurable name exposed in warehouse settings.
+3. [DONE] Extend Databricks warehouse settings API/UI to capture the Data Quality schema name (with validation and rename flow) and propagate it through existing configuration services.
+4. [DONE] Build a provisioning job that creates/updates the Data Quality schema in Databricks, seeds required tables, and stores dataset-to-testgen mappings tied to our systems and connections.
+5. [DONE] Implement a backend client/service that wraps TestGen functionality (CLI or API) while redirecting storage operations to Databricks and authenticating with managed warehouse credentials.
+6. [DONE] Create FastAPI routes under `/data-quality` for datasets, tests, runs, alerts, and actions, enforcing RBAC and surfacing status sourced from the new Databricks schema.
+7. [DONE] Wire ingestion/validation workflows so new or updated system connections automatically register datasets and so post-ingestion steps trigger TestGen validation runs.
+8. [DONE] Develop the React `Data Quality` menu with sub-pages (Overview, Datasets, Test Library, Run History & Alerts, Settings) that consume the new endpoints and cross-link to Source Systems/Data Definitions.
+9. [DONE] Add notifications/webhooks so TestGen anomalies flow into our alerting pipeline and optionally block downstream approvals when severity thresholds are met.
+10. Expand CI/CD to include the Data Quality service/container (if needed), add integration tests against a Databricks test schema, run full lint/pytest/npm suites, and update deployment docs for local/Heroku setups.
 
 
 
 
 
 --- Data Migration Implementation ---
+https://github.com/dbt-labs/dbt-core
+
+
+
+
+
+--- SSO, Users, Roles, and Security ---
+
+
+
+
+
+
+--- Approvals & Workflows ---

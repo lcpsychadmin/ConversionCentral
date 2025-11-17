@@ -59,6 +59,15 @@ client.interceptors.request.use((config) => {
 
 // Response interceptor to convert snake_case to camelCase
 client.interceptors.response.use((response) => {
+  const responseType = response.config?.responseType ?? response.request?.responseType;
+  if (responseType === 'blob' || responseType === 'arraybuffer') {
+    return response;
+  }
+
+  if (response.data instanceof Blob) {
+    return response;
+  }
+
   if (response.data && !shouldSkipCamelCase(response.config?.url)) {
     response.data = toCamelCase(response.data);
   }

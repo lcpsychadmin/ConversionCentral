@@ -1,5 +1,7 @@
 from http import HTTPStatus
 from uuid import UUID
+from typing import List
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
@@ -27,12 +29,39 @@ from app.schemas import (
     DataDefinitionRelationshipRead,
     DataDefinitionRelationshipUpdate,
     DataDefinitionUpdate,
+    TableRead,
+    SystemConnectionType,
 )
-from app.services.catalog_browser import fetch_source_table_columns, ConnectionCatalogError
-from app.services.data_construction_sync import sync_construction_tables_for_definition
+from app.services.catalog_browser import (
+    fetch_source_table_columns,
+    fetch_connection_catalog,
+    ConnectionCatalogError,
+)
+from app.services.data_construction_sync import (
+    delete_constructed_tables_for_definition,
+    sync_construction_tables_for_definition,
+)
+from app.services.table_filters import connection_is_databricks, table_is_databricks_eligible
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/data-definitions", tags=["Data Definitions"])
 
+
+@router.get("/databricks-tables", response_model=List[TableRead])
+def list_databricks_tables(db: Session = Depends(get_db)) -> List[TableRead]:
+    tables = (
+        db.query(Table)
+        .options(
+            selectinload(Table.system).selectinload(System.connections),
+            selectinload(Table.definition_tables),
+        )
+        .order_by(Table.name.asc())
+        .all()
+    )
+
+    return [table for table in tables if table_is_databricks_eligible(table)]
 
 
 def _definition_query(db: Session):
@@ -690,30 +719,140 @@ def get_available_source_tables(
         .filter(SystemConnection.system_id.in_(system_ids))
         .all()
     )
-    connection_ids = [conn.id for conn in connections]
-    
-    if not connection_ids:
+    databricks_connections = [
+        connection for connection in connections if connection_is_databricks(connection)
+    ]
+
+    if not databricks_connections:
+        logger.info(
+            "No Databricks connections linked to data object %s; falling back to global Databricks connections.",
+            data_object_id,
+        )
+        all_connections = db.query(SystemConnection).all()
+        databricks_connections = [
+            connection for connection in all_connections if connection_is_databricks(connection)
+        ]
+    connection_ids = [conn.id for conn in databricks_connections]
+
+    if not databricks_connections:
         return []
-    
-    # Get all selected tables from these connections
-    selections = (
-        db.query(ConnectionTableSelection)
-        .filter(ConnectionTableSelection.system_connection_id.in_(connection_ids))
-        .all()
-    )
-    
-    # Format the results
-    result = []
-    for selection in selections:
-        result.append({
-            "schemaName": selection.schema_name,
-            "tableName": selection.table_name,
-            "tableType": selection.table_type,
-            "columnCount": selection.column_count,
-            "estimatedRows": selection.estimated_rows
-        })
-    
-    return result
+
+    allowed_tables: list[dict] = []
+    seen_keys: set[tuple[str | None, str]] = set()
+    connection_map = {connection.id: connection for connection in databricks_connections}
+    selections_by_connection: dict[UUID, list[ConnectionTableSelection]] = {}
+    systems_with_known_tables: set[UUID] = set()
+
+    if connection_ids:
+        selections = (
+            db.query(ConnectionTableSelection)
+            .filter(ConnectionTableSelection.system_connection_id.in_(connection_ids))
+            .all()
+        )
+
+        for selection in selections:
+            connection = connection_map.get(selection.system_connection_id)
+            if connection:
+                systems_with_known_tables.add(connection.system_id)
+                selections_by_connection.setdefault(selection.system_connection_id, []).append(selection)
+
+            key = ((selection.schema_name or "").lower(), selection.table_name.lower())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            allowed_tables.append(
+                {
+                    "catalogName": getattr(selection, "catalog_name", None),
+                    "schemaName": selection.schema_name,
+                    "tableName": selection.table_name,
+                    "tableType": selection.table_type,
+                    "columnCount": selection.column_count,
+                    "estimatedRows": selection.estimated_rows,
+                }
+            )
+
+    databricks_system_ids = {connection.system_id for connection in databricks_connections}
+    if databricks_system_ids:
+        tables = (
+            db.query(Table)
+            .options(
+                selectinload(Table.system).selectinload(System.connections),
+                selectinload(Table.definition_tables),
+            )
+            .filter(Table.system_id.in_(databricks_system_ids))
+            .all()
+        )
+
+        for table in tables:
+            if not table_is_databricks_eligible(table):
+                continue
+
+            schema_name = table.schema_name or ""
+            table_name = table.physical_name or table.name
+            key = (schema_name.lower(), (table_name or "").lower())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            systems_with_known_tables.add(table.system_id)
+            allowed_tables.append(
+                {
+                    "catalogName": getattr(table, "catalog_name", None),
+                    "schemaName": schema_name,
+                    "tableName": table_name,
+                    "tableType": table.table_type,
+                    "columnCount": None,
+                    "estimatedRows": None,
+                }
+            )
+
+    for connection in databricks_connections:
+        # Avoid re-browsing the catalog when manual selections or local tables already cover this system.
+        if selections_by_connection.get(connection.id):
+            continue
+        if connection.system_id in systems_with_known_tables:
+            continue
+
+        try:
+            catalog_tables = fetch_connection_catalog(
+                SystemConnectionType.JDBC,
+                connection.connection_string,
+            )
+        except ConnectionCatalogError as exc:
+            logger.warning(
+                "Unable to browse Databricks catalog for connection %s: %s",
+                connection.id,
+                exc,
+            )
+            continue
+
+        added_any = False
+        for item in catalog_tables:
+            table_name = (item.table_name or "").strip()
+            if not table_name:
+                continue
+
+            schema_name = (item.schema_name or "").strip()
+            key = (schema_name.lower(), table_name.lower())
+            if key in seen_keys:
+                continue
+
+            seen_keys.add(key)
+            added_any = True
+            allowed_tables.append(
+                {
+                    "catalogName": getattr(item, "catalog_name", None),
+                    "schemaName": schema_name,
+                    "tableName": table_name,
+                    "tableType": getattr(item, "table_type", None),
+                    "columnCount": getattr(item, "column_count", None),
+                    "estimatedRows": getattr(item, "estimated_rows", None),
+                }
+            )
+
+        if added_any:
+            systems_with_known_tables.add(connection.system_id)
+
+    return allowed_tables
 
 
 @router.get("/source-table-columns/{data_object_id}")
@@ -752,16 +891,20 @@ def get_source_table_columns(
         .filter(SystemConnection.system_id.in_(system_ids))
         .all()
     )
-    
+
     if not connections:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No connections found for this data object's systems"
+            detail="No connections found for this data object's systems",
         )
-    
-    # Find a connection that has this table selected
-    connection_with_table = None
+
+    connection_with_table: SystemConnection | None = None
+    databricks_candidates: list[SystemConnection] = []
+
     for conn in connections:
+        if connection_is_databricks(conn):
+            databricks_candidates.append(conn)
+
         selection = (
             db.query(ConnectionTableSelection)
             .filter(
@@ -774,40 +917,76 @@ def get_source_table_columns(
         if selection:
             connection_with_table = conn
             break
-    
-    if not connection_with_table:
+
+    candidate_connections: list[SystemConnection]
+    if connection_with_table:
+        candidate_connections = [connection_with_table]
+    else:
+        if not databricks_candidates:
+            logger.info(
+                "No Databricks connection with selection for %s.%s; attempting global Databricks connections.",
+                schema_name,
+                table_name,
+            )
+            global_connections = db.query(SystemConnection).all()
+            databricks_candidates = [
+                connection
+                for connection in global_connections
+                if connection_is_databricks(connection)
+            ]
+
+        candidate_connections = databricks_candidates
+
+    if not candidate_connections:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Table {schema_name}.{table_name} not found in any connection"
+            detail=f"Table {schema_name}.{table_name} not found in any connection",
         )
-    
-    # Fetch columns from the source connection
-    try:
-        columns = fetch_source_table_columns(
-            connection_type=connection_with_table.connection_type,
-            connection_string=connection_with_table.connection_string,
-            schema_name=schema_name,
-            table_name=table_name,
-        )
-    except ConnectionCatalogError as e:
+
+    last_error: ConnectionCatalogError | None = None
+    schema_param = schema_name or None
+    table_param = table_name or None
+
+    for candidate in candidate_connections:
+        try:
+            columns = fetch_source_table_columns(
+                connection_type=candidate.connection_type,
+                connection_string=candidate.connection_string,
+                schema_name=schema_param,
+                table_name=table_param,
+            )
+        except ConnectionCatalogError as exc:
+            logger.warning(
+                "Failed to fetch column metadata from connection %s: %s",
+                candidate.id,
+                exc,
+            )
+            last_error = exc
+            continue
+
+        result = [
+            {
+                "name": col.name,
+                "typeName": col.type_name,
+                "length": col.length,
+                "numericPrecision": col.numeric_precision,
+                "numericScale": col.numeric_scale,
+                "nullable": col.nullable,
+            }
+            for col in columns
+        ]
+        return result
+
+    if last_error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch column metadata: {str(e)}"
+            detail=f"Failed to fetch column metadata: {last_error}",
         )
-    
-    # Format the results
-    result = []
-    for col in columns:
-        result.append({
-            "name": col.name,
-            "typeName": col.type_name,
-            "length": col.length,
-            "numericPrecision": col.numeric_precision,
-            "numericScale": col.numeric_scale,
-            "nullable": col.nullable,
-        })
-    
-    return result
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Table {schema_name}.{table_name} not found in any connection",
+    )
 
 
 @router.get("/{definition_id}", response_model=DataDefinitionRead)
@@ -839,5 +1018,6 @@ def update_data_definition(
 @router.delete("/{definition_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_data_definition(definition_id: UUID, db: Session = Depends(get_db)) -> None:
     definition = _get_definition_or_404(definition_id, db)
+    delete_constructed_tables_for_definition(definition.id, db)
     db.delete(definition)
     db.commit()

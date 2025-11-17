@@ -34,6 +34,7 @@ from app.services.ingestion_loader import (
     SparkTableLoader,
     build_loader_plan,
 )
+from app.services.data_quality_runner import queue_validation_run
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class ScheduleSnapshot:
     primary_key_column: str | None
     batch_size: int
     target_schema: str | None
+    system_schema: str | None
     target_table_name: str
     connection_string: str
     connection_type: SystemConnectionType
@@ -321,7 +323,7 @@ class ScheduledIngestionEngine:
         source_table: SqlTable,
     ) -> int:
         loader = self._get_loader()
-        target_schema = snapshot.target_schema or loader.default_schema or snapshot.source_schema
+        target_schema = snapshot.target_schema or snapshot.system_schema or loader.default_schema or snapshot.source_schema
         plan = build_loader_plan(
             schema=target_schema,
             table_name=snapshot.target_table_name,
@@ -399,8 +401,8 @@ class ScheduledIngestionEngine:
     def _snapshot(self, schedule: IngestionSchedule) -> ScheduleSnapshot:
         selection = schedule.table_selection
         connection = selection.system_connection
-        target_table = schedule.target_table_name or selection.table_name
-        composed_table = build_ingestion_table_name(connection, selection)
+        system_schema = build_ingestion_schema_name(connection)
+        composed_table = schedule.target_table_name or build_ingestion_table_name(connection, selection)
         return ScheduleSnapshot(
             id=schedule.id,
             load_strategy=IngestionLoadStrategy(schedule.load_strategy),
@@ -408,6 +410,7 @@ class ScheduledIngestionEngine:
             primary_key_column=schedule.primary_key_column,
             batch_size=schedule.batch_size,
             target_schema=schedule.target_schema,
+            system_schema=system_schema,
             target_table_name=composed_table,
             connection_string=connection.connection_string,
             connection_type=SystemConnectionType(connection.connection_type),
@@ -431,6 +434,8 @@ class ScheduledIngestionEngine:
             schedule.last_run_error = run.error_message
 
     def _mark_run_completed(self, schedule_id: UUID, run_id: UUID, outcome: IngestionOutcome) -> None:
+        project_key: str | None = None
+        test_suite_key: str | None = None
         with self._session_scope() as session:
             run = session.get(IngestionRun, run_id)
             schedule = session.get(IngestionSchedule, schedule_id)
@@ -453,9 +458,23 @@ class ScheduledIngestionEngine:
                 schedule.last_watermark_timestamp = outcome.watermark_timestamp
             if outcome.watermark_id is not None:
                 schedule.last_watermark_id = outcome.watermark_id
+            try:
+                connection = schedule.table_selection.system_connection
+            except AttributeError:
+                connection = None
+            if connection and connection.system_id:
+                project_key = f"system:{connection.system_id}"
+                test_suite_key = f"group:{connection.id}"
         logger.debug(
             "Persisted completion metadata for run %s (schedule %s)", run_id, schedule_id
         )
+        if project_key:
+            trigger_source = f"ingestion-run:{run_id}"
+            queue_validation_run(
+                project_key,
+                test_suite_key=test_suite_key,
+                trigger_source=trigger_source,
+            )
 
     def _update_run_progress(
         self,
@@ -560,17 +579,23 @@ def _sanitize_part(value: str | None) -> str:
     return sanitized.lower() or "segment"
 
 
+def build_ingestion_schema_name(connection: SystemConnection) -> str | None:
+    system = connection.system
+    base_name: str | None = None
+    if system and system.name:
+        base_name = system.name
+    elif system and system.physical_name:
+        base_name = system.physical_name
+
+    if not base_name:
+        return None
+    return _sanitize_part(base_name)
+
+
 def build_ingestion_table_name(
-    connection: SystemConnection,
+    _connection: SystemConnection,
     selection: ConnectionTableSelection,
 ) -> str:
-    if connection.system and connection.system.name:
-        system_part = connection.system.name
-    elif connection.system and connection.system.physical_name:
-        system_part = connection.system.physical_name
-    else:
-        system_part = str(connection.system_id)
-    schema_part = selection.schema_name or "default"
-    table_part = selection.table_name
-    parts = [_sanitize_part(system_part), _sanitize_part(schema_part), _sanitize_part(table_part)]
-    return "_".join(parts)
+    schema_part = _sanitize_part(selection.schema_name or "default")
+    table_part = _sanitize_part(selection.table_name)
+    return "_".join(part for part in (schema_part, table_part) if part)

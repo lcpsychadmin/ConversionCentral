@@ -31,7 +31,7 @@ services:
       DATABRICKS_CATALOG: ${DATABRICKS_CATALOG:-}
       DATABRICKS_SCHEMA: ${DATABRICKS_SCHEMA:-}
       DATABRICKS_TOKEN: ${DATABRICKS_TOKEN:-}
-      FRONTEND_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,https://wescollins.duckdns.org,http://wescollins.duckdns.org"
+      FRONTEND_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,https://localhost,https://localhost:443,https://127.0.0.1,https://127.0.0.1:443,https://wescollins.duckdns.org,http://wescollins.duckdns.org"
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +48,24 @@ services:
       - "3000:80"
     depends_on:
       - backend
+
+  proxy:
+    build:
+      context: ./docker/proxy
+    container_name: conversioncentral-proxy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SSL_CERT_PATH: ${SSL_CERT_PATH:-/etc/ssl/custom/server.crt}
+      SSL_KEY_PATH: ${SSL_KEY_PATH:-/etc/ssl/custom/server.key}
+      SSL_SELF_SIGNED_SUBJECT: ${SSL_SELF_SIGNED_SUBJECT:-/CN=localhost}
+    volumes:
+      - ./docker/proxy/certs:/etc/ssl/custom
 
 volumes:
   postgres-data:

@@ -6,7 +6,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -23,32 +22,15 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PreviewIcon from '@mui/icons-material/Preview';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import {
-  DndContext,
-  DragEndEvent,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
 import { DataDefinition, DataDefinitionTableInput, Table, TableInput, Field, ConnectionTablePreview } from '../../types/data';
 import { createTable, updateTable, createField, fetchTablePreview } from '../../services/tableService';
-import { fetchAvailableSourceTables, AvailableSourceTable, SourceTableColumn } from '../../services/dataDefinitionService';
+import { fetchAvailableSourceTables, AvailableSourceTable } from '../../services/dataDefinitionService';
+import { buildSourceTableKeyList, toSourceTableKey } from './sourceTableUtils';
 import { useToast } from '../../hooks/useToast';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CreateTableDialog from './CreateTableDialog';
-import AddExistingSourceTableDialog from './AddExistingSourceTableDialog';
+import AddExistingSourceTableDialog, { SelectedSourceTablePayload } from './AddExistingSourceTableDialog';
 import ConnectionDataPreviewDialog from '../system-connection/ConnectionDataPreviewDialog';
 
 interface DataDefinitionFormProps {
@@ -60,7 +42,6 @@ interface DataDefinitionFormProps {
   initialDefinition?: DataDefinition | null;
   dataObjectId?: string;
   tables: Table[];
-  fields: Field[];
   systemId: string;
   onMetadataRefresh?: () => Promise<void>;
 }
@@ -112,24 +93,6 @@ const getNextLoadOrderValue = (rows: Array<{ loadOrder: string }>): string => {
     .filter((value) => Number.isInteger(value) && value > 0);
   const next = numericValues.length ? Math.max(...numericValues) + 1 : 1;
   return next.toString();
-};
-
-const toSourceTableKey = (schemaName?: string | null, tableName?: string | null) => {
-  if (!tableName) {
-    return null;
-  }
-  return `${(schemaName ?? '').toLowerCase()}::${tableName.toLowerCase()}`;
-};
-
-const buildSourceTableKeyList = (tableList: AvailableSourceTable[]) => {
-  const keys = new Set<string>();
-  tableList.forEach((table) => {
-    const key = toSourceTableKey(table.schemaName, table.tableName);
-    if (key) {
-      keys.add(key);
-    }
-  });
-  return Array.from(keys);
 };
 
 const CONSTRUCTION_SCHEMA = 'construction_data';
@@ -201,197 +164,6 @@ const buildRows = (tables: Snapshot['tables']): TableRow[] =>
     }))
   }));
 
-type FieldDisplayItemProps = {
-  fieldRow: FieldRow;
-  field: Field | undefined;
-};
-
-const fieldItemStyles = {
-  border: '1px solid',
-  borderColor: 'divider',
-  borderRadius: 1,
-  px: 1.5,
-  py: 1,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 1.5,
-  backgroundColor: 'background.paper'
-} as const;
-
-const FieldDisplayItem = ({ fieldRow, field }: FieldDisplayItemProps) => {
-  const displayName = field?.name ?? (fieldRow.fieldName ? fieldRow.fieldName : fieldRow.fieldId);
-  const trimmedDescription = field?.description?.trim() ?? '';
-  const trimmedNotes = fieldRow.notes.trim();
-
-  return (
-    <Box sx={fieldItemStyles}>
-      <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.disabled' }}>
-        <DragIndicatorIcon fontSize="small" />
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-            {displayName}
-          </Typography>
-          {fieldRow.isUnique && (
-            <Chip size="small" color="primary" label="Unique" sx={{ height: 20, fontSize: 11 }} />
-          )}
-        </Stack>
-        {trimmedDescription && (
-          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-            {trimmedDescription}
-          </Typography>
-        )}
-        {trimmedNotes && (
-          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-            Notes: {trimmedNotes}
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-};
-
-type SortableFieldItemProps = {
-  fieldRow: FieldRow;
-  field: Field | undefined;
-  onDelete: () => void;
-};
-
-const SortableFieldItem = ({ fieldRow, field, onDelete }: SortableFieldItemProps) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: fieldRow.id
-  });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition
-  };
-
-  const displayName = field?.name ?? (fieldRow.fieldName ? fieldRow.fieldName : fieldRow.fieldId);
-  const trimmedDescription = field?.description?.trim() ?? '';
-  const trimmedNotes = fieldRow.notes.trim();
-
-  return (
-    <Box
-      ref={setNodeRef}
-      style={style}
-      sx={{
-        ...fieldItemStyles,
-        gap: 1.5,
-        backgroundColor: isDragging ? 'action.hover' : fieldItemStyles.backgroundColor,
-        transition: 'background-color 120ms ease, box-shadow 120ms ease',
-        boxShadow: isDragging ? 2 : 0
-      }}
-    >
-      <IconButton
-        size="small"
-        aria-label="Reorder field"
-        {...attributes}
-        {...listeners}
-        sx={{ cursor: 'grab' }}
-      >
-        <DragIndicatorIcon fontSize="small" />
-      </IconButton>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-            {displayName}
-          </Typography>
-          {fieldRow.isUnique && (
-            <Chip size="small" color="primary" label="Unique" sx={{ height: 20, fontSize: 11 }} />
-          )}
-        </Stack>
-        {trimmedDescription && (
-          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-            {trimmedDescription}
-          </Typography>
-        )}
-        {trimmedNotes && (
-          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-            Notes: {trimmedNotes}
-          </Typography>
-        )}
-      </Box>
-      <IconButton size="small" aria-label="Remove field" onClick={onDelete}>
-        <DeleteOutlineIcon fontSize="small" />
-      </IconButton>
-    </Box>
-  );
-};
-
-type TableFieldsEditorProps = {
-  tableRowId: string;
-  fields: FieldRow[];
-  fieldMap: Map<string, Field>;
-  canEdit: boolean;
-  onDelete: (fieldRowId: string) => void;
-  onReorder: (tableRowId: string, activeId: string, overId: string) => void;
-};
-
-const TableFieldsEditor = ({
-  tableRowId,
-  fields,
-  fieldMap,
-  canEdit,
-  onDelete,
-  onReorder
-}: TableFieldsEditorProps) => {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  if (!fields.length) {
-    return null;
-  }
-
-  if (!canEdit) {
-    return (
-      <Stack spacing={1}>
-        {fields.map((fieldRow) => (
-          <FieldDisplayItem
-            key={fieldRow.id}
-            fieldRow={fieldRow}
-            field={fieldMap.get(fieldRow.fieldId)}
-          />
-        ))}
-      </Stack>
-    );
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) {
-      return;
-    }
-    onReorder(tableRowId, String(active.id), String(over.id));
-  };
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
-    >
-      <SortableContext
-        items={fields.map((field) => field.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <Stack spacing={1}>
-          {fields.map((fieldRow) => (
-            <SortableFieldItem
-              key={fieldRow.id}
-              fieldRow={fieldRow}
-              field={fieldMap.get(fieldRow.fieldId)}
-              onDelete={() => onDelete(fieldRow.id)}
-            />
-          ))}
-        </Stack>
-      </SortableContext>
-    </DndContext>
-  );
-};
-
 const DataDefinitionForm = ({
   open,
   mode,
@@ -401,7 +173,6 @@ const DataDefinitionForm = ({
   initialDefinition,
   dataObjectId,
   tables,
-  fields,
   systemId,
   onMetadataRefresh
 }: DataDefinitionFormProps) => {
@@ -433,14 +204,6 @@ const DataDefinitionForm = ({
   const [previewData, setPreviewData] = useState<ConnectionTablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const fieldsById = useMemo(() => {
-    const map = new Map<string, Field>();
-    fields.forEach((field) => {
-      map.set(field.id, field);
-    });
-    return map;
-  }, [fields]);
 
   useEffect(() => {
     if (!open) return;
@@ -497,6 +260,28 @@ const DataDefinitionForm = ({
     });
     return Array.from(map.values());
   }, [tables, localTables]);
+
+  const definitionSourceTableKeys = useMemo(() => {
+    const keys = new Set<string>();
+    tableRows.forEach((row) => {
+      if (!row.tableId) {
+        return;
+      }
+      const tableMeta = combinedTables.find((table) => table.id === row.tableId);
+      if (!tableMeta) {
+        return;
+      }
+      const key = toSourceTableKey(
+        null,
+        tableMeta.schemaName,
+        tableMeta.physicalName ?? tableMeta.name
+      );
+      if (key) {
+        keys.add(key);
+      }
+    });
+    return Array.from(keys);
+  }, [combinedTables, tableRows]);
 
   const sourceTableKeySet = useMemo(() => new Set(sourceTableKeys), [sourceTableKeys]);
 
@@ -584,66 +369,8 @@ const DataDefinitionForm = ({
     setExistingTablePrompt(null);
   };
 
-  const handleAddTable = () => {
-    setTableRows((prev) => {
-      const nextLoadOrder = getNextLoadOrderValue(prev);
-      return [
-        ...prev,
-        {
-          id: generateId(),
-          tableId: '',
-          alias: '',
-          description: '',
-          loadOrder: nextLoadOrder,
-          isConstruction: false,
-          fields: []
-        }
-      ];
-    });
-  };
-
   const handleRemoveTable = (id: string) => {
     setTableRows((prev) => prev.filter((table) => table.id !== id));
-  };
-
-  const handleRemoveField = (tableRowId: string, fieldRowId: string) => {
-    setTableRows((prev) =>
-      prev.map((table) => {
-        if (table.id !== tableRowId) {
-          return table;
-        }
-        const nextFields = table.fields.filter((field) => field.id !== fieldRowId);
-        if (nextFields.length === table.fields.length) {
-          return table;
-        }
-        return {
-          ...table,
-          fields: nextFields
-        };
-      })
-    );
-  };
-
-  const handleReorderFields = (tableRowId: string, activeId: string, overId: string) => {
-    if (activeId === overId) {
-      return;
-    }
-    setTableRows((prev) =>
-      prev.map((table) => {
-        if (table.id !== tableRowId) {
-          return table;
-        }
-        const fromIndex = table.fields.findIndex((field) => field.id === activeId);
-        const toIndex = table.fields.findIndex((field) => field.id === overId);
-        if (fromIndex === -1 || toIndex === -1) {
-          return table;
-        }
-        return {
-          ...table,
-          fields: arrayMove(table.fields, fromIndex, toIndex)
-        };
-      })
-    );
   };
 
   const handleTableChange = (rowId: string, table: Table | null) => {
@@ -652,7 +379,7 @@ const DataDefinitionForm = ({
         if (row.id !== rowId) return row;
         const nextAlias = row.alias || table?.name || '';
         const selectedKey = table
-          ? toSourceTableKey(table.schemaName, table.physicalName ?? table.name)
+          ? toSourceTableKey(null, table.schemaName, table.physicalName ?? table.name)
           : null;
         const shouldDisableConstruction = !table || (selectedKey && sourceTableKeySet.has(selectedKey));
         return {
@@ -715,125 +442,191 @@ const DataDefinitionForm = ({
     }
   };
 
-  const handleAddSourceTable = async (sourceTable: {
-    schemaName: string;
-    tableName: string;
-    tableType?: string | null;
-    columnCount?: number | null;
-    estimatedRows?: number | null;
-    selectedColumns: SourceTableColumn[];
-  }) => {
-    // Check if table already exists in definition
-    const existingTableInDefinition = tableRows.find(
-      (row) => row.tableId && combinedTables.find(
-        (t) => t.id === row.tableId && 
-        t.physicalName === sourceTable.tableName && 
-        (t.schemaName ?? '') === sourceTable.schemaName
-      )
-    );
-    
-    if (existingTableInDefinition) {
-      toast.showError('This table is already in the data definition.');
+  const handleAddSourceTables = async (sourceTables: SelectedSourceTablePayload[]) => {
+    if (!sourceTables.length) {
+      setSourceTableDialogOpen(false);
       return;
     }
 
-    // Check if table exists in the Table repository
-    let table = combinedTables.find(
-      (t) => t.physicalName === sourceTable.tableName && (t.schemaName ?? '') === sourceTable.schemaName && t.systemId === systemId
-    );
-
-    if (!table) {
-      // Create a new table from the source table
-      try {
-        table = await createTable({
-          systemId,
-          name: sourceTable.tableName,
-          physicalName: sourceTable.tableName,
-          schemaName: sourceTable.schemaName,
-          description: null,
-          tableType: sourceTable.tableType,
-          status: 'active'
-        });
-        setLocalTables((prev) => [...prev, table!]);
-      } catch (error) {
-        toast.showError(getErrorMessage(error, 'Unable to create table from source.'));
+    const definitionKeySet = new Set<string>();
+    tableRows.forEach((row) => {
+      if (!row.tableId) {
         return;
       }
-    }
+      const tableMeta = combinedTables.find((table) => table.id === row.tableId);
+      if (!tableMeta) {
+        return;
+      }
+      const key = toSourceTableKey(
+        null,
+        tableMeta.schemaName,
+        tableMeta.physicalName ?? tableMeta.name
+      );
+      if (key) {
+        definitionKeySet.add(key);
+      }
+    });
 
-    // Create fields for the selected columns
-    const createdFields: FieldRow[] = [];
-    for (const column of sourceTable.selectedColumns) {
-      try {
-        // Map source column type to field type
-        const fieldType = column.typeName || 'VARCHAR';
-        
-        const newField: Field = await createField({
-          tableId: table.id,
-          name: column.name,
-          description: null,
-          fieldType: fieldType,
-          fieldLength: column.length ?? null,
-          decimalPlaces: column.numericScale ?? null,
-          systemRequired: false,
-          businessProcessRequired: false,
-          suppressedField: false,
-          active: true,
-          applicationUsage: null,
-          businessDefinition: null,
-          enterpriseAttribute: null,
-          legalRegulatoryImplications: null,
-          legalRequirementId: null,
-          securityClassificationId: null,
-          dataValidation: null,
-          referenceTable: null,
-          groupingTab: null
-        });
+    const keysToAdd: string[] = [];
+    let addedCount = 0;
 
-        createdFields.push({
-          id: generateId(),
-          fieldId: newField.id,
-          fieldName: newField.name,
-          notes: '',
-          isUnique: false
-        });
-      } catch (error) {
+    for (const sourceTable of sourceTables) {
+      if (!sourceTable.selectedColumns.length) {
         toast.showError(
-          getErrorMessage(error, `Unable to create field "${column.name}" from source.`)
+          `Select at least one column to import from ${sourceTable.schemaName}.${sourceTable.tableName}.`
         );
-        // Continue with remaining columns
+        continue;
       }
+
+      const sourceKey = toSourceTableKey(
+        sourceTable.catalogName,
+        sourceTable.schemaName,
+        sourceTable.tableName
+      );
+
+      if (sourceKey && definitionKeySet.has(sourceKey)) {
+        toast.showInfo(
+          `Table "${sourceTable.schemaName}.${sourceTable.tableName}" is already in the data definition.`
+        );
+        continue;
+      }
+
+      const duplicateRow = tableRows.find((row) => {
+        if (!row.tableId) {
+          return false;
+        }
+        const tableMeta = combinedTables.find((table) => table.id === row.tableId);
+        if (!tableMeta) {
+          return false;
+        }
+        return (
+          tableMeta.physicalName === sourceTable.tableName &&
+          (tableMeta.schemaName ?? '') === sourceTable.schemaName
+        );
+      });
+
+      if (duplicateRow) {
+        toast.showInfo(
+          `Table "${sourceTable.schemaName}.${sourceTable.tableName}" is already in the data definition.`
+        );
+        if (sourceKey) {
+          definitionKeySet.add(sourceKey);
+        }
+        continue;
+      }
+
+      let table =
+        combinedTables.find(
+          (item) =>
+            item.physicalName === sourceTable.tableName &&
+            (item.schemaName ?? '') === sourceTable.schemaName &&
+            item.systemId === systemId
+        ) ?? null;
+
+      if (!table) {
+        try {
+          table = await createTable({
+            systemId,
+            name: sourceTable.tableName,
+            physicalName: sourceTable.tableName,
+            schemaName: sourceTable.schemaName,
+            description: null,
+            tableType: sourceTable.tableType,
+            status: 'active'
+          });
+          setLocalTables((prev) => [...prev, table!]);
+        } catch (error) {
+          toast.showError(
+            getErrorMessage(
+              error,
+              `Unable to create table "${sourceTable.schemaName}.${sourceTable.tableName}".`
+            )
+          );
+          continue;
+        }
+      }
+
+      const createdFields: FieldRow[] = [];
+      for (const column of sourceTable.selectedColumns) {
+        try {
+          const fieldType = column.typeName || 'VARCHAR';
+
+          const newField: Field = await createField({
+            tableId: table!.id,
+            name: column.name,
+            description: null,
+            fieldType,
+            fieldLength: column.length ?? null,
+            decimalPlaces: column.numericScale ?? null,
+            systemRequired: false,
+            businessProcessRequired: false,
+            suppressedField: false,
+            active: true,
+            applicationUsage: null,
+            businessDefinition: null,
+            enterpriseAttribute: null,
+            legalRegulatoryImplications: null,
+            legalRequirementId: null,
+            securityClassificationId: null,
+            dataValidation: null,
+            referenceTable: null,
+            groupingTab: null
+          });
+
+          createdFields.push({
+            id: generateId(),
+            fieldId: newField.id,
+            fieldName: newField.name,
+            notes: '',
+            isUnique: false
+          });
+        } catch (error) {
+          toast.showError(
+            getErrorMessage(error, `Unable to create field "${column.name}" from source.`)
+          );
+        }
+      }
+
+      setTableRows((prev) => {
+        const nextLoadOrder = getNextLoadOrderValue(prev);
+        const alias = `${sourceTable.schemaName}.${sourceTable.tableName}`;
+        return [
+          ...prev,
+          {
+            id: generateId(),
+            tableId: table!.id,
+            alias,
+            description: `Source: ${alias}`,
+            loadOrder: nextLoadOrder,
+            isConstruction: false,
+            fields: createdFields
+          }
+        ];
+      });
+
+      if (sourceKey) {
+        definitionKeySet.add(sourceKey);
+        keysToAdd.push(sourceKey);
+      }
+
+      addedCount += 1;
+
+      toast.showSuccess(
+        `Table "${sourceTable.tableName}" added with ${createdFields.length} field${createdFields.length === 1 ? '' : 's'}.`
+      );
     }
 
-    // Add the table to the data definition
-    setTableRows((prev) => {
-      const nextLoadOrder = getNextLoadOrderValue(prev);
-      const alias = `${sourceTable.schemaName}.${sourceTable.tableName}`;
-      return [
-        ...prev,
-        {
-          id: generateId(),
-          tableId: table!.id,
-          alias,
-          description: `Source: ${alias}`,
-          loadOrder: nextLoadOrder,
-          isConstruction: false,
-          fields: createdFields
-        }
-      ];
-    });
+    if (keysToAdd.length) {
+      setSourceTableKeys((prev) => {
+        const next = new Set(prev);
+        keysToAdd.forEach((key) => next.add(key));
+        return Array.from(next);
+      });
+    }
 
-    setSourceTableDialogOpen(false);
-    setSourceTableKeys((prev) => {
-      const key = toSourceTableKey(sourceTable.schemaName, sourceTable.tableName);
-      if (!key || prev.includes(key)) {
-        return prev;
-      }
-      return [...prev, key];
-    });
-    toast.showSuccess(
-      `Table "${sourceTable.tableName}" added with ${createdFields.length} field${createdFields.length === 1 ? '' : 's'}.`
-    );
+    if (addedCount > 0 || sourceTables.length === 0) {
+      setSourceTableDialogOpen(false);
+    }
   };
 
   const handleOpenPreview = async (table: Table) => {
@@ -1096,10 +889,14 @@ const DataDefinitionForm = ({
           return row;
         }
         const key = toSourceTableKey(
+          null,
           tableMeta.schemaName,
           tableMeta.physicalName ?? tableMeta.name
         );
-        if (key && sourceTableKeySet.has(key)) {
+        const schemaNormalized = (tableMeta.schemaName ?? '').trim().toLowerCase();
+        const isConstructedSchema = schemaNormalized === CONSTRUCTION_SCHEMA;
+        const isSource = Boolean(key && sourceTableKeySet.has(key));
+        if (isSource || !isConstructedSchema) {
           changed = true;
           return { ...row, isConstruction: false };
         }
@@ -1116,7 +913,7 @@ const DataDefinitionForm = ({
           <DialogTitle>{mode === 'create' ? 'Create Data Definition' : 'Edit Data Definition'}</DialogTitle>
           <DialogContent dividers>
           <Stack spacing={3} mt={1}>
-            {!tablesAvailable && (
+            {mode === 'create' && !tablesAvailable && (
               <Alert severity="warning">
                 No tables are available for the selected system yet. Use the Create Table action below to add one before building the data definition.
               </Alert>
@@ -1136,6 +933,7 @@ const DataDefinitionForm = ({
                 const selectedTable = combinedTables.find((table) => table.id === row.tableId) ?? null;
                 const selectedTableKey = selectedTable
                   ? toSourceTableKey(
+                      null,
                       selectedTable.schemaName,
                       selectedTable.physicalName ?? selectedTable.name
                     )
@@ -1143,17 +941,13 @@ const DataDefinitionForm = ({
                 const isSourceTable = Boolean(
                   selectedTableKey && sourceTableKeySet.has(selectedTableKey)
                 );
-                const canEditFields = row.isConstruction && Boolean(row.tableId) && !loading;
-                let fieldHelperText = 'Fields sourced from existing tables are read-only within this form.';
-                if (row.isConstruction) {
-                  if (!row.tableId) {
-                    fieldHelperText = 'Select a construction table to manage its fields.';
-                  } else if (loading) {
-                    fieldHelperText = 'Field changes are disabled while saving.';
-                  } else {
-                    fieldHelperText = 'Drag to reorder fields or remove entries to update this constructed table.';
-                  }
-                }
+                const isConstructedSchema = (selectedTable?.schemaName ?? '').trim().toLowerCase() === CONSTRUCTION_SCHEMA;
+                const allowConstructionToggle = Boolean(selectedTable && isConstructedSchema);
+                const fieldInfoMessage = row.isConstruction
+                  ? row.tableId
+                    ? 'Fields for constructed tables can be managed after saving from the Data Definition page.'
+                    : 'Select or create a construction table to manage its fields after saving.'
+                  : 'Fields sourced from existing tables are managed from the Data Definition page.';
 
                 return (
                   <Box key={row.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 2 }}>
@@ -1241,7 +1035,7 @@ const DataDefinitionForm = ({
                           sx={{ width: { xs: '100%', md: 160 } }}
                         />
                       </Stack>
-                      {!isSourceTable && (
+                      {allowConstructionToggle && (
                         <FormControlLabel
                           control={
                             <Switch
@@ -1262,9 +1056,11 @@ const DataDefinitionForm = ({
                           sx={{ pl: 1 }}
                         />
                       )}
-                      {isSourceTable && (
+                      {selectedTable && !allowConstructionToggle && (
                         <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
-                          Construction tables must originate from non-source tables.
+                          {isSourceTable
+                            ? 'Tables sourced from connections cannot be marked as construction tables.'
+                            : `Construction tables must use the ${CONSTRUCTION_SCHEMA} schema.`}
                         </Typography>
                       )}
 
@@ -1272,45 +1068,15 @@ const DataDefinitionForm = ({
                         <Typography variant="subtitle1" gutterBottom>
                           Fields
                         </Typography>
-                        {row.fields.length ? (
-                          <>
-                            <TableFieldsEditor
-                              tableRowId={row.id}
-                              fields={row.fields}
-                              fieldMap={fieldsById}
-                              canEdit={canEditFields}
-                              onDelete={(fieldRowId) => handleRemoveField(row.id, fieldRowId)}
-                              onReorder={handleReorderFields}
-                            />
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block', mt: 0.5 }}
-                            >
-                              {fieldHelperText}
-                            </Typography>
-                          </>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            {row.isConstruction
-                              ? 'No fields yet. Add fields after saving from the Data Definition page.'
-                              : 'Fields can be added after saving from the Data Definition page.'}
-                          </Typography>
-                        )}
+                        <Typography variant="body2" color="text.secondary">
+                          {fieldInfoMessage}
+                        </Typography>
                       </Box>
                     </Stack>
                   </Box>
                 );
               })}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <Button
-                  variant="outlined"
-                  startIcon={<AddCircleOutlineIcon />}
-                  onClick={handleAddTable}
-                  disabled={loading || !tablesAvailable}
-                >
-                  Add Table
-                </Button>
                 <Button
                   variant="outlined"
                   startIcon={<AddCircleOutlineIcon />}
@@ -1382,8 +1148,9 @@ const DataDefinitionForm = ({
         tables={availableSourceTables}
         loading={sourceTableDialogLoading}
         error={sourceTableDialogError}
+        excludedTableKeys={definitionSourceTableKeys}
         onClose={() => setSourceTableDialogOpen(false)}
-        onSubmit={handleAddSourceTable}
+        onSubmit={handleAddSourceTables}
       />
 
       <ConnectionDataPreviewDialog

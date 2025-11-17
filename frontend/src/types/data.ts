@@ -153,6 +153,7 @@ export interface SystemConnection {
   authMethod: SystemConnectionAuthMethod;
   active: boolean;
   ingestionEnabled: boolean;
+  usesDatabricksManagedConnection: boolean;
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -161,11 +162,12 @@ export interface SystemConnection {
 export interface SystemConnectionInput {
   systemId: string;
   connectionType: SystemConnectionType;
-  connectionString: string;
+  connectionString?: string;
   authMethod: SystemConnectionAuthMethod;
   notes?: string | null;
   active?: boolean;
   ingestionEnabled?: boolean;
+  useDatabricksManagedConnection?: boolean;
 }
 
 export interface SystemConnectionUpdateInput {
@@ -176,6 +178,7 @@ export interface SystemConnectionUpdateInput {
   notes?: string | null;
   active?: boolean;
   ingestionEnabled?: boolean;
+  useDatabricksManagedConnection?: boolean;
 }
 
 export interface DatabricksSqlSettings {
@@ -186,6 +189,9 @@ export interface DatabricksSqlSettings {
   catalog?: string | null;
   schemaName?: string | null;
   constructedSchema?: string | null;
+  dataQualitySchema?: string | null;
+  dataQualityStorageFormat: 'delta' | 'hudi';
+  dataQualityAutoManageTables: boolean;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -204,6 +210,9 @@ export interface DatabricksSqlSettingsInput {
   catalog?: string | null;
   schemaName?: string | null;
   constructedSchema?: string | null;
+  dataQualitySchema?: string | null;
+  dataQualityStorageFormat: 'delta' | 'hudi';
+  dataQualityAutoManageTables: boolean;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -218,6 +227,9 @@ export interface DatabricksSqlSettingsUpdate {
   catalog?: string | null;
   schemaName?: string | null;
   constructedSchema?: string | null;
+  dataQualitySchema?: string | null;
+  dataQualityStorageFormat?: 'delta' | 'hudi';
+  dataQualityAutoManageTables?: boolean;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -348,6 +360,7 @@ export interface SystemConnectionFormValues {
   notes?: string | null;
   active: boolean;
   ingestionEnabled: boolean;
+  useDatabricksManagedConnection: boolean;
 }
 
 export interface ConnectionCatalogTable {
@@ -384,6 +397,87 @@ export interface UploadDataColumn {
   originalName: string;
   fieldName: string;
   inferredType: string;
+}
+
+export interface DataQualityProject {
+  projectKey: string;
+  name: string;
+  description?: string | null;
+  sqlFlavor?: string | null;
+}
+
+export interface DataQualityConnection {
+  connectionId: string;
+  projectKey: string;
+  systemId?: string | null;
+  name: string;
+  catalog?: string | null;
+  schemaName?: string | null;
+  httpPath?: string | null;
+  managedCredentialsRef?: string | null;
+  isActive?: boolean;
+}
+
+export interface DataQualityTableGroup {
+  tableGroupId: string;
+  connectionId: string;
+  name: string;
+  description?: string | null;
+  profilingIncludeMask?: string | null;
+  profilingExcludeMask?: string | null;
+}
+
+export interface DataQualityTable {
+  tableId: string;
+  tableGroupId: string;
+  schemaName?: string | null;
+  tableName: string;
+  sourceTableId?: string | null;
+}
+
+export interface DataQualityProfileRun {
+  profileRunId: string;
+  tableGroupId: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  rowCount?: number | null;
+  anomalyCount?: number | null;
+  payloadPath?: string | null;
+}
+
+export interface DataQualityTestRun {
+  testRunId: string;
+  testSuiteKey?: string | null;
+  projectKey: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  totalTests?: number | null;
+  failedTests?: number | null;
+  triggerSource?: string | null;
+}
+
+export interface DataQualityAlert {
+  alertId: string;
+  sourceType: string;
+  sourceRef: string;
+  severity: string;
+  title: string;
+  details: string;
+  acknowledged: boolean;
+  acknowledgedBy?: string | null;
+  acknowledgedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface DataQualityProfileRunStartResponse {
+  profileRunId: string;
+}
+
+export interface DataQualityTestRunStartResponse {
+  testRunId: string;
 }
 
 export interface UploadDataColumnOverrideInput {

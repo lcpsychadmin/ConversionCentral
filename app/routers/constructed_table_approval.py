@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -54,7 +54,7 @@ def _maybe_update_timestamp(
     if isinstance(decision_value, ConstructedTableApprovalDecision):
         decision_value = decision_value.value
     if decision_value != previous_decision:
-        approval.approved_at = datetime.utcnow()
+        approval.approved_at = datetime.now(timezone.utc)
 
 
 @router.post("", response_model=ConstructedTableApprovalRead, status_code=status.HTTP_201_CREATED)

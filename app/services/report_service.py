@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -113,7 +113,7 @@ def create_report(
     )
 
     if status == ReportStatus.PUBLISHED:
-        report.published_at = datetime.utcnow()
+        report.published_at = datetime.now(timezone.utc)
 
     db.add(report)
     db.commit()
@@ -148,7 +148,7 @@ def update_report(
     if status is not None:
         report.status = status.value
         if status == ReportStatus.PUBLISHED:
-            report.published_at = datetime.utcnow()
+            report.published_at = datetime.now(timezone.utc)
         else:
             report.published_at = None
 

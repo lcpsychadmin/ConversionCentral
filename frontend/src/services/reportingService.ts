@@ -117,8 +117,15 @@ export const exportReportDataset = async (
     responseType: 'blob'
   });
 
-  const blob = response.data;
-  if (!blob || blob.size === 0) {
+  const rawData = response.data;
+  if (!rawData) {
+    return;
+  }
+
+  const blob = rawData instanceof Blob
+    ? rawData
+    : new Blob([rawData as BlobPart], { type: 'text/csv;charset=utf-8' });
+  if (blob.size === 0) {
     return;
   }
 

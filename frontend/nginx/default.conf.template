@@ -1,0 +1,36 @@
+server {
+    listen ${PORT} default_server;
+    listen [::]:${PORT} default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Forward API requests to the backend. BACKEND_ORIGIN defaults to the
+    # docker-compose service but can be overridden for platforms like Heroku.
+    location /api {
+        proxy_pass ${BACKEND_ORIGIN};
+        proxy_http_version 1.1;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    # Allow larger upstream headers and avoid buffering related 502s.
+        proxy_buffer_size 16k;
+        proxy_buffers 16 16k;
+        proxy_busy_buffers_size 64k;
+        proxy_temp_file_write_size 64k;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_redirect off;
+        proxy_set_header Connection "";
+    }
+
+    # Serve the SPA and fall back to index.html for client-side routing.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

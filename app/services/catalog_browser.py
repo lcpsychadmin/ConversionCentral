@@ -5,7 +5,15 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import MetaData, Table as SqlTable, create_engine, inspect, select, text
+from sqlalchemy import (
+    MetaData,
+    Table as SqlTable,
+    bindparam,
+    create_engine,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -124,6 +132,8 @@ def fetch_connection_catalog(
         inspector = inspect(engine)
         schema_names = _safe_get_schema_names(inspector)
         row_estimates = _fetch_row_estimates(engine, url.drivername)
+        column_counts = _fetch_column_counts(engine, url.drivername, schema_names)
+        is_postgres = url.drivername.startswith("postgresql")
 
         catalog: list[CatalogTable] = []
         excluded = {"pg_catalog", "information_schema"}
@@ -133,7 +143,10 @@ def fetch_connection_catalog(
                 continue
 
             for table_name in _iter_table_like_names(inspector, schema):
-                column_count = _safe_column_count(inspector, table_name.name, schema)
+                if is_postgres:
+                    column_count = column_counts.get((schema, table_name.name))
+                else:
+                    column_count = _safe_column_count(inspector, table_name.name, schema)
                 estimated_rows = row_estimates.get((schema, table_name.name))
                 catalog.append(
                     CatalogTable(
@@ -238,6 +251,47 @@ def _safe_column_count(inspector, table_name: str, schema: str) -> int | None:
     except SQLAlchemyError:
         return None
     return len(columns)
+
+
+def _fetch_column_counts(
+    engine: Engine, drivername: str, schema_names: Iterable[str]
+) -> dict[tuple[str, str], int]:
+    if not drivername.startswith("postgresql"):
+        return {}
+
+    filtered = [schema for schema in schema_names if schema and not schema.startswith("pg_toast")]
+    if not filtered:
+        return {}
+
+    # Use a single metadata query instead of per-table inspection to avoid timeouts on large catalogs.
+    query = (
+        text(
+            """
+            SELECT table_schema,
+                   table_name,
+                   COUNT(*) AS column_count
+            FROM information_schema.columns
+            WHERE table_schema IN :schemas
+            GROUP BY table_schema, table_name
+            """
+        )
+        .bindparams(bindparam("schemas", expanding=True))
+    )
+
+    counts: dict[tuple[str, str], int] = {}
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query, {"schemas": tuple(filtered)})
+            for row in result:
+                schema = getattr(row, "table_schema", None)
+                table = getattr(row, "table_name", None)
+                value = getattr(row, "column_count", None)
+                if schema and table and value is not None:
+                    counts[(schema, table)] = int(value)
+    except SQLAlchemyError:
+        return {}
+
+    return counts
 
 
 def _fetch_row_estimates(engine: Engine, drivername: str) -> dict[tuple[str, str], int]:

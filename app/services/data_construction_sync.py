@@ -189,6 +189,54 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
         db.delete(constructed_table)
 
 
+def delete_constructed_tables_for_definition(definition_id: UUID, db: Session) -> None:
+    """Clean up constructed tables and external warehouse artifacts before definition removal."""
+    definition = (
+        db.query(DataDefinition)
+        .options(
+            selectinload(DataDefinition.system).selectinload(System.connections),
+            selectinload(DataDefinition.constructed_tables),
+        )
+        .filter(DataDefinition.id == definition_id)
+        .one_or_none()
+    )
+
+    if not definition:
+        return
+
+    settings = get_settings()
+
+    try:
+        warehouse = ConstructedDataWarehouse()
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Skipping Databricks warehouse cleanup for definition %s due to configuration error: %s",
+            definition_id,
+            exc,
+        )
+        warehouse = None
+
+    system = definition.system
+
+    for constructed_table in list(definition.constructed_tables):
+        if system:
+            _drop_sql_table(system, constructed_table, settings.enable_constructed_table_sync)
+        if warehouse:
+            try:
+                warehouse.drop_table(constructed_table)
+            except ConstructedDataWarehouseError as exc:
+                logger.warning(
+                    "Failed to drop Databricks constructed table '%s' during definition delete: %s",
+                    constructed_table.name,
+                    exc,
+                )
+        if constructed_table in definition.constructed_tables:
+            definition.constructed_tables.remove(constructed_table)
+        db.delete(constructed_table)
+
+    db.flush()
+
+
 def _ensure_constructed_table(
     definition: DataDefinition,
     definition_table: DataDefinitionTable,

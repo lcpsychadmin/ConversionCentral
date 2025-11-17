@@ -23,6 +23,9 @@ class DatabricksConnectionParams:
     catalog: Optional[str] = None
     schema_name: Optional[str] = None
     constructed_schema: Optional[str] = None
+    data_quality_schema: Optional[str] = None
+    data_quality_storage_format: str = "delta"
+    data_quality_auto_manage_tables: bool = True
     ingestion_batch_rows: Optional[int] = None
     ingestion_method: str = "sql"
     spark_compute: Optional[str] = None
@@ -69,7 +72,12 @@ def test_databricks_connection(
         )
 
     url = build_sqlalchemy_url(params)
-    connect_args = {"connect_timeout": timeout_seconds}
+    # The Databricks SQL connector expects the generic ``timeout`` parameter to
+    # control both connection establishment and read operations. Using
+    # ``connect_timeout`` is silently ignored, which caused 30s hangs that ran
+    # past Heroku's request limit. Explicitly pass ``timeout`` so failures surface
+    # quickly instead of tripping a platform-level 503.
+    connect_args = {"timeout": timeout_seconds}
     engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
 
     start = perf_counter()

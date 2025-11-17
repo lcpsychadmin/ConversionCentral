@@ -3,6 +3,18 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models.entities import (
+    ConstructedTable,
+    DataDefinition,
+    DataDefinitionTable,
+    DataObject,
+    ProcessArea,
+    System,
+    SystemConnection,
+    Table,
+)
 
 
 def _sample_definition() -> dict[str, object]:
@@ -120,3 +132,129 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
 
     missing_response = client.get(f"/reporting/reports/{report_id}")
     assert missing_response.status_code == 404
+
+
+def test_reporting_tables_filters_to_databricks(client: TestClient, db_session: Session) -> None:
+    databricks_system = System(
+        name="Databricks Source",
+        physical_name="DB_SRC",
+        status="active",
+    )
+    db_session.add(databricks_system)
+    db_session.flush()
+
+    databricks_table = Table(
+        system_id=databricks_system.id,
+        name="Fact Sales",
+        physical_name="fact_sales",
+        schema_name="analytics",
+        status="active",
+    )
+    db_session.add(databricks_table)
+    db_session.flush()
+
+    db_session.add(
+        SystemConnection(
+            system_id=databricks_system.id,
+            connection_type="jdbc",
+            connection_string="jdbc:databricks://workspace.cloud.databricks.com:443/default",
+            auth_method="username_password",
+            active=True,
+            ingestion_enabled=True,
+        )
+    )
+
+    legacy_system = System(
+        name="Legacy Warehouse",
+        physical_name="LEGACY_WH",
+        status="active",
+    )
+    db_session.add(legacy_system)
+    db_session.flush()
+
+    legacy_table = Table(
+        system_id=legacy_system.id,
+        name="Legacy Orders",
+        physical_name="legacy_orders",
+        schema_name="dbo",
+        status="active",
+    )
+    db_session.add(legacy_table)
+    db_session.flush()
+
+    db_session.add(
+        SystemConnection(
+            system_id=legacy_system.id,
+            connection_type="jdbc",
+            connection_string="jdbc:postgresql://localhost:5432/warehouse",
+            auth_method="username_password",
+            active=True,
+            ingestion_enabled=True,
+        )
+    )
+
+    managed_system = System(
+        name="Managed Source",
+        physical_name="MANAGED_SRC",
+        status="active",
+    )
+    db_session.add(managed_system)
+    db_session.flush()
+
+    process_area = ProcessArea(name="Analytics", description="", status="active")
+    db_session.add(process_area)
+    db_session.flush()
+
+    data_object = DataObject(
+        process_area_id=process_area.id,
+        name="Revenue Model",
+        description="",
+        status="active",
+    )
+    db_session.add(data_object)
+    db_session.flush()
+
+    constructed_source_table = Table(
+        system_id=managed_system.id,
+        name="Constructed Revenue",
+        physical_name="constructed_revenue",
+        status="active",
+    )
+    db_session.add(constructed_source_table)
+    db_session.flush()
+
+    data_definition = DataDefinition(
+        data_object_id=data_object.id,
+        system_id=managed_system.id,
+        description="",
+    )
+    db_session.add(data_definition)
+    db_session.flush()
+
+    definition_table = DataDefinitionTable(
+        data_definition_id=data_definition.id,
+        table_id=constructed_source_table.id,
+        is_construction=True,
+    )
+    db_session.add(definition_table)
+    db_session.flush()
+
+    db_session.add(
+        ConstructedTable(
+            data_definition_id=data_definition.id,
+            data_definition_table_id=definition_table.id,
+            name="constructed_revenue",
+            status="approved",
+        )
+    )
+
+    db_session.commit()
+
+    response = client.get("/reporting/tables")
+    assert response.status_code == 200
+    payload = response.json()
+    returned_ids = {item["id"] for item in payload}
+
+    assert str(databricks_table.id) in returned_ids
+    assert str(constructed_source_table.id) in returned_ids
+    assert str(legacy_table.id) not in returned_ids

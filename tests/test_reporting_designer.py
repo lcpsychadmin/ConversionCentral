@@ -363,4 +363,194 @@ def test_preview_collapses_multiple_databricks_connections(db_session, monkeypat
 
     reset_ingestion_engine()
     fake_engine.dispose()
+    reset_ingestion_engine()
+    temp_dir.cleanup()
+
+
+def test_preview_falls_back_to_managed_for_databricks_like_schema(db_session, monkeypatch):
+    reset_ingestion_engine()
+
+    captured: dict[str, object] = {
+        "managed_calls": 0,
+        "sql": None,
+        "params": None,
+    }
+
+    class _FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def mappings(self):
+            return SimpleNamespace(all=lambda: self._rows)
+
+    class _FakeConnection:
+        def __init__(self, state: dict[str, object]):
+            self._state = state
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement, params):  # type: ignore[override]
+            self._state["managed_calls"] = int(self._state["managed_calls"]) + 1
+            sql_text = getattr(statement, "text", str(statement))
+            self._state["sql"] = sql_text
+            self._state["params"] = dict(params)
+            return _FakeResult([
+                {"product_name": "Widget"},
+            ])
+
+    class _FakeEngine:
+        def __init__(self, state: dict[str, object]):
+            self._state = state
+            self.dialect = SimpleNamespace(name="databricks")
+
+        def connect(self):
+            return _FakeConnection(self._state)
+
+        def dispose(self):
+            return None
+
+    fake_engine = _FakeEngine(captured)
+
+    params = DatabricksConnectionParams(
+        workspace_host="example.cloud.databricks.com",
+        http_path="/sql/1/2",
+        access_token="token",
+        catalog="conversion-central",
+        schema_name="default",
+        constructed_schema="constructed_data",
+    )
+
+    def _fail_resolve(*_args, **_kwargs):  # pragma: no cover - guards against regression
+        raise AssertionError("External connection should not be resolved when managed fallback is used")
+
+    monkeypatch.setattr("app.services.reporting_designer.get_ingestion_engine", lambda: fake_engine)
+    monkeypatch.setattr("app.services.reporting_designer.get_ingestion_connection_params", lambda: params)
+    monkeypatch.setattr("app.services.reporting_designer.resolve_sqlalchemy_url", _fail_resolve)
+
+    process_area = ProcessArea(name="Sales")
+    data_object = DataObject(process_area=process_area, name="Web Sales", description="Fallback test")
+    system = System(name="Demo Data", physical_name="demo_data")
+    connection = SystemConnection(
+        system=system,
+        connection_type=SystemConnectionType.JDBC,
+        connection_string="jdbc:postgresql://localhost:5432/demo",
+    )
+    table = Table(
+        system=system,
+        name="Products",
+        physical_name="demo_data_sample_data_websales_products",
+        schema_name="conversion-central",
+    )
+    field = Field(
+        table=table,
+        name="product_name",
+        description="Product name",
+        field_type="string",
+        field_length=120,
+        decimal_places=None,
+    )
+
+    db_session.add_all([process_area, data_object, system, connection, table, field])
+    db_session.commit()
+
+    definition = _build_report_definition(table, [field])
+
+    response = generate_report_preview(db_session, definition, limit=50)
+
+    assert response.row_count == 1
+    assert response.rows == [{"product_name": "Widget"}]
+    assert response.columns == ["product_name"]
+    assert captured["managed_calls"] == 1
+    assert isinstance(captured["sql"], str)
+    assert "`conversion-central`" in str(captured["sql"])
+    assert response.limit == 50
+
+    reset_ingestion_engine()
+
+
+def test_preview_prefers_databricks_connection_when_multiple_available(db_session, monkeypatch):
+    reset_ingestion_engine()
+
+    temp_dir = tempfile.TemporaryDirectory()
+    remote_path = os.path.join(temp_dir.name, "remote.db")
+    remote_engine = sa.create_engine(f"sqlite:///{remote_path}", future=True)
+
+    with remote_engine.begin() as connection:
+        connection.execute(sa.text('DROP TABLE IF EXISTS "demo_data_sample_data_websales_products"'))
+        connection.execute(
+            sa.text('CREATE TABLE "demo_data_sample_data_websales_products" (product_name TEXT)')
+        )
+        connection.execute(
+            sa.text(
+                'INSERT INTO "demo_data_sample_data_websales_products" (product_name) VALUES (:name)'
+            ),
+            {"name": "Widget"},
+        )
+
+    remote_engine.dispose()
+
+    captured: dict[str, str] = {}
+
+    def fake_resolve(connection_type, connection_string):
+        captured["connection_string"] = connection_string
+        return sa.engine.URL.create(drivername="sqlite", database=remote_path)
+
+    monkeypatch.setattr("app.services.reporting_designer.resolve_sqlalchemy_url", fake_resolve)
+    monkeypatch.setattr("app.services.reporting_designer.create_engine", sa.create_engine)
+
+    process_area = ProcessArea(name="Sales")
+    data_object = DataObject(process_area=process_area, name="Web Sales", description="Preview test")
+    system = System(name="Demo Data", physical_name="demo_data")
+    postgres_connection = SystemConnection(
+        system=system,
+        connection_type=SystemConnectionType.JDBC,
+        connection_string="jdbc:postgresql://localhost:5432/demo",
+    )
+    databricks_connection = SystemConnection(
+        system=system,
+        connection_type=SystemConnectionType.JDBC,
+        connection_string="jdbc:databricks://example.cloud.databricks.com:443/default",
+    )
+    table = Table(
+        system=system,
+        name="Products",
+        physical_name="demo_data_sample_data_websales_products",
+        schema_name=None,
+    )
+    field = Field(
+        table=table,
+        name="product_name",
+        description="Product name",
+        field_type="string",
+        field_length=120,
+        decimal_places=None,
+    )
+
+    db_session.add_all(
+        [
+            process_area,
+            data_object,
+            system,
+            postgres_connection,
+            databricks_connection,
+            table,
+            field,
+        ]
+    )
+    db_session.commit()
+
+    definition = _build_report_definition(table, [field])
+
+    response = generate_report_preview(db_session, definition, limit=25)
+
+    assert captured["connection_string"].startswith("jdbc:databricks:")
+    assert response.row_count == 1
+    assert response.rows == [{"product_name": "Widget"}]
+    assert response.columns == ["product_name"]
+    assert response.limit == 25
+
     temp_dir.cleanup()

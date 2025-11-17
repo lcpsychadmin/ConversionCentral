@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import System
 from app.schemas import SystemCreate, SystemRead, SystemUpdate
+from app.services.data_quality_provisioning import trigger_data_quality_provisioning
 
 router = APIRouter(prefix="/systems", tags=["Systems"])
 
@@ -23,6 +24,7 @@ def create_system(payload: SystemCreate, db: Session = Depends(get_db)) -> Syste
     db.add(system)
     db.commit()
     db.refresh(system)
+    trigger_data_quality_provisioning(reason="system-created")
     return system
 
 
@@ -47,6 +49,7 @@ def update_system(
 
     db.commit()
     db.refresh(system)
+    trigger_data_quality_provisioning(reason="system-updated")
     return system
 
 
@@ -55,3 +58,4 @@ def delete_system(system_id: UUID, db: Session = Depends(get_db)) -> None:
     system = _get_system_or_404(system_id, db)
     db.delete(system)
     db.commit()
+    trigger_data_quality_provisioning(reason="system-deleted")

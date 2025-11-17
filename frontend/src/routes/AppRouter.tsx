@@ -21,6 +21,11 @@ import CompanySettingsPage from '@pages/CompanySettingsPage';
 import LegalRequirementsPage from '@pages/LegalRequirementsPage';
 import SecurityClassificationsPage from '@pages/SecurityClassificationsPage';
 import UploadDataPage from '@pages/UploadDataPage';
+import DataQualityOverviewPage from '@pages/DataQualityOverviewPage';
+import DataQualityDatasetsPage from '@pages/DataQualityDatasetsPage';
+import DataQualityRunHistoryPage from '@pages/DataQualityRunHistoryPage';
+import DataQualityTestLibraryPage from '@pages/DataQualityTestLibraryPage';
+import DataQualitySettingsPage from '@pages/DataQualitySettingsPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
 import { ApplicationDatabaseGuard } from '@routes/guards/ApplicationDatabaseGuard';
@@ -80,7 +85,12 @@ const router = createBrowserRouter([
           { path: 'project-settings/projects', element: <ProjectsPage /> },
           { path: 'project-settings/releases', element: <ReleasesPage /> },
           { path: 'reporting/designer', element: <ReportingDesignerPage /> },
-          { path: 'reporting/catalog', element: <ReportingCatalogPage /> }
+          { path: 'reporting/catalog', element: <ReportingCatalogPage /> },
+          { path: 'data-quality', element: <DataQualityOverviewPage /> },
+          { path: 'data-quality/datasets', element: <DataQualityDatasetsPage /> },
+          { path: 'data-quality/test-library', element: <DataQualityTestLibraryPage /> },
+          { path: 'data-quality/run-history', element: <DataQualityRunHistoryPage /> },
+          { path: 'data-quality/settings', element: <DataQualitySettingsPage /> }
         ]
       },
       {

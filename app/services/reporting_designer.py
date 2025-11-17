@@ -6,12 +6,18 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 from uuid import UUID
 
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select, text, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ingestion.engine import get_ingestion_connection_params, get_ingestion_engine
-from app.models.entities import ConstructedTable, Field, SystemConnection, Table
+from app.models.entities import (
+    ConnectionTableSelection,
+    ConstructedTable,
+    Field,
+    SystemConnection,
+    Table,
+)
 from app.schemas import SystemConnectionType
 from app.schemas.reporting import (
     ReportAggregateFn,
@@ -27,6 +33,21 @@ from app.services.constructed_data_warehouse import (
     ConstructedDataWarehouse,
     ConstructedDataWarehouseError,
 )
+from app.services.scheduled_ingestion import (
+    build_ingestion_schema_name,
+    build_ingestion_table_name,
+)
+from app.services.table_filters import table_is_databricks_eligible
+
+
+_MISSING_TABLE_PATTERN = re.compile(r'relation "(?P<name>[^"]+)" does not exist', re.IGNORECASE)
+
+
+def _extract_missing_table_name(message: str) -> str | None:
+    match = _MISSING_TABLE_PATTERN.search(message)
+    if match:
+        return match.group("name")
+    return None
 
 
 class ReportPreviewError(Exception):
@@ -566,6 +587,118 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
         managed_schema_path = ".".join(parts)
         return managed_schema_path
 
+    selection_cache: Dict[tuple[str | None, str], ConnectionTableSelection | None] = {}
+
+    def _find_catalog_selection(schema_candidate: str | None, table_candidate: str) -> ConnectionTableSelection | None:
+        key = (schema_candidate, table_candidate)
+        if key in selection_cache:
+            return selection_cache[key]
+
+        query = (
+            db.query(ConnectionTableSelection)
+            .join(ConnectionTableSelection.system_connection)
+            .filter(func.lower(ConnectionTableSelection.table_name) == table_candidate)
+        )
+        if schema_candidate:
+            query = query.filter(func.lower(ConnectionTableSelection.schema_name) == schema_candidate)
+
+        selections = query.all()
+        chosen: ConnectionTableSelection | None = None
+
+        for candidate in selections:
+            connection = getattr(candidate, "system_connection", None)
+            if connection is None:
+                continue
+            resolved = _resolve_connection_identity(connection)
+            if not resolved:
+                continue
+            connection_type, connection_string = resolved
+            connection_dialect = _infer_connection_dialect(connection_type, connection_string)
+            if connection_dialect == "databricks":
+                chosen = candidate
+                break
+            if chosen is None:
+                chosen = candidate
+
+        selection_cache[key] = chosen
+        return chosen
+
+    def _sanitize_system_prefix(value: str | None) -> str | None:
+        if not value:
+            return None
+        sanitized = re.sub(r"[^0-9a-z]+", "_", value.lower())
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or None
+
+    def _locate_catalog_selection(table: Table) -> ConnectionTableSelection | None:
+        physical = (table.physical_name or "").strip()
+        display = (table.name or "").strip()
+        name_variants: list[str] = []
+
+        for candidate in [physical, display]:
+            lowered = candidate.lower()
+            if lowered and lowered not in name_variants:
+                name_variants.append(lowered)
+
+        schema_raw = (table.schema_name or "").strip()
+        schema_variants: list[str | None] = [None]
+        if schema_raw:
+            lowered_schema = schema_raw.lower()
+            schema_variants.append(lowered_schema)
+            if "." in lowered_schema:
+                schema_variants.append(lowered_schema.split(".")[-1])
+
+        system = getattr(table, "system", None)
+        system_prefixes: list[str] = []
+        if system is not None:
+            for label in (getattr(system, "physical_name", None), getattr(system, "name", None)):
+                sanitized = _sanitize_system_prefix(label)
+                if sanitized and sanitized not in system_prefixes:
+                    system_prefixes.append(sanitized)
+
+        physical_lower = physical.lower()
+        for prefix in system_prefixes:
+            if prefix and physical_lower.startswith(f"{prefix}_"):
+                stripped = physical_lower[len(prefix) + 1 :]
+                if stripped and stripped not in name_variants:
+                    name_variants.append(stripped)
+
+        if schema_raw:
+            schema_prefix = schema_raw.lower().replace(".", "_")
+            if physical_lower.startswith(f"{schema_prefix}_"):
+                stripped = physical_lower[len(schema_prefix) + 1 :]
+                if stripped and stripped not in name_variants:
+                    name_variants.append(stripped)
+
+        if not name_variants:
+            return None
+
+        for schema_candidate in schema_variants:
+            for table_candidate in name_variants:
+                selection = _find_catalog_selection(schema_candidate, table_candidate)
+                if selection:
+                    return selection
+
+        return None
+
+    def _table_requires_databricks(table: Table) -> bool:
+        if table_is_databricks_eligible(table):
+            return True
+
+        schema_name = (table.schema_name or "").strip()
+        physical_name = (table.physical_name or "").strip()
+
+        def _has_databricks_delimiter(value: str) -> bool:
+            return "-" in value or "." in value
+
+        if schema_name and _has_databricks_delimiter(schema_name):
+            return True
+
+        if physical_name and _has_databricks_delimiter(physical_name):
+            return True
+
+        return False
+
     for placement in definition.tables:
         table = tables.get(placement.table_id)
         if not table:
@@ -574,6 +707,10 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
         connection_identity: _ConnectionHandle | None = None
         definition_tables = getattr(table, "definition_tables", []) or []
         is_constructed = any(getattr(item, "is_construction", False) for item in definition_tables)
+        requires_databricks = _table_requires_databricks(table)
+        selection_match: ConnectionTableSelection | None = None
+        ingestion_managed = False
+        ingestion_source_connection: SystemConnection | None = None
 
         if is_constructed:
             try:
@@ -612,8 +749,36 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
                         if override:
                             field_column_overrides[table_field.id] = override
         elif system is not None:
+            fallback_handle: _ConnectionHandle | None = None
             for connection in getattr(system, "connections", []) or []:
                 resolved = _resolve_connection_identity(connection)
+                if not resolved:
+                    continue
+                connection_type, connection_string = resolved
+                connection_dialect = _infer_connection_dialect(connection_type, connection_string)
+                handle = _ConnectionHandle(
+                    kind="system",
+                    connection_type=connection_type,
+                    connection_string=connection_string,
+                    dialect=connection_dialect,
+                )
+                if (
+                    getattr(connection, "ingestion_enabled", False)
+                    and ingestion_source_connection is None
+                    and connection_dialect != "databricks"
+                ):
+                    ingestion_source_connection = connection
+                if connection_dialect == "databricks":
+                    connection_identity = handle
+                    break
+                if fallback_handle is None:
+                    fallback_handle = handle
+            if connection_identity is None and fallback_handle is not None:
+                connection_identity = fallback_handle
+        if connection_identity is None:
+            selection_match = _locate_catalog_selection(table)
+            if selection_match is not None:
+                resolved = _resolve_connection_identity(selection_match.system_connection)
                 if resolved:
                     connection_type, connection_string = resolved
                     connection_dialect = _infer_connection_dialect(connection_type, connection_string)
@@ -623,7 +788,68 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
                         connection_string=connection_string,
                         dialect=connection_dialect,
                     )
-                    break
+        if selection_match is not None and getattr(selection_match.system_connection, "ingestion_enabled", False):
+            resolved = _resolve_connection_identity(selection_match.system_connection)
+            if resolved:
+                sel_type, sel_string = resolved
+                selection_dialect = _infer_connection_dialect(sel_type, sel_string)
+                if selection_dialect != "databricks" and ingestion_source_connection is None:
+                    ingestion_source_connection = selection_match.system_connection
+
+        if (
+            connection_identity is not None
+            and (connection_identity.dialect or "").lower() == "databricks"
+        ):
+            ingestion_source_connection = None
+
+        ingestion_connection = ingestion_source_connection
+
+        if ingestion_connection is not None:
+            ingestion_schema = build_ingestion_schema_name(ingestion_connection)
+            try:
+                connection_identity = _ensure_managed_handle()
+            except ReportPreviewError as exc:
+                raise ReportPreviewError(
+                    f"Table '{table.name}' cannot be previewed until the ingestion warehouse connection is configured."
+                ) from exc
+
+            ingestion_managed = True
+            if ingestion_schema and (selection_match is not None or not getattr(table, "schema_name", None)):
+                schema_overrides[table.id] = ingestion_schema
+            if selection_match is not None:
+                ingestion_table_name: str | None = None
+                try:
+                    ingestion_table_name = build_ingestion_table_name(
+                        ingestion_connection,
+                        selection_match,
+                    )
+                except Exception:  # pragma: no cover - defensive guard
+                    ingestion_table_name = None
+                if ingestion_table_name:
+                    name_overrides[table.id] = ingestion_table_name
+
+        if (
+            selection_match is not None
+            and selection_match.schema_name
+            and not getattr(table, "schema_name", None)
+            and not ingestion_managed
+        ):
+            schema_overrides[table.id] = selection_match.schema_name.strip()
+
+        if requires_databricks or ingestion_managed:
+            is_databricks_identity = (
+                connection_identity is not None
+                and (connection_identity.dialect or "").lower() == "databricks"
+            )
+            if not is_databricks_identity:
+                try:
+                    connection_identity = _ensure_managed_handle()
+                except ReportPreviewError as exc:
+                    warehouse_label = "ingestion warehouse" if ingestion_managed else "Databricks warehouse"
+                    raise ReportPreviewError(
+                        f"Table '{table.name}' cannot be previewed until the {warehouse_label} connection is configured."
+                    ) from exc
+
         table_sources.append((table, getattr(system, "name", None), connection_identity))
 
     unique_external_connections = {
@@ -678,6 +904,12 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
     )
     managed_dialect = (external_connection.dialect or "").lower() if is_managed_connection else ""
     is_databricks_managed = is_managed_connection and managed_dialect.startswith("databricks")
+    external_dialect = (external_connection.dialect or "").lower() if external_connection else ""
+    is_databricks_external = (
+        external_connection is not None
+        and external_connection.kind != "managed"
+        and external_dialect.startswith("databricks")
+    )
 
     if (
         constructed_tables_to_ensure
@@ -694,7 +926,7 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
             except ConstructedDataWarehouseError as exc:  # pragma: no cover - defensive guard
                 raise ReportPreviewError(str(exc)) from exc
 
-    quote_char = "`" if is_databricks_managed else '"'
+    quote_char = "`" if (is_databricks_managed or is_databricks_external) else '"'
 
     builder = ReportSqlBuilder(
         definition,
@@ -739,6 +971,19 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
             finally:
                 engine.dispose()
     except SQLAlchemyError as exc:  # pragma: no cover - defensive guard
+        original = getattr(exc, "orig", None)
+        if original is not None:
+            sqlstate = getattr(original, "pgcode", None) or getattr(original, "sqlstate", None)
+            message = str(original)
+            if (sqlstate == "42P01") or ("UndefinedTable" in type(original).__name__):
+                missing_table = _extract_missing_table_name(message)
+                if missing_table:
+                    raise ReportPreviewError(
+                        f"Preview failed because warehouse table '{missing_table}' no longer exists. Refresh the catalog or run a new ingestion."
+                    ) from exc
+                raise ReportPreviewError(
+                    "Preview failed because a required warehouse table no longer exists. Refresh the catalog or rerun ingestion."
+                ) from exc
         raise ReportPreviewError(str(exc)) from exc
     finally:
         duration_ms = (time.perf_counter() - started) * 1000.0

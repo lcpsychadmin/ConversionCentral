@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LoadingButton } from '@mui/lab';
 import {
   Box,
   Button,
@@ -101,44 +102,75 @@ const ConnectionCatalogTable = ({
       }, {} as { [schema: string]: GridRow[] });
   }, [gridRows]);
 
-  useEffect(() => {
-    setSelectionModel(gridRows.filter((row) => row.selected).map((row) => row.id));
+  const initialSelection = useMemo(() => {
+    const unique = new Set<string>();
+    gridRows.forEach((row) => {
+      if (row.selected) {
+        unique.add(row.id);
+      }
+    });
+    return Array.from(unique);
   }, [gridRows]);
 
+  useEffect(() => {
+    setSelectionModel(initialSelection);
+  }, [initialSelection]);
+
+  const hasPendingChanges = useMemo(() => {
+    if (initialSelection.length !== selectionModel.length) {
+      return true;
+    }
+    const currentSet = new Set(selectionModel);
+    return initialSelection.some((id) => !currentSet.has(id));
+  }, [initialSelection, selectionModel]);
+
   const handleRowCheckChange = (rowId: string, checked: boolean) => {
-    const newSelection = checked
-      ? [...selectionModel, rowId]
-      : selectionModel.filter((id: string) => id !== rowId);
-    setSelectionModel(newSelection);
-    onSelectionChange?.(newSelection.map((id: string) => id.toString()));
+    setSelectionModel((prev) => {
+      if (checked) {
+        if (prev.includes(rowId)) {
+          return prev;
+        }
+        return [...prev, rowId];
+      }
+      return prev.filter((id) => id !== rowId);
+    });
   };
 
   const handleSchemaCheckChange = (schema: string, checked: boolean) => {
-    const schemaRows = groupedBySchema[schema];
+    const schemaRows = groupedBySchema[schema] ?? [];
     const schemaRowIds = schemaRows.map((row: GridRow) => row.id);
-    let newSelection = [...selectionModel];
-    if (checked) {
-      newSelection = [...new Set([...newSelection, ...schemaRowIds])];
-    } else {
-      newSelection = newSelection.filter((id: string) => !schemaRowIds.includes(id));
+    setSelectionModel((prev) => {
+      if (checked) {
+        const next = new Set(prev);
+        schemaRowIds.forEach((id) => next.add(id));
+        return Array.from(next);
+      }
+      return prev.filter((id) => !schemaRowIds.includes(id));
+    });
+  };
+
+  // Persist selection only after the user explicitly clicks Save.
+  const handleSaveSelection = () => {
+    if (!onSelectionChange || !hasPendingChanges || loading || saving) {
+      return;
     }
-    setSelectionModel(newSelection);
-    onSelectionChange?.(newSelection.map((id: string) => id.toString()));
+    const normalized = [...selectionModel].sort();
+    onSelectionChange(normalized);
   };
 
   const isSchemaSelected = (schema: string): boolean => {
-    const schemaRows = groupedBySchema[schema];
+    const schemaRows = groupedBySchema[schema] ?? [];
     return schemaRows.every((row) => selectionModel.includes(row.id));
   };
 
   const isSchemaIndeterminate = (schema: string): boolean => {
-    const schemaRows = groupedBySchema[schema];
+    const schemaRows = groupedBySchema[schema] ?? [];
     const selectedCount = schemaRows.filter((row) => selectionModel.includes(row.id)).length;
     return selectedCount > 0 && selectedCount < schemaRows.length;
   };
 
   const getSchemaSelectedCount = (schema: string): number => {
-    const schemaRows = groupedBySchema[schema];
+    const schemaRows = groupedBySchema[schema] ?? [];
     return schemaRows.filter((row) => selectionModel.includes(row.id)).length;
   };
 
@@ -149,7 +181,14 @@ const ConnectionCatalogTable = ({
           Source Catalog
         </Typography>
         <Box display="flex" alignItems="center" gap={1.5}>
-          {saving && <CircularProgress size={22} thickness={5} />}
+          <LoadingButton
+            variant="contained"
+            onClick={handleSaveSelection}
+            disabled={!hasPendingChanges || loading || saving}
+            loading={saving}
+          >
+            Save Selection
+          </LoadingButton>
           <Button
             variant="outlined"
             onClick={onRefresh}
@@ -181,7 +220,7 @@ const ConnectionCatalogTable = ({
                       onChange={(e) => handleSchemaCheckChange(schema, e.target.checked)}
                       onClick={(e) => e.stopPropagation()}
                       sx={{ mr: 1 }}
-                      disabled={saving}
+                      disabled={saving || loading}
                     />
                 <Typography sx={{ fontWeight: 600, flex: 1 }}>
                   {schema} ({getSchemaSelectedCount(schema)}/{tables.length})
@@ -224,7 +263,7 @@ const ConnectionCatalogTable = ({
                             <Checkbox
                               checked={selectionModel.includes(row.id)}
                               onChange={(e) => handleRowCheckChange(row.id, e.target.checked)}
-                              disabled={saving}
+                              disabled={saving || loading}
                             />
                           </TableCell>
                           <TableCell sx={{ color: !row.available ? theme.palette.text.disabled : undefined }}>

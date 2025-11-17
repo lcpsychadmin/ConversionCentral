@@ -23,6 +23,7 @@ import {
 	MenuItem,
 	Paper,
 	Stack,
+	Switch,
 	TextField,
 	Typography
 } from '@mui/material';
@@ -142,11 +143,6 @@ const FIELD_COLUMNS: FieldColumn[] = [
 	{ key: 'dataValidation', label: 'Data Validation', kind: 'text', multiline: true, minWidth: 220 },
 	{ key: 'referenceTable', label: 'Reference Table', kind: 'text', minWidth: 180 },
 	{ key: 'groupingTab', label: 'Grouping Tab', kind: 'text', minWidth: 160 }
-];
-
-const ENTERPRISE_ATTRIBUTE_OPTIONS = [
-	{ label: 'Yes', value: 'Yes' },
-	{ label: 'No', value: 'No' }
 ];
 
 const normalizeEnterpriseAttribute = (value?: string | null): string => {
@@ -1508,6 +1504,19 @@ const DataDefinitionDetails = ({
 				draft: {
 					...state.draft,
 					[key]: checked
+				}
+			}));
+		},
+		[updateCreateRow]
+	);
+
+	const handleCreateDraftEnterpriseToggle = useCallback(
+		(definitionTableId: string, checked: boolean) => {
+			updateCreateRow(definitionTableId, (state) => ({
+				...state,
+				draft: {
+					...state.draft,
+					enterpriseAttribute: checked ? 'Yes' : 'No'
 				}
 			}));
 		},
@@ -2928,25 +2937,6 @@ const DataDefinitionDetails = ({
 													/>
 													<TextField
 														select
-														label="Enterprise Attribute"
-														value={inlineState.draft.enterpriseAttribute}
-														onChange={(event) => handleCreateDraftTextChange(table.id, 'enterpriseAttribute', event.target.value)}
-														disabled={fieldActionsDisabled || tableSaving}
-														fullWidth
-														size="small"
-														SelectProps={{ displayEmpty: true }}
-													>
-														<MenuItem value="">
-															<em>Not specified</em>
-														</MenuItem>
-														{ENTERPRISE_ATTRIBUTE_OPTIONS.map((option) => (
-															<MenuItem key={option.value} value={option.value}>
-																{option.label}
-															</MenuItem>
-														))}
-													</TextField>
-													<TextField
-														select
 														label="Field Type"
 														value={inlineState.draft.fieldType}
 														onChange={(event) => handleCreateDraftTextChange(table.id, 'fieldType', event.target.value)}
@@ -2956,6 +2946,7 @@ const DataDefinitionDetails = ({
 														error={Boolean(inlineState.errors.fieldType)}
 														helperText={inlineState.errors.fieldType}
 														SelectProps={{ displayEmpty: true }}
+														InputLabelProps={{ shrink: true }}
 													>
 														<MenuItem value="">
 															<em>Select a data type</em>
@@ -2976,6 +2967,7 @@ const DataDefinitionDetails = ({
 																fullWidth
 																size="small"
 																type="number"
+																InputLabelProps={{ shrink: true }}
 															/>
 														</Grid>
 														<Grid item xs={6}>
@@ -2989,9 +2981,78 @@ const DataDefinitionDetails = ({
 																type="number"
 																error={Boolean(inlineState.errors.decimalPlaces)}
 																helperText={inlineState.errors.decimalPlaces}
+																InputLabelProps={{ shrink: true }}
 															/>
 														</Grid>
 													</Grid>
+													<Box
+														sx={{
+															display: 'grid',
+															gridTemplateColumns: {
+																xs: 'repeat(1, minmax(0, 1fr))',
+																sm: 'repeat(2, minmax(0, 220px))',
+																md: 'repeat(3, minmax(0, 220px))'
+															},
+															columnGap: 2,
+															rowGap: 2,
+															alignItems: 'center'
+														}}
+													>
+														<FormControlLabel
+															control={
+																<Switch
+																	checked={normalizeEnterpriseAttribute(inlineState.draft.enterpriseAttribute) === 'Yes'}
+																	onChange={(_, checked) => handleCreateDraftEnterpriseToggle(table.id, checked)}
+																	disabled={fieldActionsDisabled || tableSaving}
+																/>
+															}
+															label="Enterprise Attribute"
+														/>
+														<FormControlLabel
+															control={
+																<Switch
+																	checked={inlineState.draft.systemRequired}
+																	onChange={(_, checked) =>
+																		handleCreateDraftBooleanChange(table.id, 'systemRequired', checked)}
+																	disabled={fieldActionsDisabled || tableSaving}
+																/>
+															}
+															label="System Required"
+														/>
+														<FormControlLabel
+															control={
+																<Switch
+																	checked={inlineState.draft.businessProcessRequired}
+																	onChange={(_, checked) =>
+																		handleCreateDraftBooleanChange(table.id, 'businessProcessRequired', checked)}
+																	disabled={fieldActionsDisabled || tableSaving}
+																/>
+															}
+															label="Business Process Required"
+														/>
+														<FormControlLabel
+															control={
+																<Switch
+																	checked={inlineState.draft.suppressedField}
+																	onChange={(_, checked) =>
+																		handleCreateDraftBooleanChange(table.id, 'suppressedField', checked)}
+																	disabled={fieldActionsDisabled || tableSaving}
+																/>
+															}
+															label="Suppressed Field"
+														/>
+														<FormControlLabel
+															control={
+																<Switch
+																	checked={inlineState.draft.active}
+																	onChange={(_, checked) =>
+																		handleCreateDraftBooleanChange(table.id, 'active', checked)}
+																	disabled={fieldActionsDisabled || tableSaving}
+																/>
+															}
+															label="Active"
+														/>
+													</Box>
 													<TextField
 														select
 														label="Legal Requirement"
@@ -3001,6 +3062,7 @@ const DataDefinitionDetails = ({
 														fullWidth
 														size="small"
 														SelectProps={{ displayEmpty: true }}
+														InputLabelProps={{ shrink: true }}
 													>
 														<MenuItem value="">
 															<em>None</em>
@@ -3020,6 +3082,7 @@ const DataDefinitionDetails = ({
 														fullWidth
 														size="small"
 														SelectProps={{ displayEmpty: true }}
+														InputLabelProps={{ shrink: true }}
 													>
 														<MenuItem value="">
 															<em>None</em>
@@ -3085,66 +3148,6 @@ const DataDefinitionDetails = ({
 														size="small"
 														multiline
 														minRows={3}
-													/>
-													<FormControlLabel
-														control={
-															<Checkbox
-																checked={inlineState.draft.systemRequired}
-																onChange={(event) =>
-																	handleCreateDraftBooleanChange(
-																		table.id,
-																		'systemRequired',
-																		event.target.checked
-																	)
-																}
-																disabled={fieldActionsDisabled || tableSaving}
-															/>
-														}
-														label="System Required"
-													/>
-													<FormControlLabel
-														control={
-															<Checkbox
-																checked={inlineState.draft.businessProcessRequired}
-																onChange={(event) =>
-																	handleCreateDraftBooleanChange(
-																		table.id,
-																		'businessProcessRequired',
-																		event.target.checked
-																	)
-																}
-																disabled={fieldActionsDisabled || tableSaving}
-															/>
-														}
-														label="Business Process Required"
-													/>
-													<FormControlLabel
-														control={
-															<Checkbox
-																checked={inlineState.draft.suppressedField}
-																onChange={(event) =>
-																	handleCreateDraftBooleanChange(
-																		table.id,
-																		'suppressedField',
-																		event.target.checked
-																	)
-																}
-																disabled={fieldActionsDisabled || tableSaving}
-															/>
-														}
-														label="Suppressed"
-													/>
-													<FormControlLabel
-														control={
-															<Checkbox
-																checked={inlineState.draft.active}
-																onChange={(event) =>
-																	handleCreateDraftBooleanChange(table.id, 'active', event.target.checked)
-																}
-																disabled={fieldActionsDisabled || tableSaving}
-															/>
-														}
-														label="Active"
 													/>
 												</Stack>
 											</DialogContent>

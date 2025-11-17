@@ -204,6 +204,7 @@ export const deleteDataDefinition = async (id: string): Promise<void> => {
 };
 
 export interface AvailableSourceTable {
+  catalogName?: string | null;
   schemaName: string;
   tableName: string;
   tableType?: string | null;
@@ -226,7 +227,14 @@ export const fetchAvailableSourceTables = async (
   const response = await client.get<AvailableSourceTable[]>(
     `/data-definitions/data-objects/${dataObjectId}/available-source-tables`
   );
-  return response.data;
+  return response.data.map((item) => ({
+    catalogName: item.catalogName ?? null,
+    schemaName: item.schemaName,
+    tableName: item.tableName,
+    tableType: item.tableType ?? null,
+    columnCount: item.columnCount ?? null,
+    estimatedRows: item.estimatedRows ?? null
+  }));
 };
 
 export const fetchSourceTableColumns = async (

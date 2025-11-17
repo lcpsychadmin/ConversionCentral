@@ -99,11 +99,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import PageHeader from '@components/common/PageHeader';
+import ConfirmDialog from '@components/common/ConfirmDialog';
 import ReportTableNode, { REPORTING_FIELD_DRAG_TYPE, ReportTableNodeData } from '@components/reporting/ReportTableNode';
 import { fetchAllDataDefinitions } from '@services/dataDefinitionService';
 import { fetchDataObjects } from '@services/dataObjectService';
 import { fetchProcessAreas } from '@services/processAreaService';
-import { fetchFields, fetchTables } from '@services/tableService';
+import { fetchFields, fetchReportingTables } from '@services/tableService';
 import {
   createReport,
   deleteReport,
@@ -188,7 +189,7 @@ interface OutputColumnRowDescriptor {
   minHeight?: number;
 }
 
-type PaletteNodeType = 'productTeam' | 'dataObject' | 'system' | 'table';
+type PaletteNodeType = 'productTeam' | 'dataObject' | 'system' | 'table' | 'unassigned';
 
 interface PaletteTreeNode {
   id: string;
@@ -430,7 +431,7 @@ const ReportingDesignerContent = () => {
     isLoading: tablesLoading,
     isError: tablesLoadError,
     error: tablesError
-  } = useQuery<Table[]>(['reporting-tables'], fetchTables);
+  } = useQuery<Table[]>(['reporting-tables'], fetchReportingTables);
   const {
     data: dataDefinitions = [],
     isLoading: definitionsLoading,
@@ -491,7 +492,34 @@ const ReportingDesignerContent = () => {
     }
     return 'Unable to load table palette data.';
   }, [dataObjectsError, definitionsError, processAreasError, tablesError]);
-  const { data: fields = [] } = useQuery<Field[]>(['reporting-fields'], fetchFields);
+  const { data: rawFields = [] } = useQuery<Field[]>(['reporting-fields'], fetchFields);
+
+  const databricksTableIdSet = useMemo(() => new Set(tables.map((table) => table.id)), [tables]);
+  const allowedTableIds = useMemo(() => {
+    const set = new Set<string>();
+    dataDefinitions.forEach((definition) => {
+      definition.tables.forEach((definitionTable) => {
+        set.add(definitionTable.tableId);
+      });
+    });
+    return set;
+  }, [dataDefinitions]);
+
+  const eligibleTableIds = useMemo(() => {
+    if (databricksTableIdSet.size === 0 && allowedTableIds.size === 0) {
+      return databricksTableIdSet;
+    }
+
+    const combined = new Set<string>();
+    databricksTableIdSet.forEach((tableId) => combined.add(tableId));
+    allowedTableIds.forEach((tableId) => combined.add(tableId));
+    return combined;
+  }, [allowedTableIds, databricksTableIdSet]);
+
+  const fields = useMemo(
+    () => rawFields.filter((field) => eligibleTableIds.has(field.tableId)),
+    [eligibleTableIds, rawFields]
+  );
 
   const [searchTerm, setSearchTerm] = useState('');
   const [nodes, setNodes, onNodesChange] = useNodesState<ReportTableNodeData>([]);
@@ -514,6 +542,7 @@ const ReportingDesignerContent = () => {
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const [outputDropActive, setOutputDropActive] = useState(false);
   const [statusBanner, setStatusBanner] = useState<{ message: string; color: string } | null>(null);
+  const [removeDialogState, setRemoveDialogState] = useState<{ nodeId: string; name: string } | null>(null);
   const [selectedProductTeamId, setSelectedProductTeamId] = useState<string | null>(null);
   const [selectedDataObjectId, setSelectedDataObjectId] = useState<string | null>(null);
   const [draftProductTeamIdInput, setDraftProductTeamIdInput] = useState<string | null>(null);
@@ -626,16 +655,6 @@ const ReportingDesignerContent = () => {
     return map;
   }, [dataDefinitions, tables]);
 
-  const allowedTableIds = useMemo(() => {
-    const set = new Set<string>();
-    dataDefinitions.forEach((definition) => {
-      definition.tables.forEach((definitionTable) => {
-        set.add(definitionTable.tableId);
-      });
-    });
-    return set;
-  }, [dataDefinitions]);
-
   const dataObjectsById = useMemo(() => {
     const map = new Map<string, DataObject>();
     dataObjects.forEach((dataObject) => {
@@ -674,13 +693,10 @@ const ReportingDesignerContent = () => {
   }, [draftProductTeamIdInput, sortedDataObjects]);
 
   const paletteHierarchy = useMemo<PaletteTreeNode[]>(() => {
-    if (!dataDefinitions.length) {
-      return [];
-    }
-
     const productTeamNodes = new Map<string, PaletteTreeNode>();
     const dataObjectNodes = new Map<string, PaletteTreeNode>();
     const systemNodes = new Map<string, PaletteTreeNode>();
+    const assignedTableIds = new Set<string>();
 
     const ensureProductTeamNode = (processAreaId: string | null): PaletteTreeNode => {
       const key = processAreaId ?? 'unassigned';
@@ -764,6 +780,8 @@ const ReportingDesignerContent = () => {
           return;
         }
 
+        assignedTableIds.add(table.id);
+
         const duplicate = systemNode.children?.some(
           (child: PaletteTreeNode) =>
             child.type === 'table' && child.table?.id === table.id && child.id === `tbl-${definitionTable.id}`
@@ -801,8 +819,29 @@ const ReportingDesignerContent = () => {
 
     const hierarchy = Array.from(productTeamNodes.values());
     sortNodes(hierarchy);
+
+    const unassignedTables = tables.filter((table) => !assignedTableIds.has(table.id));
+    if (unassignedTables.length > 0) {
+      const sortedUnassigned = [...unassignedTables].sort((a, b) => a.name.localeCompare(b.name));
+      const unassignedNode: PaletteTreeNode = {
+        id: 'unassigned-root',
+        label: 'Unassigned Tables',
+        secondary: 'Not yet linked to a data object',
+        type: 'unassigned',
+        children: sortedUnassigned.map((table) => ({
+          id: `tbl-unassigned-${table.id}`,
+          label: table.name,
+          secondary: table.schemaName ? `${table.schemaName}.${table.physicalName}` : table.physicalName,
+          type: 'table',
+          table
+        })),
+        tableCount: sortedUnassigned.length
+      };
+      hierarchy.push(unassignedNode);
+    }
+
     return hierarchy;
-  }, [dataDefinitions, dataObjectsById, processAreasById, tablesById]);
+  }, [dataDefinitions, dataObjectsById, processAreasById, tables, tablesById]);
 
   const filteredPaletteHierarchy = useMemo<PaletteTreeNode[]>(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -1358,14 +1397,20 @@ const ReportingDesignerContent = () => {
 
   const handleRemoveNode = useCallback((nodeId: string) => {
     const tableName = tablesById.get(nodeId)?.name ?? 'this table';
-    const proceed = typeof window === 'undefined'
-      ? true
-      : window.confirm(`Remove ${tableName} from the Relationship Canvas? Joins and selected columns that reference it will also be cleared.`);
-    if (!proceed) {
+    setRemoveDialogState({ nodeId, name: tableName });
+  }, [setRemoveDialogState, tablesById]);
+
+  const handleConfirmRemoveNode = useCallback(() => {
+    if (!removeDialogState) {
       return;
     }
-    removeNodeById(nodeId);
-  }, [removeNodeById, tablesById]);
+    removeNodeById(removeDialogState.nodeId);
+    setRemoveDialogState(null);
+  }, [removeDialogState, removeNodeById, setRemoveDialogState]);
+
+  const handleCancelRemoveNode = useCallback(() => {
+    setRemoveDialogState(null);
+  }, [setRemoveDialogState]);
 
   const addTableNode = useCallback((table: Table, position?: XYPosition): DesignerNode | null => {
     let createdNode: DesignerNode | null = null;
@@ -3087,7 +3132,7 @@ const ReportingDesignerContent = () => {
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography
                   variant="body2"
-                  sx={{ fontWeight: node.type === 'productTeam' ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  sx={{ fontWeight: node.type === 'productTeam' || node.type === 'unassigned' ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >
                   {node.label}
                 </Typography>
@@ -3313,7 +3358,7 @@ const ReportingDesignerContent = () => {
                 disabled={actionButtonsDisabled || persisting}
                 onClick={handlePublish}
               >
-                Publish to Data Object
+                Publish to Report Catalog
               </Button>
               <Button
                 variant="text"
@@ -3886,6 +3931,14 @@ const ReportingDesignerContent = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={Boolean(removeDialogState)}
+        title="Remove Table"
+        description={`Remove ${removeDialogState?.name ?? 'this table'} from the Relationship Canvas? Joins and selected columns that reference it will also be cleared.`}
+        confirmLabel="Remove"
+        onClose={handleCancelRemoveNode}
+        onConfirm={handleConfirmRemoveNode}
+      />
     </Box>
   );
 };

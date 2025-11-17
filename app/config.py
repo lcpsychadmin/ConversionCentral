@@ -46,6 +46,22 @@ class Settings(BaseSettings):
         env="DATABRICKS_CONSTRUCTED_SCHEMA",
         description="Fallback schema dedicated to constructed data tables when not stored in the database settings.",
     )
+    databricks_data_quality_schema: str | None = Field(
+        default="dq_metadata",
+        env="DATABRICKS_DATA_QUALITY_SCHEMA",
+        description="Schema to store data quality metadata when not stored in the database settings.",
+    )
+    databricks_data_quality_storage_format: str = Field(
+        default="delta",
+        env="DATABRICKS_DATA_QUALITY_STORAGE_FORMAT",
+        description="Storage format for data quality metadata tables (delta or hudi).",
+        regex=r"^(delta|hudi)$",
+    )
+    databricks_data_quality_auto_manage_tables: bool = Field(
+        True,
+        env="DATABRICKS_DATA_QUALITY_AUTO_MANAGE_TABLES",
+        description="When true the application auto-creates or upgrades data quality metadata tables.",
+    )
     databricks_ingestion_method: str | None = Field(
         default=None,
         env="DATABRICKS_INGESTION_METHOD",
@@ -69,6 +85,11 @@ class Settings(BaseSettings):
         default=None,
         env="DATABRICKS_TOKEN",
         description="Optional personal access token used when the database has no stored token.",
+    )
+    data_quality_notification_webhook_url: str | None = Field(
+        default=None,
+        env="DATA_QUALITY_WEBHOOK_URL",
+        description="Optional webhook endpoint that receives data quality run alerts.",
     )
     enable_constructed_table_sync: bool = Field(
         False,
@@ -112,6 +133,9 @@ class Settings(BaseSettings):
             if field_name == "databricks_spark_compute" and isinstance(raw_value, str):
                 lowered = raw_value.strip().lower()
                 return lowered or None
+            if field_name == "databricks_data_quality_storage_format" and isinstance(raw_value, str):
+                lowered = raw_value.strip().lower()
+                return lowered or "delta"
             return raw_value
 
 

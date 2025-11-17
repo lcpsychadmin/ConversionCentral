@@ -31,13 +31,15 @@ interface SystemConnectionFormProps {
   loading?: boolean;
   testing?: boolean;
   onClose: () => void;
-  onSubmit: (values: SystemConnectionFormValues, connectionString: string) => void;
-  onTest?: (values: SystemConnectionFormValues, connectionString: string) => void;
+  onSubmit: (values: SystemConnectionFormValues, connectionString: string | null) => void;
+  onTest?: (values: SystemConnectionFormValues, connectionString: string | null) => void;
+  hasManagedWarehouse?: boolean;
+  managedWarehouseLoaded?: boolean;
 }
 
 type FieldErrorMap = Partial<Record<keyof SystemConnectionFormValues | 'form', string>>;
 
-const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql', 'sap'];
+const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql', 'databricks', 'sap'];
 
 const DATABASE_LABELS: Record<RelationalDatabaseType, string> = {
   postgresql: 'PostgreSQL',
@@ -53,6 +55,7 @@ const DEFAULT_PORT_BY_DATABASE: Record<RelationalDatabaseType, string> = {
 
 const DATABASE_HELPER_TEXT: Partial<Record<RelationalDatabaseType, string>> = {
   sap: 'Tenant database name (case-sensitive).',
+  databricks: 'Optional when using the managed Databricks warehouse.',
 };
 
 const getDefaultPort = (databaseType: RelationalDatabaseType): string => DEFAULT_PORT_BY_DATABASE[databaseType] ?? '5432';
@@ -76,7 +79,8 @@ const buildInitialSnapshot = (
     options: parsed?.options ?? {},
     notes: sanitizeNotes(initialValues?.notes),
     active: initialValues?.active ?? true,
-    ingestionEnabled: initialValues?.ingestionEnabled ?? true
+    ingestionEnabled: initialValues?.ingestionEnabled ?? true,
+    useDatabricksManagedConnection: initialValues?.usesDatabricksManagedConnection ?? false,
   };
 };
 
@@ -87,26 +91,32 @@ const validateValues = (values: SystemConnectionFormValues): FieldErrorMap => {
     errors.systemId = 'System is required';
   }
 
-  if (!values.host.trim()) {
-    errors.host = 'Host is required';
-  }
+  const requiresCredentials = !(
+    values.databaseType === 'databricks' && values.useDatabricksManagedConnection
+  );
 
-  if (!values.port.trim()) {
-    errors.port = 'Port is required';
-  } else if (!/^\d+$/.test(values.port)) {
-    errors.port = 'Port must be numeric';
-  }
+  if (requiresCredentials) {
+    if (!values.host.trim()) {
+      errors.host = 'Host is required';
+    }
 
-  if (!values.database.trim()) {
-    errors.database = 'Database is required';
-  }
+    if (!values.port.trim()) {
+      errors.port = 'Port is required';
+    } else if (!/^\d+$/.test(values.port)) {
+      errors.port = 'Port must be numeric';
+    }
 
-  if (!values.username.trim()) {
-    errors.username = 'Username is required';
-  }
+    if (!values.database.trim()) {
+      errors.database = 'Database is required';
+    }
 
-  if (!values.password.trim()) {
-    errors.password = 'Password is required';
+    if (!values.username.trim()) {
+      errors.username = 'Username is required';
+    }
+
+    if (!values.password.trim()) {
+      errors.password = 'Password is required';
+    }
   }
 
   return errors;
@@ -133,7 +143,9 @@ const SystemConnectionForm = ({
   testing = false,
   onClose,
   onSubmit,
-  onTest
+  onTest,
+  hasManagedWarehouse = false,
+  managedWarehouseLoaded = false
 }: SystemConnectionFormProps) => {
   const initialSnapshot = useMemo(
     () => buildInitialSnapshot(systems, initialValues),
@@ -148,6 +160,14 @@ const SystemConnectionForm = ({
     setErrors({});
   }, [initialSnapshot, open]);
 
+  const initialManaged = initialValues?.usesDatabricksManagedConnection ?? false;
+  const managedAvailable = hasManagedWarehouse || initialManaged;
+
+  const usingManagedWarehouse =
+    values.databaseType === 'databricks' &&
+    values.useDatabricksManagedConnection &&
+    managedAvailable;
+
   const handleChange = (field: keyof SystemConnectionFormValues) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const value = event.target.value;
@@ -160,6 +180,8 @@ const SystemConnectionForm = ({
             ...prev,
             databaseType: nextType,
             port: shouldResetPort ? getDefaultPort(nextType) : prev.port,
+            useDatabricksManagedConnection:
+              nextType === 'databricks' ? prev.useDatabricksManagedConnection : false,
           };
         }
         return { ...prev, [field]: value };
@@ -178,7 +200,33 @@ const SystemConnectionForm = ({
   };
 
   const handleToggleIngestion = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
-    setValues((prev) => ({ ...prev, ingestionEnabled: checked }));
+    setValues((prev) => {
+      if (prev.databaseType === 'databricks' && prev.useDatabricksManagedConnection) {
+        return { ...prev, ingestionEnabled: false };
+      }
+      return { ...prev, ingestionEnabled: checked };
+    });
+  };
+
+  const handleToggleManaged = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+    if (checked && !hasManagedWarehouse) {
+      return;
+    }
+    setValues((prev) => ({
+      ...prev,
+      useDatabricksManagedConnection: checked,
+      ingestionEnabled: checked ? false : prev.ingestionEnabled,
+      port: checked ? getDefaultPort('databricks') : prev.port,
+    }));
+    setErrors((prev) => ({
+      ...prev,
+      host: undefined,
+      port: undefined,
+      database: undefined,
+      username: undefined,
+      password: undefined,
+      form: undefined,
+    }));
   };
 
   const resetAndClose = () => {
@@ -196,8 +244,26 @@ const SystemConnectionForm = ({
       return;
     }
 
+    if (
+      values.databaseType === 'databricks' &&
+      values.useDatabricksManagedConnection &&
+      !managedAvailable
+    ) {
+      setErrors((prev) => ({
+        ...prev,
+        form: 'Configure the Databricks SQL warehouse before using the managed connection option.'
+      }));
+      return;
+    }
+
+    const normalized = normalizeValues(values);
+
+    if (usingManagedWarehouse) {
+      onSubmit(normalized, null);
+      return;
+    }
+
     try {
-      const normalized = normalizeValues(values);
       const connectionString = buildJdbcConnectionString(normalized);
       onSubmit(normalized, connectionString);
     } catch (error) {
@@ -208,6 +274,10 @@ const SystemConnectionForm = ({
 
   const handleTest = () => {
     if (!onTest) return;
+
+    if (usingManagedWarehouse) {
+      return;
+    }
 
     const validationErrors = validateValues(values);
     if (Object.keys(validationErrors).length > 0) {
@@ -236,12 +306,14 @@ const SystemConnectionForm = ({
       values.password !== initialSnapshot.password ||
       sanitizeNotes(values.notes) !== sanitizeNotes(initialSnapshot.notes) ||
       values.active !== initialSnapshot.active ||
-      values.ingestionEnabled !== initialSnapshot.ingestionEnabled
+      values.ingestionEnabled !== initialSnapshot.ingestionEnabled ||
+      values.useDatabricksManagedConnection !== initialSnapshot.useDatabricksManagedConnection
     );
   }, [values, initialSnapshot]);
 
   const canTest = Boolean(
-    values.systemId &&
+    !usingManagedWarehouse &&
+      values.systemId &&
       values.host.trim() &&
       values.port.trim() &&
       /^\d+$/.test(values.port) &&
@@ -251,8 +323,25 @@ const SystemConnectionForm = ({
   );
 
   const databaseLabel = values.databaseType === 'sap' ? 'Database / Tenant' : 'Database';
-  const databaseHelper = errors.database ?? DATABASE_HELPER_TEXT[values.databaseType];
-  const portHelper = errors.port ?? `Default ${getDefaultPort(values.databaseType)}`;
+  const databaseHelper =
+    errors.database ??
+    (usingManagedWarehouse
+      ? 'Managed Databricks warehouse catalog is applied automatically.'
+      : DATABASE_HELPER_TEXT[values.databaseType]);
+  const portHelper =
+    errors.port ??
+    (usingManagedWarehouse
+      ? 'Managed warehouse listens on port 443.'
+      : `Default ${getDefaultPort(values.databaseType)}`);
+  const hostHelper =
+    errors.host ??
+    (usingManagedWarehouse
+      ? 'Managed Databricks warehouse host is applied automatically.'
+      : 'Hostname or IP address');
+  const usernameHelper =
+    errors.username ?? (usingManagedWarehouse ? 'Managed by Databricks settings.' : undefined);
+  const passwordHelper =
+    errors.password ?? (usingManagedWarehouse ? 'Managed by Databricks settings.' : undefined);
 
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
@@ -264,7 +353,7 @@ const SystemConnectionForm = ({
             <TextField
               select
               required
-              label="System"
+              label="Application"
               fullWidth
               id="connection-system"
               name="systemId"
@@ -274,7 +363,7 @@ const SystemConnectionForm = ({
               helperText={errors.systemId}
             >
               <MenuItem value="" disabled>
-                Select a system
+                Select an application
               </MenuItem>
               {systems.map((system) => (
                 <MenuItem key={system.id} value={system.id}>
@@ -298,22 +387,66 @@ const SystemConnectionForm = ({
                 </MenuItem>
               ))}
             </TextField>
+            {values.databaseType === 'databricks' && (
+              <Stack spacing={1}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={values.useDatabricksManagedConnection}
+                      onChange={handleToggleManaged}
+                      color="secondary"
+                      disabled={
+                        loading ||
+                        testing ||
+                        (!hasManagedWarehouse && !values.useDatabricksManagedConnection)
+                      }
+                    />
+                  }
+                  label={
+                    values.useDatabricksManagedConnection && hasManagedWarehouse
+                      ? 'Use managed Databricks warehouse (credentials resolved automatically)'
+                      : 'Use managed Databricks warehouse'
+                  }
+                />
+                  {managedWarehouseLoaded && !hasManagedWarehouse && !values.useDatabricksManagedConnection && (
+                    <Alert severity="info">
+                      Configure the Databricks SQL warehouse from Data Configuration followed by Data
+                      Warehouse to enable this option.
+                    </Alert>
+                  )}
+                  {managedWarehouseLoaded && values.useDatabricksManagedConnection && !hasManagedWarehouse && (
+                    <Alert severity="warning">
+                      Managed Databricks settings are not currently available. Update the warehouse settings
+                      to keep this connection active, or disable the managed option to provide credentials
+                      manually.
+                    </Alert>
+                  )}
+                  {usingManagedWarehouse && (
+                    <Alert severity="info">
+                      This connection reuses the managed Databricks SQL warehouse. Host, credentials, and
+                      catalog are supplied automatically from your warehouse settings.
+                    </Alert>
+                  )}
+              </Stack>
+            )}
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
                 label="Host"
                 fullWidth
-                required
+                required={!usingManagedWarehouse}
+                disabled={usingManagedWarehouse}
                 id="connection-host"
                 name="host"
                 value={values.host}
                 onChange={handleChange('host')}
                 error={!!errors.host}
-                helperText={errors.host ?? 'Hostname or IP address'}
+                helperText={hostHelper}
               />
               <TextField
                 label="Port"
                 fullWidth
-                required
+                required={!usingManagedWarehouse}
+                disabled={usingManagedWarehouse}
                 id="connection-port"
                 name="port"
                 value={values.port}
@@ -325,7 +458,8 @@ const SystemConnectionForm = ({
             <TextField
               label={databaseLabel}
               fullWidth
-              required
+              required={!usingManagedWarehouse}
+              disabled={usingManagedWarehouse}
               id="connection-database"
               name="database"
               value={values.database}
@@ -337,25 +471,27 @@ const SystemConnectionForm = ({
               <TextField
                 label="Username"
                 fullWidth
-                required
+                required={!usingManagedWarehouse}
+                disabled={usingManagedWarehouse}
                 id="connection-username"
                 name="username"
                 value={values.username}
                 onChange={handleChange('username')}
                 error={!!errors.username}
-                helperText={errors.username}
+                helperText={usernameHelper}
               />
               <TextField
                 label="Password"
                 fullWidth
-                required
+                required={!usingManagedWarehouse}
+                disabled={usingManagedWarehouse}
                 id="connection-password"
                 name="password"
                 type="password"
                 value={values.password}
                 onChange={handleChange('password')}
                 error={!!errors.password}
-                helperText={errors.password}
+                helperText={passwordHelper}
               />
             </Stack>
             <TextField
@@ -378,12 +514,15 @@ const SystemConnectionForm = ({
                   checked={values.ingestionEnabled}
                   onChange={handleToggleIngestion}
                   color="secondary"
+                  disabled={usingManagedWarehouse}
                 />
               }
               label={
-                values.ingestionEnabled
-                  ? 'Ingestion features enabled'
-                  : 'Hide ingestion features for this connection'
+                usingManagedWarehouse
+                  ? 'Ingestion features are disabled for managed Databricks connections'
+                  : values.ingestionEnabled
+                    ? 'Ingestion features enabled'
+                    : 'Hide ingestion features for this connection'
               }
             />
           </Stack>

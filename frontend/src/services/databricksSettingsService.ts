@@ -14,6 +14,9 @@ interface DatabricksSettingsResponse {
   catalog?: string | null;
   schemaName?: string | null;
   constructedSchema?: string | null;
+  dataQualitySchema?: string | null;
+  dataQualityStorageFormat: 'delta' | 'hudi';
+  dataQualityAutoManageTables: boolean;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -31,6 +34,9 @@ interface DatabricksSettingsTestPayload {
   catalog?: string | null;
   schema_name?: string | null;
   constructed_schema?: string | null;
+  data_quality_schema?: string | null;
+  data_quality_storage_format?: 'delta' | 'hudi';
+  data_quality_auto_manage_tables?: boolean;
   ingestion_batch_rows?: number | null;
   ingestion_method?: 'sql' | 'spark';
   spark_compute?: 'classic' | 'serverless' | null;
@@ -52,6 +58,9 @@ const mapDatabricksSettings = (
   catalog: payload.catalog ?? null,
   schemaName: payload.schemaName ?? null,
   constructedSchema: payload.constructedSchema ?? null,
+  dataQualitySchema: payload.dataQualitySchema ?? null,
+  dataQualityStorageFormat: payload.dataQualityStorageFormat,
+  dataQualityAutoManageTables: payload.dataQualityAutoManageTables,
   ingestionBatchRows: payload.ingestionBatchRows ?? null,
   ingestionMethod: payload.ingestionMethod ?? 'sql',
   sparkCompute: payload.sparkCompute ?? null,
@@ -78,6 +87,9 @@ export const createDatabricksSettings = async (
     catalog: input.catalog ?? null,
     schema_name: input.schemaName ?? null,
     constructed_schema: input.constructedSchema ?? null,
+    data_quality_schema: input.dataQualitySchema ?? null,
+    data_quality_storage_format: input.dataQualityStorageFormat,
+    data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic',
@@ -99,6 +111,13 @@ export const updateDatabricksSettings = async (
     ...(input.constructedSchema !== undefined
       ? { constructed_schema: input.constructedSchema }
       : {}),
+    ...(input.dataQualitySchema !== undefined ? { data_quality_schema: input.dataQualitySchema } : {}),
+    ...(input.dataQualityStorageFormat !== undefined
+      ? { data_quality_storage_format: input.dataQualityStorageFormat }
+      : {}),
+    ...(input.dataQualityAutoManageTables !== undefined
+      ? { data_quality_auto_manage_tables: input.dataQualityAutoManageTables }
+      : {}),
     ...(input.ingestionBatchRows !== undefined ? { ingestion_batch_rows: input.ingestionBatchRows } : {}),
     ...(input.ingestionMethod !== undefined ? { ingestion_method: input.ingestionMethod } : {}),
     ...(input.sparkCompute !== undefined ? { spark_compute: input.sparkCompute } : {}),
@@ -119,6 +138,9 @@ export const testDatabricksSettings = async (
     catalog: input.catalog ?? null,
     schema_name: input.schemaName ?? null,
     constructed_schema: input.constructedSchema ?? null,
+    data_quality_schema: input.dataQualitySchema ?? null,
+    data_quality_storage_format: input.dataQualityStorageFormat,
+    data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic'

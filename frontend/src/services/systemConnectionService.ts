@@ -18,6 +18,8 @@ export interface SystemConnectionResponse {
   authMethod: SystemConnectionAuthMethod;
   active: boolean;
   ingestionEnabled: boolean;
+  usesDatabricksManagedConnection?: boolean;
+  uses_databricks_managed_connection?: boolean;
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -85,6 +87,10 @@ export const mapSystemConnection = (payload: SystemConnectionResponse): SystemCo
   authMethod: payload.authMethod,
   active: payload.active,
   ingestionEnabled: payload.ingestionEnabled,
+  usesDatabricksManagedConnection:
+    payload.usesDatabricksManagedConnection ??
+    payload.uses_databricks_managed_connection ??
+    false,
   notes: payload.notes ?? null,
   createdAt: payload.createdAt,
   updatedAt: payload.updatedAt
@@ -98,15 +104,24 @@ export const fetchSystemConnections = async (): Promise<SystemConnection[]> => {
 export const createSystemConnection = async (
   input: SystemConnectionInput
 ): Promise<SystemConnection> => {
-  const response = await client.post<SystemConnectionResponse>('/system-connections', {
+  const payload: Record<string, unknown> = {
     system_id: input.systemId,
     connection_type: input.connectionType,
-    connection_string: input.connectionString,
     auth_method: input.authMethod,
     active: input.active ?? true,
     ingestion_enabled: input.ingestionEnabled ?? true,
     notes: input.notes ?? null
-  });
+  };
+
+  if (input.connectionString !== undefined) {
+    payload.connection_string = input.connectionString;
+  }
+
+  if (input.useDatabricksManagedConnection !== undefined) {
+    payload.use_databricks_managed_connection = input.useDatabricksManagedConnection;
+  }
+
+  const response = await client.post<SystemConnectionResponse>('/system-connections', payload);
   return mapSystemConnection(response.data);
 };
 
@@ -121,7 +136,10 @@ export const updateSystemConnection = async (
     ...(input.authMethod !== undefined ? { auth_method: input.authMethod } : {}),
     ...(input.active !== undefined ? { active: input.active } : {}),
     ...(input.ingestionEnabled !== undefined ? { ingestion_enabled: input.ingestionEnabled } : {}),
-    ...(input.notes !== undefined ? { notes: input.notes } : {})
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    ...(input.useDatabricksManagedConnection !== undefined
+      ? { use_databricks_managed_connection: input.useDatabricksManagedConnection }
+      : {})
   });
   return mapSystemConnection(response.data);
 };

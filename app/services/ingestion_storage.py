@@ -67,6 +67,22 @@ class DatabricksIngestionStorage:
             result = connection.execute(insert(ingestion_table), normalized_rows)
         return result.rowcount or 0
 
+    def drop_table(self, schema: str | None, table_name: str) -> None:
+        """Drop a Databricks ingestion table if it exists."""
+
+        if self.engine.dialect.name == "sqlite":
+            return
+
+        target_schema = schema or self.default_schema or None
+        if target_schema:
+            qualified = f"`{target_schema}`.`{table_name}`"
+        else:
+            qualified = f"`{table_name}`"
+
+        statement = text(f"DROP TABLE IF EXISTS {qualified}")
+        with self.engine.begin() as connection:
+            connection.execute(statement)
+
     def _normalize_row(
         self, row: Mapping[str, object], ingestion_table: Table
     ) -> MutableMapping[str, object]:

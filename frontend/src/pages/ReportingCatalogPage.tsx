@@ -23,6 +23,7 @@ import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import { useNavigate } from 'react-router-dom';
 
 import PageHeader from '@components/common/PageHeader';
+import ConfirmDialog from '@components/common/ConfirmDialog';
 import ReportCatalogGrid from '@components/reporting/ReportCatalogGrid';
 import {
   exportReportDataset,
@@ -72,6 +73,7 @@ const ReportingCatalogPage = () => {
   const [exporting, setExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const [pendingDeleteReport, setPendingDeleteReport] = useState<ReportSummary | null>(null);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const {
@@ -173,6 +175,14 @@ const ReportingCatalogPage = () => {
     return ids;
   }, [catalogTree]);
 
+  const allGroupsExpanded = useMemo(() => {
+    if (autoExpandedItems.length === 0) {
+      return false;
+    }
+    const expandedSet = new Set(expandedItems);
+    return autoExpandedItems.every((id) => expandedSet.has(id));
+  }, [autoExpandedItems, expandedItems]);
+
   // Keep tree collapsed by default. Allow user to expand manually or with the
   // controls in the UI.
 
@@ -224,12 +234,6 @@ const ReportingCatalogPage = () => {
     if (deletingReportId) {
       return;
     }
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm(`Delete published report "${report.name}"? This action cannot be undone.`);
-      if (!confirmed) {
-        return;
-      }
-    }
 
     setDeletingReportId(report.id);
     setStatusMessage(null);
@@ -251,6 +255,26 @@ const ReportingCatalogPage = () => {
     } finally {
       setDeletingReportId(null);
     }
+  };
+
+  const requestDeleteReport = (report: ReportSummary) => {
+    if (deletingReportId) {
+      return;
+    }
+    setPendingDeleteReport(report);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteReport) {
+      return;
+    }
+    const report = pendingDeleteReport;
+    setPendingDeleteReport(null);
+    await handleDeleteReport(report);
+  };
+
+  const handleCancelDelete = () => {
+    setPendingDeleteReport(null);
   };
 
   const handleExport = async () => {
@@ -390,36 +414,37 @@ const ReportingCatalogPage = () => {
             minHeight: { xs: 200, lg: 520 }
           }}
         >
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Stack spacing={1}>
             <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
               Published Reports
             </Typography>
-            <Stack direction="row" spacing={1}>
-              <Button
-              size="small"
-              startIcon={<RefreshIcon fontSize="small" />}
-              onClick={() => refetchReports()}
-              disabled={reportsLoading}
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              justifyContent="flex-start"
             >
-              Refresh
-            </Button>
-            
               <Button
                 size="small"
-                startIcon={<ExpandMoreIcon fontSize="small" />}
-                onClick={() => setExpandedItems(autoExpandedItems)}
-                disabled={reportsLoading || autoExpandedItems.length === 0}
-              >
-                Expand all
-              </Button>
-
-              <Button
-                size="small"
-                startIcon={<ExpandLessIcon fontSize="small" />}
-                onClick={() => setExpandedItems([])}
+                startIcon={<RefreshIcon fontSize="small" />}
+                onClick={() => refetchReports()}
                 disabled={reportsLoading}
               >
-                Collapse all
+                Refresh
+              </Button>
+              <Button
+                size="small"
+                startIcon={
+                  allGroupsExpanded ? (
+                    <ExpandLessIcon fontSize="small" />
+                  ) : (
+                    <ExpandMoreIcon fontSize="small" />
+                  )
+                }
+                onClick={() => setExpandedItems(allGroupsExpanded ? [] : autoExpandedItems)}
+                disabled={reportsLoading || autoExpandedItems.length === 0}
+              >
+                {allGroupsExpanded ? 'Collapse all' : 'Expand all'}
               </Button>
             </Stack>
           </Stack>
@@ -495,7 +520,7 @@ const ReportingCatalogPage = () => {
                   disabled={!selectedReport || deletingReportId === selectedReport?.id}
                   onClick={() => {
                     if (selectedReport) {
-                      void handleDeleteReport(selectedReport);
+                      requestDeleteReport(selectedReport);
                     }
                   }}
                 >
@@ -544,6 +569,16 @@ const ReportingCatalogPage = () => {
           </Paper>
         </Box>
       </Stack>
+      <ConfirmDialog
+        open={Boolean(pendingDeleteReport)}
+        title="Delete Report"
+        description={`Delete published report "${pendingDeleteReport?.name ?? ''}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        loading={Boolean(deletingReportId)}
+        confirmDisabled={Boolean(deletingReportId)}
+      />
     </Box>
   );
 };

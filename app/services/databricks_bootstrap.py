@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.ingestion.engine import get_ingestion_connection_params
 from app.models import System, SystemConnection
+from app.services.data_quality_metadata import ensure_data_quality_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ _MANAGED_CONNECTION_NOTES = (
 )
 
 
-def _prepare_connection_string(
+def build_databricks_connection_string(
     *,
     host: str,
     http_path: str,
@@ -38,6 +39,18 @@ def _prepare_connection_string(
 
     parameters = urlencode(query)
     return f"jdbc:databricks://token:@{host}:443/default?{parameters}"
+
+
+def get_managed_databricks_connection_string() -> str:
+    """Return the JDBC connection string for the managed Databricks warehouse."""
+
+    params = get_ingestion_connection_params()
+    return build_databricks_connection_string(
+        host=params.workspace_host,
+        http_path=params.http_path,
+        catalog=params.catalog,
+        schema_name=params.schema_name,
+    )
 
 
 def _ensure_system(session: Session) -> System:
@@ -146,7 +159,9 @@ def ensure_databricks_connection() -> None:
         logger.info("Databricks configuration incomplete; skipping managed connection bootstrap.")
         return
 
-    connection_string = _prepare_connection_string(
+    ensure_data_quality_metadata(params)
+
+    connection_string = build_databricks_connection_string(
         host=host,
         http_path=http_path,
         catalog=params.catalog,

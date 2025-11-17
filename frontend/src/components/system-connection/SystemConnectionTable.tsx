@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { ReactElement, useMemo } from 'react';
 import {
   DataGrid,
   GridActionsCellItem,
@@ -45,7 +45,7 @@ const buildColumns = (
   const baseColumns: GridColDef<SystemConnection>[] = [
     {
       field: 'systemId',
-      headerName: 'System',
+      headerName: 'Application',
       flex: 1,
       valueGetter: ({ row }) => systemLookup.get(row.systemId) ?? '—'
     },
@@ -54,6 +54,9 @@ const buildColumns = (
       headerName: 'Database',
       flex: 0.8,
       valueGetter: ({ row }) => {
+        if (row.usesDatabricksManagedConnection) {
+          return 'Databricks SQL Warehouse (Managed)';
+        }
         const parsed = parseJdbcConnectionString(row.connectionString);
         if (!parsed) return '—';
         return DATABASE_LABELS[parsed.databaseType] ?? parsed.databaseType;
@@ -65,8 +68,11 @@ const buildColumns = (
       flex: 1.4,
       renderCell: ({ row }) => {
         const summary = formatConnectionSummary(row.connectionString);
+        const tooltipMessage = row.usesDatabricksManagedConnection
+          ? 'Managed Databricks warehouse connection.'
+          : row.notes ?? summary;
         return (
-          <Tooltip title={row.notes ?? summary} placement="top" enterDelay={600}>
+          <Tooltip title={tooltipMessage} placement="top" enterDelay={600}>
             <Link
               component="button"
               variant="body2"
@@ -119,29 +125,43 @@ const buildColumns = (
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      getActions: (params: GridRowParams<SystemConnection>) => [
-        <GridActionsCellItem
-          key="test"
-          icon={<FlashOnIcon fontSize="small" />}
-          label="Test"
-          onClick={() => onTest?.(params.row)}
-          showInMenu
-        />,
-        <GridActionsCellItem
-          key="edit"
-          icon={<EditIcon fontSize="small" />}
-          label="Edit"
-          onClick={() => onEdit?.(params.row)}
-          showInMenu
-        />,
-        <GridActionsCellItem
-          key="delete"
-          icon={<DeleteIcon fontSize="small" />}
-          label="Delete"
-          onClick={() => onDelete?.(params.row)}
-          showInMenu
-        />
-      ]
+      getActions: (params: GridRowParams<SystemConnection>) => {
+  const items: ReactElement[] = [];
+
+        if (onTest && !params.row.usesDatabricksManagedConnection) {
+          items.push(
+            <GridActionsCellItem
+              key="test"
+              icon={<FlashOnIcon fontSize="small" />}
+              label="Test"
+              onClick={() => onTest?.(params.row)}
+              showInMenu
+            />
+          );
+        }
+
+        items.push(
+          <GridActionsCellItem
+            key="edit"
+            icon={<EditIcon fontSize="small" />}
+            label="Edit"
+            onClick={() => onEdit?.(params.row)}
+            showInMenu
+          />
+        );
+
+        items.push(
+          <GridActionsCellItem
+            key="delete"
+            icon={<DeleteIcon fontSize="small" />}
+            label="Delete"
+            onClick={() => onDelete?.(params.row)}
+            showInMenu
+          />
+        );
+
+        return items;
+      }
     }
   ];
 };

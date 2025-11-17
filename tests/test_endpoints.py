@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from uuid import UUID, uuid4
 
@@ -8,6 +8,7 @@ from app.models import (
     ConstructedTable,
     User,
 )
+from app.services.catalog_browser import CatalogTable, SourceTableColumn
 
 
 def test_dashboard_summary(client):
@@ -308,6 +309,18 @@ def test_data_definition_crud_flow(client):
         },
     ).json()["id"]
 
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://crm-warehouse",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
     data_object_id = client.post(
         "/data-objects",
         json={
@@ -418,6 +431,543 @@ def test_data_definition_crud_flow(client):
     assert after_delete.json() == []
 
 
+def test_list_databricks_tables_filters_results(client):
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Warehouse",
+            "physical_name": "DBR_WH",
+            "description": "Databricks system",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://analytics",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    databricks_table_id = client.post(
+        "/tables",
+        json={
+            "system_id": databricks_system_id,
+            "name": "Sales Facts",
+            "physical_name": "sales_facts",
+            "schema_name": "analytics",
+            "description": "Fact table stored in Databricks",
+            "table_type": "BASE",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    legacy_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Legacy SQL",
+            "physical_name": "LEG_SQL",
+            "description": "Legacy SQL system",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": legacy_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:mssql://legacy-host",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    legacy_table_id = client.post(
+        "/tables",
+        json={
+            "system_id": legacy_system_id,
+            "name": "Legacy Accounts",
+            "physical_name": "dbo.accounts",
+            "schema_name": "dbo",
+            "description": "Table served from SQL Server",
+            "table_type": "BASE",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    response = client.get("/data-definitions/databricks-tables")
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    table_ids = {item["id"] for item in payload}
+
+    assert databricks_table_id in table_ids
+    assert legacy_table_id not in table_ids
+
+
+def test_available_source_tables_filters_results(client, monkeypatch):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Analytics",
+            "description": "Analytics data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Source",
+            "physical_name": "DBR_SRC",
+            "description": "Databricks source system",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    legacy_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Legacy Source",
+            "physical_name": "LEG_SRC",
+            "description": "Legacy SQL source",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Sales",
+            "description": "Sales object",
+            "status": "draft",
+            "system_ids": [databricks_system_id, legacy_system_id],
+        },
+    ).json()["id"]
+
+    databricks_connection_id = client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://analytics",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    ).json()["id"]
+
+    client.put(
+        f"/system-connections/{databricks_connection_id}/catalog/selection",
+        json={
+            "selected_tables": [
+                {
+                    "schema_name": "demo",
+                    "table_name": "fraud_detection",
+                    "table_type": "table",
+                    "column_count": 10,
+                    "estimated_rows": 1000,
+                }
+            ]
+        },
+    )
+
+    legacy_connection_id = client.post(
+        "/system-connections",
+        json={
+            "system_id": legacy_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:mssql://legacy",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    ).json()["id"]
+
+    client.put(
+        f"/system-connections/{legacy_connection_id}/catalog/selection",
+        json={
+            "selected_tables": [
+                {
+                    "schema_name": "dbo",
+                    "table_name": "legacy_accounts",
+                }
+            ]
+        },
+    )
+
+    def fail_fetch(*args, **kwargs):
+        raise AssertionError("Catalog fetch should not run when selections exist")
+
+    monkeypatch.setattr(
+        "app.routers.data_definition.fetch_connection_catalog",
+        fail_fetch,
+    )
+
+    response = client.get(f"/data-definitions/data-objects/{data_object_id}/available-source-tables")
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    assert payload == [
+        {
+            "catalogName": None,
+            "schemaName": "demo",
+            "tableName": "fraud_detection",
+            "tableType": "table",
+            "columnCount": 10,
+            "estimatedRows": 1000,
+        }
+    ]
+
+
+def test_available_source_tables_includes_databricks_tables_without_selection(client):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Marketing",
+            "description": "Marketing data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Marketing",
+            "physical_name": "DBR_MKT",
+            "description": "Databricks marketing system",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://marketing",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Marketing",
+            "description": "Marketing object",
+            "status": "draft",
+            "system_ids": [databricks_system_id],
+        },
+    ).json()["id"]
+
+    client.post(
+        "/tables",
+        json={
+            "system_id": databricks_system_id,
+            "name": "Marketing Spend",
+            "physical_name": "marketing.spend",
+            "schema_name": "marketing",
+            "description": "Marketing spend table",
+            "table_type": "table",
+            "status": "active",
+        },
+    )
+
+    response = client.get(f"/data-definitions/data-objects/{data_object_id}/available-source-tables")
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    assert payload == [
+        {
+            "catalogName": None,
+            "schemaName": "marketing",
+            "tableName": "marketing.spend",
+            "tableType": "table",
+            "columnCount": None,
+            "estimatedRows": None,
+        }
+    ]
+
+
+def test_available_source_tables_browses_catalog_when_missing(client, monkeypatch):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Support",
+            "description": "Support data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Support",
+            "physical_name": "DBR_SUPPORT",
+            "description": "Support warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://support",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Support Cases",
+            "description": "Support object",
+            "status": "draft",
+            "system_ids": [databricks_system_id],
+        },
+    ).json()["id"]
+
+    catalog_rows = [
+        CatalogTable(
+            schema_name="support",
+            table_name="case_activity",
+            table_type="table",
+            column_count=6,
+            estimated_rows=1200,
+        )
+    ]
+
+    monkeypatch.setattr(
+        "app.routers.data_definition.fetch_connection_catalog",
+        lambda *args, **kwargs: catalog_rows,
+    )
+
+    response = client.get(
+        f"/data-definitions/data-objects/{data_object_id}/available-source-tables"
+    )
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    assert payload == [
+        {
+            "catalogName": None,
+            "schemaName": "support",
+            "tableName": "case_activity",
+            "tableType": "table",
+            "columnCount": 6,
+            "estimatedRows": 1200,
+        }
+    ]
+
+
+def test_available_source_tables_falls_back_to_global_databricks(client):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Fulfillment",
+            "description": "Fulfillment data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    legacy_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Legacy Fulfillment",
+            "physical_name": "LEG_FUL",
+            "description": "Legacy fulfillment system",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Fulfillment",
+            "description": "Fulfillment object",
+            "status": "draft",
+            "system_ids": [legacy_system_id],
+        },
+    ).json()["id"]
+
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Fulfillment",
+            "physical_name": "DBR_FUL",
+            "description": "Managed Databricks warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://fulfillment",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    client.post(
+        "/tables",
+        json={
+            "system_id": databricks_system_id,
+            "name": "Fulfillment KPIs",
+            "physical_name": "fulfillment.kpis",
+            "schema_name": "fulfillment",
+            "description": "KPIs stored in Databricks",
+            "table_type": "table",
+            "status": "active",
+        },
+    )
+
+    response = client.get(
+        f"/data-definitions/data-objects/{data_object_id}/available-source-tables"
+    )
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    assert payload == [
+        {
+            "catalogName": None,
+            "schemaName": "fulfillment",
+            "tableName": "fulfillment.kpis",
+            "tableType": "table",
+            "columnCount": None,
+            "estimatedRows": None,
+        }
+    ]
+
+
+def test_source_table_columns_uses_global_databricks_connection(client, monkeypatch):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Logistics",
+            "description": "Logistics data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    legacy_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Legacy Logistics",
+            "physical_name": "LEG_LOG",
+            "description": "Legacy warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Logistics",
+            "description": "Logistics object",
+            "status": "draft",
+            "system_ids": [legacy_system_id],
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": legacy_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:postgresql://legacy",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    databricks_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Databricks Logistics",
+            "physical_name": "DBR_LOG",
+            "description": "Databricks warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": databricks_system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://logistics",
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
+    captured_calls: list[tuple[tuple, dict]] = []
+
+    sample_columns = [
+        SourceTableColumn(
+            name="shipment_id",
+            type_name="VARCHAR",
+            length=50,
+            numeric_precision=None,
+            numeric_scale=None,
+            nullable=False,
+        )
+    ]
+
+    def fake_fetch(*args, **kwargs):
+        captured_calls.append((args, kwargs))
+        return sample_columns
+
+    monkeypatch.setattr(
+        "app.routers.data_definition.fetch_source_table_columns",
+        fake_fetch,
+    )
+
+    response = client.get(
+        f"/data-definitions/source-table-columns/{data_object_id}",
+        params={
+            "schema_name": "conversion-central",
+            "table_name": "logistics.shipments",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == [
+        {
+            "name": "shipment_id",
+            "typeName": "VARCHAR",
+            "length": 50,
+            "numericPrecision": None,
+            "numericScale": None,
+            "nullable": False,
+        }
+    ]
+
+    assert captured_calls, "fetch_source_table_columns was not invoked"
 def test_data_definition_requires_assignment(client):
     process_area_id = client.post(
         "/process-areas",
@@ -1166,6 +1716,18 @@ def _setup_construction_domain(client):
         },
     )
 
+    client.post(
+        "/system-connections",
+        json={
+            "system_id": system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:databricks://workspace",  # ensures databricks eligibility
+            "auth_method": "username_password",
+            "active": True,
+            "ingestion_enabled": True,
+        },
+    )
+
     data_object_id = client.post(
         "/data-objects",
         json={
@@ -1328,6 +1890,49 @@ def test_data_definition_construction_sync_removes_constructed_table(client, db_
     assert update_response.status_code == HTTPStatus.OK
 
     definition_id = UUID(definition["id"])
+
+    remaining = (
+        db_session.query(ConstructedTable)
+        .filter(ConstructedTable.data_definition_id == definition_id)
+        .all()
+    )
+    assert remaining == []
+
+
+def test_data_definition_delete_removes_constructed_tables(client, db_session):
+    setup = _setup_construction_domain(client)
+
+    create_response = client.post(
+        "/data-definitions",
+        json={
+            "data_object_id": setup["data_object_id"],
+            "system_id": setup["system_id"],
+            "description": "Definition with constructed table",
+            "tables": [
+                {
+                    "table_id": setup["table_id"],
+                    "alias": "Constructed Table",
+                    "is_construction": True,
+                    "fields": [
+                        {"field_id": setup["field_one_id"]},
+                        {"field_id": setup["field_two_id"]},
+                    ],
+                }
+            ],
+        },
+    )
+    assert create_response.status_code == HTTPStatus.CREATED
+    definition_id = UUID(create_response.json()["id"])
+
+    existing_constructed = (
+        db_session.query(ConstructedTable)
+        .filter(ConstructedTable.data_definition_id == definition_id)
+        .all()
+    )
+    assert existing_constructed, "Expected constructed table to be created"
+
+    delete_response = client.delete(f"/data-definitions/{definition_id}")
+    assert delete_response.status_code == HTTPStatus.NO_CONTENT
 
     remaining = (
         db_session.query(ConstructedTable)
@@ -2064,8 +2669,8 @@ def test_ingestion_job_crud_flow(client, monkeypatch):
         run_state["replace"] = replace
         run_state["system_connection_id"] = str(getattr(system_connection, "id", ""))
         assert job is not None
-        job.started_at = job.started_at or datetime.utcnow()
-        job.completed_at = datetime.utcnow()
+        job.started_at = job.started_at or datetime.now(timezone.utc)
+        job.completed_at = datetime.now(timezone.utc)
         job.status = "completed"
         job.row_count = 42
         return job.row_count

@@ -5,6 +5,7 @@ from app.config import get_settings
 from app.routers import api_router
 from app.services.scheduled_ingestion import scheduled_ingestion_engine
 from app.services.databricks_bootstrap import ensure_databricks_connection
+from app.services.data_quality_provisioning import data_quality_provisioner
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -33,3 +34,4 @@ async def startup_scheduler() -> None:
 @app.on_event("shutdown")
 async def shutdown_scheduler() -> None:
     scheduled_ingestion_engine.shutdown()
+    data_quality_provisioner.shutdown()

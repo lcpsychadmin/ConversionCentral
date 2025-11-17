@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -12,7 +12,7 @@ from app.schemas.entities import (
 
 
 def _read_payload(join_value: str):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return {
         "created_at": now,
         "updated_at": now,

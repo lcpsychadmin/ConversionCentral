@@ -13,6 +13,7 @@ from app.routers import (
 	constructed_table_approval,
 	constructed_data_validation_rule,
 	databricks_metadata,
+    data_quality_testgen,
     legal_requirement,
 	role,
 	user,
@@ -95,6 +96,7 @@ api_router.include_router(dependency_dag.router)
 api_router.include_router(reporting.router)
 api_router.include_router(databricks_metadata.router)
 api_router.include_router(databricks_settings.router)
+api_router.include_router(data_quality_testgen.router)
 api_router.include_router(security_classification.router)
 api_router.include_router(sap_hana_settings.router)
 api_router.include_router(application_database.router)

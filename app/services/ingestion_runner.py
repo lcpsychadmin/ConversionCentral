@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import MetaData, Table as SqlAlchemyTable, create_engine, select
 
@@ -29,7 +29,7 @@ class IngestionRunner:
     ) -> int:
         if job is not None:
             job.status = "running"
-            job.started_at = job.started_at or datetime.utcnow()
+            job.started_at = job.started_at or datetime.now(timezone.utc)
 
         engine = None
         total_rows = 0
@@ -75,13 +75,13 @@ class IngestionRunner:
         except UnsupportedConnectionError as exc:
             if job is not None:
                 job.status = "failed"
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
                 job.notes = (str(exc) or "Unsupported connection.")[:2000]
             raise ConnectionTestError(str(exc)) from exc
         except Exception as exc:
             if job is not None:
                 job.status = "failed"
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
                 job.notes = (str(exc) or "Ingestion failed.")[:2000]
             raise
         finally:
@@ -96,4 +96,4 @@ class IngestionRunner:
     def _mark_job_complete(self, job: IngestionJob, row_count: int) -> None:
         job.row_count = row_count
         job.status = "completed"
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)

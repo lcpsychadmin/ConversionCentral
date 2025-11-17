@@ -24,6 +24,13 @@ def test_ensure_databricks_connection_creates_managed_records(monkeypatch, db_se
     monkeypatch.setattr(databricks_bootstrap, "SessionLocal", _session_override)
     monkeypatch.setattr("app.ingestion.engine.SessionLocal", _session_override)
 
+    dq_calls: list[object] = []
+
+    def _capture_metadata_call(params):
+        dq_calls.append(params)
+
+    monkeypatch.setattr(databricks_bootstrap, "ensure_data_quality_metadata", _capture_metadata_call)
+
     get_settings.cache_clear()
     reset_ingestion_engine()
 
@@ -61,6 +68,7 @@ def test_ensure_databricks_connection_creates_managed_records(monkeypatch, db_se
         .all()
     )
     assert len(duplicate_count) == 1
+    assert len(dq_calls) >= 1
 
     get_settings.cache_clear()
     reset_ingestion_engine()

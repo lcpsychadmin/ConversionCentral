@@ -25,6 +25,9 @@ interface FormState {
   catalog: string;
   schemaName: string;
   constructedSchema: string;
+  dataQualitySchema: string;
+  dataQualityStorageFormat: 'delta' | 'hudi';
+  dataQualityAutoManageTables: boolean;
   ingestionBatchRows: string;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute: 'classic' | 'serverless';
@@ -39,6 +42,9 @@ const emptyForm: FormState = {
   catalog: '',
   schemaName: '',
   constructedSchema: '',
+  dataQualitySchema: 'dq_metadata',
+  dataQualityStorageFormat: 'delta',
+  dataQualityAutoManageTables: true,
   ingestionBatchRows: '',
   ingestionMethod: 'sql',
   sparkCompute: 'classic',
@@ -82,6 +88,9 @@ const DataWarehouseSettingsPage = () => {
       catalog: settings.catalog ?? '',
       schemaName: settings.schemaName ?? '',
       constructedSchema: settings.constructedSchema ?? '',
+      dataQualitySchema: settings.dataQualitySchema ?? '',
+      dataQualityStorageFormat: settings.dataQualityStorageFormat,
+      dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
       ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
       ingestionMethod: settings.ingestionMethod,
       sparkCompute: settings.sparkCompute ?? 'classic',
@@ -137,6 +146,20 @@ const DataWarehouseSettingsPage = () => {
     setForm((previous) => ({ ...previous, sparkCompute: value }));
   };
 
+  const handleDataQualityStorageFormatChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    const value = event.target.value === 'hudi' ? 'hudi' : 'delta';
+    setForm((previous) => ({ ...previous, dataQualityStorageFormat: value }));
+  };
+
+  const handleDataQualityAutoManageChange = (
+    event: ChangeEvent<HTMLInputElement>,
+    checked: boolean,
+  ) => {
+    setForm((previous) => ({ ...previous, dataQualityAutoManageTables: checked }));
+  };
+
   const buildPayload = (): DatabricksSqlSettingsInput => {
     const effectiveMethod = form.ingestionMethod === 'spark' ? 'spark' : 'sql';
     const effectiveCompute = form.sparkCompute === 'serverless' ? 'serverless' : 'classic';
@@ -148,6 +171,9 @@ const DataWarehouseSettingsPage = () => {
       catalog: trimValue(form.catalog) || null,
       schemaName: trimValue(form.schemaName) || null,
       constructedSchema: trimValue(form.constructedSchema) || null,
+      dataQualitySchema: trimValue(form.dataQualitySchema) || null,
+      dataQualityStorageFormat: form.dataQualityStorageFormat,
+      dataQualityAutoManageTables: form.dataQualityAutoManageTables,
       ingestionBatchRows: parseBatchRows(form.ingestionBatchRows),
       ingestionMethod: effectiveMethod,
       sparkCompute: effectiveCompute,
@@ -204,6 +230,19 @@ const DataWarehouseSettingsPage = () => {
       update.constructedSchema = trimmedConstructedSchema ? trimmedConstructedSchema : null;
     }
 
+    const trimmedDataQualitySchema = trimValue(form.dataQualitySchema);
+    if (trimmedDataQualitySchema !== (settings.dataQualitySchema ?? '')) {
+      update.dataQualitySchema = trimmedDataQualitySchema ? trimmedDataQualitySchema : null;
+    }
+
+    if (form.dataQualityStorageFormat !== settings.dataQualityStorageFormat) {
+      update.dataQualityStorageFormat = form.dataQualityStorageFormat;
+    }
+
+    if (form.dataQualityAutoManageTables !== settings.dataQualityAutoManageTables) {
+      update.dataQualityAutoManageTables = form.dataQualityAutoManageTables;
+    }
+
     if (parsedBatchRows !== (settings.ingestionBatchRows ?? null)) {
       update.ingestionBatchRows = parsedBatchRows;
     }
@@ -243,6 +282,9 @@ const DataWarehouseSettingsPage = () => {
         catalog: settings.catalog ?? '',
         schemaName: settings.schemaName ?? '',
         constructedSchema: settings.constructedSchema ?? '',
+        dataQualitySchema: settings.dataQualitySchema ?? '',
+        dataQualityStorageFormat: settings.dataQualityStorageFormat,
+        dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
         ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
         ingestionMethod: settings.ingestionMethod,
         sparkCompute: settings.sparkCompute ?? 'classic',
@@ -372,6 +414,41 @@ const DataWarehouseSettingsPage = () => {
               InputLabelProps={labelPropsFor(form.warehouseName)}
             />
           </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Data Quality Schema"
+              value={form.dataQualitySchema}
+              onChange={handleChange('dataQualitySchema')}
+              disabled={disableInputs}
+              helperText="Schema to store data quality metadata (defaults to dq_metadata)."
+              fullWidth
+              InputLabelProps={labelPropsFor(form.dataQualitySchema)}
+            />
+            <TextField
+              select
+              label="Data Quality Storage Format"
+              value={form.dataQualityStorageFormat}
+              onChange={handleDataQualityStorageFormatChange}
+              disabled={disableInputs}
+              helperText="Delta is recommended for managed catalog tables."
+              fullWidth
+            >
+              <MenuItem value="delta">Delta</MenuItem>
+              <MenuItem value="hudi">Hudi</MenuItem>
+            </TextField>
+          </Stack>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.dataQualityAutoManageTables}
+                onChange={handleDataQualityAutoManageChange}
+                disabled={disableInputs}
+              />
+            }
+            label="Automatically manage data quality tables"
+          />
 
           <TextField
             label="Insert Batch Size"

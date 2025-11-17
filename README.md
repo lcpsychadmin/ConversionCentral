@@ -19,6 +19,29 @@ Conversion Central is a FastAPI-powered backend that provides a reusable framewo
 - Table load sequencing with contiguous order enforcement, optional approvals, and DAG-aware scheduling
 - Security layer with role-based access control at the product team scope
 
+## Running with Docker (HTTPS Bundled)
+
+The repository includes a Docker Compose stack that now terminates TLS inside the `proxy` container so you can expose the application over HTTPS without relying on the host. The proxy fronts both the FastAPI backend and the static React frontend.
+
+1. **Certificates** – Drop a `server.crt` and `server.key` into `docker/proxy/certs/` (PEM-encoded). If no certificate is supplied, the proxy auto-generates a self-signed cert for `localhost` and stores it in that directory. For other domains, set `SSL_SELF_SIGNED_SUBJECT="/CN=your.domain"` in a `.env` file before composing.
+2. **Build & Run** – `docker compose up --build -d`. The stack exposes HTTP on port 80 (for redirects) and HTTPS on port 443. Accept the browser warning if you are using the generated self-signed certificate.
+3. **Access Points** –
+  - Frontend/UI: `https://localhost`
+  - API: `https://localhost/api`
+
+If you need to keep the certificate material outside the repo, replace the `./docker/proxy/certs` bind mount with your own path or set `SSL_CERT_PATH`/`SSL_KEY_PATH` in the compose file. The backend CORS allow list already trusts the HTTPS origins for `localhost` and `127.0.0.1`; add additional domains via the `FRONTEND_ORIGINS` environment variable on the backend service.
+
+## Deploying to Heroku
+
+Heroku's container runtime can run the backend and frontend images independently. Follow the step-by-step guide in [`docs/heroku-container.md`](docs/heroku-container.md) to:
+
+- Log in to the Heroku Container Registry
+- Create dedicated apps for the API and the React UI
+- Configure environment variables (database URL, CORS origins, `VITE_API_URL`)
+- Push and release images using `heroku container:push` / `heroku container:release`
+
+The backend image honors the `$PORT` environment variable that Heroku injects, so no additional changes are required to run FastAPI inside the dyno. Heroku provides TLS automatically for `*.herokuapp.com` domains; enable ACM if you later attach custom domains.
+
 ## Project Structure
 
 ```

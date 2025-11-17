@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { LoadingButton } from '@mui/lab';
 import {
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -120,7 +121,7 @@ const CreateFieldDialog = ({
       description: (initialValues.description as string | undefined) ?? '',
       applicationUsage: (initialValues.applicationUsage as string | undefined) ?? '',
       businessDefinition: (initialValues.businessDefinition as string | undefined) ?? '',
-  enterpriseAttribute: normalizeEnterpriseAttribute(initialValues.enterpriseAttribute as string | undefined),
+      enterpriseAttribute: normalizeEnterpriseAttribute(initialValues.enterpriseAttribute as string | undefined),
       fieldType: (initialValues.fieldType as string | undefined) ?? '',
       fieldLength: initialValues.fieldLength != null ? String(initialValues.fieldLength) : '',
       decimalPlaces: initialValues.decimalPlaces != null ? String(initialValues.decimalPlaces) : '',
@@ -232,7 +233,7 @@ const CreateFieldDialog = ({
       description: values.description.trim(),
       applicationUsage: values.applicationUsage.trim(),
       businessDefinition: values.businessDefinition.trim(),
-  enterpriseAttribute: values.enterpriseAttribute,
+      enterpriseAttribute: values.enterpriseAttribute,
       fieldType: values.fieldType.trim(),
       fieldLength: values.fieldLength.trim(),
       decimalPlaces: values.decimalPlaces.trim(),
@@ -241,7 +242,7 @@ const CreateFieldDialog = ({
       suppressedField: values.suppressedField,
       active: values.active,
       isUnique: values.isUnique,
-  legalRegulatoryImplications: values.legalRegulatoryImplications.trim(),
+      legalRegulatoryImplications: values.legalRegulatoryImplications.trim(),
       legalRequirementId: values.legalRequirementId.trim(),
       securityClassificationId: values.securityClassificationId.trim(),
       dataValidation: values.dataValidation.trim(),
@@ -338,7 +339,19 @@ const CreateFieldDialog = ({
                 fullWidth
               />
             </Stack>
-            <Stack direction="row" spacing={2} flexWrap="wrap">
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(1, minmax(0, 1fr))',
+                  sm: 'repeat(2, minmax(0, 220px))',
+                  md: 'repeat(3, minmax(0, 220px))'
+                },
+                columnGap: 2,
+                rowGap: 2,
+                alignItems: 'center'
+              }}
+            >
               <FormControlLabel
                 control={
                   <Switch
@@ -373,7 +386,7 @@ const CreateFieldDialog = ({
                 control={<Switch checked={values.isUnique} onChange={handleBooleanChange('isUnique')} />}
                 label="Unique Field"
               />
-            </Stack>
+            </Box>
             <TextField
               select
               label="Legal Requirement"

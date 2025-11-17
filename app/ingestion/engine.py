@@ -61,6 +61,9 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
     catalog = settings.databricks_catalog
     schema_name = settings.databricks_schema
     constructed_schema = settings.databricks_constructed_schema
+    data_quality_schema = settings.databricks_data_quality_schema
+    data_quality_storage_format = settings.databricks_data_quality_storage_format
+    data_quality_auto_manage_tables = settings.databricks_data_quality_auto_manage_tables
     ingestion_batch_rows = settings.databricks_ingestion_batch_rows
     ingestion_method = settings.databricks_ingestion_method or "sql"
     spark_compute = settings.databricks_spark_compute
@@ -85,6 +88,15 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
                 catalog = record.catalog or catalog
                 schema_name = record.schema_name or schema_name
                 constructed_schema = record.constructed_schema or constructed_schema
+                data_quality_schema = record.data_quality_schema or data_quality_schema
+                data_quality_storage_format = (
+                    record.data_quality_storage_format or data_quality_storage_format
+                )
+                data_quality_auto_manage_tables = (
+                    record.data_quality_auto_manage_tables
+                    if record.data_quality_auto_manage_tables is not None
+                    else data_quality_auto_manage_tables
+                )
                 ingestion_batch_rows = record.ingestion_batch_rows or ingestion_batch_rows
                 ingestion_method = record.ingestion_method or ingestion_method
                 spark_compute = record.spark_compute or spark_compute
@@ -109,6 +121,15 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
         constructed_schema=constructed_schema.strip()
         if isinstance(constructed_schema, str) and constructed_schema.strip()
         else None,
+        data_quality_schema=data_quality_schema.strip()
+        if isinstance(data_quality_schema, str) and data_quality_schema.strip()
+        else None,
+        data_quality_storage_format=(
+            data_quality_storage_format.strip().lower()
+            if isinstance(data_quality_storage_format, str) and data_quality_storage_format.strip()
+            else "delta"
+        ),
+        data_quality_auto_manage_tables=bool(data_quality_auto_manage_tables),
         ingestion_batch_rows=int(ingestion_batch_rows)
         if isinstance(ingestion_batch_rows, int) and ingestion_batch_rows > 0
         else None,

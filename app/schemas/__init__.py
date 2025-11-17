@@ -191,6 +191,27 @@ from app.schemas.reporting import (
     ReportStatus,
     ReportUpdateRequest,
 )
+from app.schemas.data_quality import (
+    AlertAcknowledgeRequest,
+    AlertCreateRequest,
+    AlertCreateResponse,
+    ProfileAnomalyPayload,
+    ProfileRunCompleteRequest,
+    ProfileRunStartRequest,
+    ProfileRunStartResponse,
+    TestGenAlert,
+    TestGenConnection,
+    TestGenProfileRun,
+    TestGenProject,
+    TestGenTable,
+    TestGenTableGroup,
+    TestGenTestRun,
+    TestResultBatchRequest,
+    TestResultPayload,
+    TestRunCompleteRequest,
+    TestRunStartRequest,
+    TestRunStartResponse,
+)
 from app.schemas.upload_data import (
     UploadDataColumn,
     UploadDataCreateResponse,

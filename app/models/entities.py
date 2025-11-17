@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import sqlalchemy as sa
@@ -12,12 +12,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
 
@@ -328,7 +332,7 @@ class ConstructedTableApproval(Base, TimestampMixin):
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
 
     constructed_table: Mapped[ConstructedTable] = relationship(
@@ -1037,7 +1041,7 @@ class TableLoadOrderApproval(Base, TimestampMixin):
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
 
     table_load_order: Mapped[TableLoadOrder] = relationship(
@@ -1129,7 +1133,7 @@ class DependencyApproval(Base, TimestampMixin):
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
 
     data_object_dependency: Mapped[DataObjectDependency | None] = relationship(
@@ -1344,7 +1348,7 @@ class PreLoadValidationApproval(Base, TimestampMixin):
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
 
     validation_result: Mapped["PreLoadValidationResult"] = relationship(
@@ -1386,7 +1390,7 @@ class PostLoadValidationApproval(Base, TimestampMixin):
     )
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
 
     validation_result: Mapped["PostLoadValidationResult"] = relationship(
@@ -1594,6 +1598,9 @@ class DatabricksSqlSetting(Base, TimestampMixin):
     catalog: Mapped[str | None] = mapped_column(String(120), nullable=True)
     schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     constructed_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    data_quality_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    data_quality_storage_format: Mapped[str] = mapped_column(String(20), nullable=False, default="delta")
+    data_quality_auto_manage_tables: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     ingestion_method: Mapped[str] = mapped_column(String(20), nullable=False, default="sql")
@@ -1642,7 +1649,7 @@ class ApplicationDatabaseSetting(Base, TimestampMixin):
     connection_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     connection_display: Mapped[str | None] = mapped_column(String(512), nullable=True)
     applied_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

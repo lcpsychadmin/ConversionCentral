@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models.entities import Report
+from app.models.entities import Report, System, Table
+from app.schemas import TableRead
 from app.schemas.reporting import (
     ReportCreateRequest,
     ReportDatasetResponse,
@@ -34,8 +35,30 @@ from app.services.report_service import (
     update_report,
 )
 from app.services.reporting_designer import ReportPreviewError, generate_report_preview
+from app.services.table_filters import table_is_databricks_eligible
 
 router = APIRouter(prefix="/reporting", tags=["Reporting"])
+
+
+@router.get("/tables", response_model=List[TableRead])
+def list_reporting_tables(db: Session = Depends(get_db)) -> List[TableRead]:
+    tables = (
+        db.query(Table)
+        .options(
+            selectinload(Table.system).selectinload(System.connections),
+            selectinload(Table.definition_tables),
+        )
+        .order_by(Table.name.asc())
+        .all()
+    )
+
+    databricks_tables = [
+        table
+        for table in tables
+        if table_is_databricks_eligible(table)
+    ]
+
+    return databricks_tables
 
 
 def _serialize_list_item(report: Report) -> ReportListItem:
@@ -99,7 +122,7 @@ def _build_dataset(
         name=report.name,
         limit=preview.limit,
         row_count=preview.row_count,
-        generated_at=datetime.utcnow(),
+    generated_at=datetime.now(timezone.utc),
         columns=preview.columns,
         rows=preview.rows,
     )

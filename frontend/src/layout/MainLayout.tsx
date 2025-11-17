@@ -14,6 +14,7 @@ import DataObjectIcon from '@mui/icons-material/Storage';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import TuneIcon from '@mui/icons-material/Tune';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 
 import { useAuth } from '../context/AuthContext';
 import {
@@ -41,10 +42,7 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <SettingsIcon />,
     children: [
-      { label: 'Company Settings', path: '/application-settings/company' },
-      { label: 'Product Teams', path: '/process-areas' },
-      { label: 'Legal Requirements', path: '/application-settings/legal-requirements' },
-      { label: 'Security Classifications', path: '/application-settings/security-classifications' }
+      { label: 'Company Settings', path: '/application-settings/company' }
     ]
   },
   {
@@ -59,6 +57,24 @@ const navItems: NavItem[] = [
     ]
   },
   {
+    label: 'Data Configuration',
+    collapsible: true,
+    icon: <DataObjectIcon />,
+    children: [
+      {
+        label: 'Data Definition Settings',
+        collapsible: true,
+        children: [
+          { label: 'Legal Requirements', path: '/application-settings/legal-requirements' },
+          { label: 'Security Classifications', path: '/application-settings/security-classifications' }
+        ]
+      },
+      { label: 'Product Teams', path: '/process-areas' },
+      { label: 'Data Objects', path: '/data-objects' },
+      { label: 'Data Object Definition', path: '/data-definitions' }
+    ]
+  },
+  {
     label: 'Data Management',
     collapsible: true,
     icon: <ManageAccountsIcon />,
@@ -68,12 +84,15 @@ const navItems: NavItem[] = [
     ]
   },
   {
-    label: 'Data Configuration',
+    label: 'Data Quality',
     collapsible: true,
-    icon: <DataObjectIcon />,
+    icon: <FactCheckIcon />,
     children: [
-      { label: 'Data Objects', path: '/data-objects' },
-      { label: 'Data Object Definition', path: '/data-definitions' }
+      { label: 'Overview', path: '/data-quality' },
+      { label: 'Datasets', path: '/data-quality/datasets' },
+      { label: 'Test Library', path: '/data-quality/test-library' },
+      { label: 'Run History & Alerts', path: '/data-quality/run-history' },
+      { label: 'Settings', path: '/data-quality/settings' }
     ]
   },
   // Project settings will be moved under Data Migration (see below)

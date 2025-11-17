@@ -1,16 +1,22 @@
+import logging
+from typing import Optional, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import DataObjectDependency, DependencyApproval, TableDependency, User
+from app.ingestion.engine import get_ingestion_connection_params
+from app.models import DataObjectDependency, DependencyApproval, Table, TableDependency, User
 from app.schemas import (
     DependencyApprovalCreate,
     DependencyApprovalDecision,
     DependencyApprovalRead,
     DependencyApprovalUpdate,
 )
+from app.services.data_quality_testgen import TestGenClient, TestGenClientError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dependency-approvals", tags=["Dependency Approvals"])
 
@@ -40,12 +46,125 @@ def _ensure_user_exists(user_id: UUID, db: Session) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 
+def _collect_project_keys(
+    db: Session,
+    *,
+    data_object_dependency_id: Optional[UUID] = None,
+    table_dependency_id: Optional[UUID] = None,
+) -> Set[str]:
+    project_keys: set[str] = set()
+
+    if data_object_dependency_id:
+        dependency = db.get(DataObjectDependency, data_object_dependency_id)
+        if dependency and dependency.predecessor:
+            for link in dependency.predecessor.system_links:
+                if link.system_id:
+                    project_keys.add(f"system:{link.system_id}")
+        if dependency and dependency.successor:
+            for link in dependency.successor.system_links:
+                if link.system_id:
+                    project_keys.add(f"system:{link.system_id}")
+
+    if table_dependency_id:
+        dependency = db.get(TableDependency, table_dependency_id)
+        if dependency:
+            project_keys.update(_project_keys_for_table(dependency.predecessor))
+            project_keys.update(_project_keys_for_table(dependency.successor))
+
+    return project_keys
+
+
+def _project_keys_for_table(table: Optional[Table]) -> Set[str]:
+    if table is None or table.system_id is None:
+        return set()
+    return {f"system:{table.system_id}"}
+
+
+def _guard_data_quality(project_keys: Set[str]) -> None:
+    if not project_keys:
+        return
+
+    client = _get_testgen_client()
+    if client is None:
+        return
+
+    blocking: dict[str, tuple[str | None, ...]] = {}
+    try:
+        for project_key in project_keys:
+            try:
+                failures = client.unresolved_failed_test_suites(project_key)
+            except TestGenClientError as exc:  # pragma: no cover - defensive guard
+                logger.warning(
+                    "Unable to check data quality status for project %s: %s",
+                    project_key,
+                    exc,
+                )
+                continue
+            if failures:
+                blocking[project_key] = failures
+    finally:
+        try:
+            client.close()
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("Ignoring TestGen client close error", exc_info=True)
+
+    if not blocking:
+        return
+
+    parts: list[str] = []
+    for key, suites in blocking.items():
+        formatted = ", ".join(suite or "default" for suite in suites)
+        parts.append(f"{key} ({formatted})")
+    detail = "Data quality validations are failing for " + "; ".join(parts)
+    raise HTTPException(status.HTTP_409_CONFLICT, detail=detail)
+
+
+def _get_testgen_client() -> Optional[TestGenClient]:
+    try:
+        params = get_ingestion_connection_params()
+    except RuntimeError:
+        return None
+
+    schema = (getattr(params, "data_quality_schema", "") or "").strip()
+    if not schema:
+        return None
+
+    try:
+        return TestGenClient(params, schema=schema)
+    except (ValueError, TestGenClientError):  # pragma: no cover - defensive guard
+        logger.warning("Unable to initialize TestGen client for dependency approval gate", exc_info=True)
+        return None
+
+
+def _ensure_quality_gate(
+    *,
+    decision: Optional[str],
+    previous_decision: Optional[str],
+    project_keys: Set[str],
+) -> None:
+    if (
+        decision == DependencyApprovalDecision.APPROVED.value
+        and previous_decision != DependencyApprovalDecision.APPROVED.value
+    ):
+        _guard_data_quality(project_keys)
+
+
 @router.post("", response_model=DependencyApprovalRead, status_code=status.HTTP_201_CREATED)
 def create_approval(
     payload: DependencyApprovalCreate, db: Session = Depends(get_db)
 ) -> DependencyApprovalRead:
     _ensure_dependency_exists(payload.data_object_dependency_id, payload.table_dependency_id, db)
     _ensure_user_exists(payload.approver_id, db)
+
+    project_keys = _collect_project_keys(
+        db,
+        data_object_dependency_id=payload.data_object_dependency_id,
+        table_dependency_id=payload.table_dependency_id,
+    )
+    decision_value = (
+        payload.decision.value if isinstance(payload.decision, DependencyApprovalDecision) else str(payload.decision)
+    )
+    _ensure_quality_gate(decision=decision_value, previous_decision=None, project_keys=project_keys)
 
     approval = DependencyApproval(**payload.dict())
     db.add(approval)
@@ -89,6 +208,22 @@ def update_approval(
     approver_id = update_data.get("approver_id")
     if approver_id:
         _ensure_user_exists(approver_id, db)
+
+    decision_value = update_data.get("decision")
+    if isinstance(decision_value, DependencyApprovalDecision):
+        decision_value = decision_value.value
+
+    project_keys = _collect_project_keys(
+        db,
+        data_object_dependency_id=data_object_dependency_id,
+        table_dependency_id=table_dependency_id,
+    )
+    final_decision = decision_value or approval.decision
+    _ensure_quality_gate(
+        decision=final_decision,
+        previous_decision=approval.decision,
+        project_keys=project_keys,
+    )
 
     for field, value in update_data.items():
         if field == "decision" and isinstance(value, DependencyApprovalDecision):

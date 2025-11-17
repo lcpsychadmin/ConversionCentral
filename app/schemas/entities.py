@@ -991,21 +991,41 @@ class SystemConnectionBase(BaseModel):
 
 
 class SystemConnectionCreate(SystemConnectionBase):
-    pass
+    connection_string: Optional[str] = Field(None, min_length=1)
+    use_databricks_managed_connection: bool = False
+
+    @root_validator
+    def _require_connection(cls, values: dict) -> dict:
+        use_managed = values.get("use_databricks_managed_connection")
+        connection_string = values.get("connection_string")
+        if not use_managed and not connection_string:
+            raise ValueError(
+                "connection_string is required unless use_databricks_managed_connection is true."
+            )
+        return values
 
 
 class SystemConnectionUpdate(BaseModel):
     system_id: Optional[UUID] = None
     connection_type: Optional[SystemConnectionType] = None
-    connection_string: Optional[str] = None
+    connection_string: Optional[str] = Field(None, min_length=1)
     auth_method: Optional[SystemConnectionAuthMethod] = None
     active: Optional[bool] = None
     ingestion_enabled: Optional[bool] = None
     notes: Optional[str] = None
+    use_databricks_managed_connection: Optional[bool] = None
 
 
 class SystemConnectionRead(SystemConnectionBase, TimestampSchema):
     id: UUID
+    uses_databricks_managed_connection: bool = False
+
+    @root_validator(pre=True)
+    def _detect_managed_databricks(cls, values: dict) -> dict:
+        connection_string = values.get("connection_string") or ""
+        values = dict(values)
+        values["uses_databricks_managed_connection"] = connection_string.startswith("jdbc:databricks://token:@")
+        return values
 
 
 class SystemConnectionTestRequest(BaseModel):
@@ -1027,6 +1047,16 @@ class DatabricksSqlSettingBase(BaseModel):
     catalog: Optional[str] = Field(None, max_length=120)
     schema_name: Optional[str] = Field(None, max_length=120)
     constructed_schema: Optional[str] = Field(None, max_length=120)
+    data_quality_schema: Optional[str] = Field(None, max_length=120)
+    data_quality_storage_format: str = Field(
+        "delta",
+        regex=r"^(delta|hudi)$",
+        description="Storage format for data quality metadata tables.",
+    )
+    data_quality_auto_manage_tables: bool = Field(
+        True,
+        description="Automatically manage data quality metadata tables when true.",
+    )
     ingestion_method: str = Field(
         "sql",
         regex=r"^(sql|spark)$",
@@ -1039,6 +1069,14 @@ class DatabricksSqlSettingBase(BaseModel):
         lowered = value.strip().lower()
         if lowered not in {"sql", "spark"}:
             raise ValueError("ingestion method must be 'sql' or 'spark'")
+        return lowered
+    @validator("data_quality_storage_format", pre=True, always=True)
+    def _normalize_data_quality_format(cls, value: str | None) -> str:
+        if not value:
+            return "delta"
+        lowered = value.strip().lower()
+        if lowered not in {"delta", "hudi"}:
+            raise ValueError("data quality storage format must be 'delta' or 'hudi'")
         return lowered
     warehouse_name: Optional[str] = Field(None, max_length=180)
     ingestion_batch_rows: Optional[int] = Field(
@@ -1059,7 +1097,15 @@ class DatabricksSqlSettingBase(BaseModel):
             return value.strip()
         return value
 
-    @validator("catalog", "schema_name", "constructed_schema", "warehouse_name", "spark_compute", pre=True)
+    @validator(
+        "catalog",
+        "schema_name",
+        "constructed_schema",
+        "data_quality_schema",
+        "warehouse_name",
+        "spark_compute",
+        pre=True,
+    )
     def _strip_optional_value(cls, value: str | None) -> str | None:
         if isinstance(value, str):
             return value.strip()
@@ -1087,6 +1133,9 @@ class DatabricksSqlSettingUpdate(BaseModel):
     catalog: Optional[str | None] = Field(None, max_length=120)
     schema_name: Optional[str | None] = Field(None, max_length=120)
     constructed_schema: Optional[str | None] = Field(None, max_length=120)
+    data_quality_schema: Optional[str | None] = Field(None, max_length=120)
+    data_quality_storage_format: Optional[str | None] = Field(None, regex=r"^(delta|hudi)$")
+    data_quality_auto_manage_tables: Optional[bool] = None
     ingestion_method: Optional[str | None] = Field(
         None,
         regex=r"^(sql|spark)$",
@@ -1098,6 +1147,14 @@ class DatabricksSqlSettingUpdate(BaseModel):
         lowered = value.strip().lower()
         if lowered not in {"sql", "spark"}:
             raise ValueError("ingestion method must be 'sql' or 'spark'")
+        return lowered
+    @validator("data_quality_storage_format")
+    def _normalize_update_data_quality_format(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lowered = value.strip().lower()
+        if lowered not in {"delta", "hudi"}:
+            raise ValueError("data quality storage format must be 'delta' or 'hudi'")
         return lowered
     warehouse_name: Optional[str | None] = Field(None, max_length=180)
     ingestion_batch_rows: Optional[int | None] = Field(
@@ -1115,6 +1172,8 @@ class DatabricksSqlSettingUpdate(BaseModel):
         "catalog",
         "schema_name",
         "constructed_schema",
+        "data_quality_schema",
+        "data_quality_storage_format",
         "warehouse_name",
         "spark_compute",
         pre=True,
@@ -1138,6 +1197,9 @@ class DatabricksSqlSettingTestRequest(BaseModel):
     catalog: Optional[str] = Field(None, max_length=120)
     schema_name: Optional[str] = Field(None, max_length=120)
     constructed_schema: Optional[str] = Field(None, max_length=120)
+    data_quality_schema: Optional[str] = Field(None, max_length=120)
+    data_quality_storage_format: Optional[str] = Field(None, regex=r"^(delta|hudi)$")
+    data_quality_auto_manage_tables: Optional[bool] = None
     ingestion_method: Optional[str] = Field(None, regex=r"^(sql|spark)$")
     ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
     spark_compute: Optional[str] = Field(None, regex=r"^(classic|serverless)$")
