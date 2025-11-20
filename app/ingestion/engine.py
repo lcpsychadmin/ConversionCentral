@@ -64,9 +64,13 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
     data_quality_schema = settings.databricks_data_quality_schema
     data_quality_storage_format = settings.databricks_data_quality_storage_format
     data_quality_auto_manage_tables = settings.databricks_data_quality_auto_manage_tables
+    profiling_policy_id = settings.databricks_profile_policy_id
+    profile_payload_base_path = settings.databricks_profile_payload_base_path
+    profiling_notebook_path = settings.databricks_profile_notebook_path
     ingestion_batch_rows = settings.databricks_ingestion_batch_rows
     ingestion_method = settings.databricks_ingestion_method or "sql"
     spark_compute = settings.databricks_spark_compute
+    warehouse_name = None
 
     record = None
     with SessionLocal() as session:
@@ -97,9 +101,13 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
                     if record.data_quality_auto_manage_tables is not None
                     else data_quality_auto_manage_tables
                 )
+                profiling_policy_id = record.profiling_policy_id or profiling_policy_id
+                profile_payload_base_path = record.profile_payload_base_path or profile_payload_base_path
+                profiling_notebook_path = record.profiling_notebook_path or profiling_notebook_path
                 ingestion_batch_rows = record.ingestion_batch_rows or ingestion_batch_rows
                 ingestion_method = record.ingestion_method or ingestion_method
                 spark_compute = record.spark_compute or spark_compute
+                warehouse_name = record.warehouse_name or warehouse_name
 
     if not host or not http_path or not token:
         raise RuntimeError(
@@ -130,11 +138,31 @@ def _resolve_databricks_params(settings) -> DatabricksConnectionParams:
             else "delta"
         ),
         data_quality_auto_manage_tables=bool(data_quality_auto_manage_tables),
+        profiling_policy_id=(
+            profiling_policy_id.strip()
+            if isinstance(profiling_policy_id, str) and profiling_policy_id.strip()
+            else None
+        ),
+        profile_payload_base_path=(
+            profile_payload_base_path.strip()
+            if isinstance(profile_payload_base_path, str) and profile_payload_base_path.strip()
+            else None
+        ),
+        profiling_notebook_path=(
+            profiling_notebook_path.strip()
+            if isinstance(profiling_notebook_path, str) and profiling_notebook_path.strip()
+            else None
+        ),
         ingestion_batch_rows=int(ingestion_batch_rows)
         if isinstance(ingestion_batch_rows, int) and ingestion_batch_rows > 0
         else None,
         ingestion_method=(ingestion_method or "sql").strip().lower(),
         spark_compute=(spark_compute.strip().lower() if isinstance(spark_compute, str) and spark_compute.strip() else None),
+        warehouse_name=(
+            warehouse_name.strip()
+            if isinstance(warehouse_name, str) and warehouse_name.strip()
+            else None
+        ),
     )
 
 

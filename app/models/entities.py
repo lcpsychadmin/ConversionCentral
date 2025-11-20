@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
@@ -1601,11 +1601,46 @@ class DatabricksSqlSetting(Base, TimestampMixin):
     data_quality_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
     data_quality_storage_format: Mapped[str] = mapped_column(String(20), nullable=False, default="delta")
     data_quality_auto_manage_tables: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    profiling_policy_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    profile_payload_base_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    profiling_notebook_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
     ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     ingestion_method: Mapped[str] = mapped_column(String(20), nullable=False, default="sql")
     spark_compute: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    cluster_policies: Mapped[list["DatabricksClusterPolicy"]] = relationship(
+        "DatabricksClusterPolicy",
+        back_populates="setting",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class DatabricksClusterPolicy(Base, TimestampMixin):
+    __tablename__ = "databricks_cluster_policies"
+    __table_args__ = (
+        sa.UniqueConstraint("setting_id", "policy_id", name="uq_cluster_policy_setting_policy"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    setting_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("databricks_sql_settings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    policy_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    definition: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    setting: Mapped[DatabricksSqlSetting] = relationship(
+        "DatabricksSqlSetting",
+        back_populates="cluster_policies",
+    )
 
 
 class SapHanaSetting(Base, TimestampMixin):

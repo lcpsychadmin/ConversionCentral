@@ -90,6 +90,8 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Overview', path: '/data-quality' },
       { label: 'Datasets', path: '/data-quality/datasets' },
+      { label: 'Profiling Runs', path: '/data-quality/profiling-runs' },
+      { label: 'Test Suites', path: '/data-quality/test-suites' },
       { label: 'Test Library', path: '/data-quality/test-library' },
       { label: 'Run History & Alerts', path: '/data-quality/run-history' },
       { label: 'Settings', path: '/data-quality/settings' }

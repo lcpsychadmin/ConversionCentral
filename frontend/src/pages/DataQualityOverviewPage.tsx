@@ -9,6 +9,7 @@ import {
 } from '@services/dataQualityService';
 import { DataQualityAlert, DataQualityProject, DataQualityTestRun } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import PageHeader from '../components/common/PageHeader';
 
 const resolveErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unexpected error encountered.';
@@ -116,48 +117,45 @@ const DataQualityOverviewPage = () => {
     return data.alerts.filter((alert) => !alert.acknowledged).length;
   }, [data]);
 
+  const header = (
+    <PageHeader
+      title="Data Quality Overview"
+      subtitle="Monitor TestGen coverage, active connections, and alerts across your dataset hierarchy."
+    />
+  );
+
   if (isLoading) {
     return (
-      <>
+      <Stack spacing={3}>
+        {header}
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
           <CircularProgress />
         </Box>
         {snackbar}
-      </>
+      </Stack>
     );
   }
 
   if (isError || !data) {
     return (
-      <>
-        <Box>
-          <Typography variant="h5" gutterBottom>
-            Data Quality Overview
+      <Stack spacing={3}>
+        {header}
+        <Paper elevation={0} sx={{ p: 3 }}>
+          <Typography color="error" gutterBottom>
+            Unable to load data quality summary. Please try again.
           </Typography>
-          <Paper elevation={0} sx={{ p: 3 }}>
-            <Typography color="error" gutterBottom>
-              Unable to load data quality summary. Please try again.
-            </Typography>
-            <Button variant="contained" onClick={handleRetry}>
-              Retry
-            </Button>
-          </Paper>
-        </Box>
+          <Button variant="contained" onClick={handleRetry}>
+            Retry
+          </Button>
+        </Paper>
         {snackbar}
-      </>
+      </Stack>
     );
   }
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>
-          Data Quality Overview
-        </Typography>
-        <Typography color="text.secondary">
-          Snapshot of TestGen projects, connections, and recent runs across the platform.
-        </Typography>
-      </Box>
+      {header}
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>

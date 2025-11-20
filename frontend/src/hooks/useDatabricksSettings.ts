@@ -4,17 +4,21 @@ import { AxiosError } from 'axios';
 import {
   createDatabricksSettings,
   fetchDatabricksSettings,
+  fetchDatabricksClusterPolicies,
+  syncDatabricksClusterPolicies,
   testDatabricksSettings,
-  updateDatabricksSettings
+  updateDatabricksSettings,
 } from '../services/databricksSettingsService';
 import {
+  DatabricksClusterPolicy,
   DatabricksSqlSettings,
   DatabricksSqlSettingsTestResult,
-  DatabricksSqlSettingsUpdate
+  DatabricksSqlSettingsUpdate,
 } from '../types/data';
 import { useToast } from './useToast';
 
 const SETTINGS_KEY = ['databricks-settings'];
+const POLICIES_KEY = [...SETTINGS_KEY, 'policies'];
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof AxiosError) {
@@ -38,9 +42,13 @@ export const useDatabricksSettings = () => {
   const toast = useToast();
   const queryClient = useQueryClient();
 
-  const invalidate = () => queryClient.invalidateQueries(SETTINGS_KEY);
+  const invalidate = () => {
+    queryClient.invalidateQueries(SETTINGS_KEY);
+    queryClient.invalidateQueries(POLICIES_KEY);
+  };
 
   const settingsQuery = useQuery<DatabricksSqlSettings | null>(SETTINGS_KEY, fetchDatabricksSettings);
+  const policiesQuery = useQuery<DatabricksClusterPolicy[]>(POLICIES_KEY, fetchDatabricksClusterPolicies);
 
   const createMutation = useMutation(createDatabricksSettings, {
     onSuccess: () => {
@@ -68,13 +76,24 @@ export const useDatabricksSettings = () => {
     onError: (error: unknown) => toast.showError(getErrorMessage(error))
   });
 
+  const syncPoliciesMutation = useMutation(syncDatabricksClusterPolicies, {
+    onSuccess: () => {
+      toast.showSuccess('Cluster policies refreshed.');
+      queryClient.invalidateQueries(POLICIES_KEY);
+    },
+    onError: (error: unknown) => toast.showError(getErrorMessage(error)),
+  });
+
   return {
     settingsQuery,
+    policiesQuery,
     createSettings: createMutation.mutateAsync,
     updateSettings: updateMutation.mutateAsync,
     testSettings: testMutation.mutateAsync,
+    syncPolicies: syncPoliciesMutation.mutateAsync,
     creating: createMutation.isLoading,
     updating: updateMutation.isLoading,
-    testing: testMutation.isLoading
+    testing: testMutation.isLoading,
+    syncingPolicies: syncPoliciesMutation.isLoading,
   };
 };

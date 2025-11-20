@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Set
 
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
@@ -14,7 +14,22 @@ from sqlalchemy.orm import selectinload
 
 from app.services.databricks_sql import DatabricksConnectionParams, build_sqlalchemy_url
 from app.database import SessionLocal
-from app.models import System, SystemConnection
+from app.models import (
+    DataDefinition,
+    DataDefinitionTable,
+    DataObject,
+    DataObjectSystem,
+    System,
+    SystemConnection,
+)
+from app.services.data_quality_keys import (
+    build_connection_id,
+    build_project_key,
+    build_table_group_id,
+    build_table_id,
+    create_definition_table_key_set,
+    selection_matches_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +58,7 @@ class TableGroupSeed:
     description: str | None = None
     profiling_include_mask: str | None = None
     profiling_exclude_mask: str | None = None
+    profiling_job_id: str | None = None
     tables: tuple[TableSeed, ...] = ()
 
 
@@ -74,8 +90,62 @@ class DataQualitySeed:
     projects: tuple[ProjectSeed, ...] = ()
 
 
-def ensure_data_quality_metadata(params: DatabricksConnectionParams) -> None:
-    """Ensure the configured data quality schema exists and contains baseline tables."""
+def _format_connection_name(system_name: str, data_object_name: str, connection_type: str | None) -> str:
+    suffix = f" ({connection_type.upper()})" if connection_type else ""
+    return f"{system_name} · {data_object_name}{suffix}"
+
+
+def _tables_for_connection(
+    connection: SystemConnection,
+    *,
+    data_object_id,
+    table_keys: Set["DefinitionTableKey"],
+) -> tuple[TableSeed, ...]:
+    selections = list(connection.catalog_selections or [])
+    if not selections:
+        return ()
+
+    group_id = build_table_group_id(connection.id, data_object_id)
+
+    def _build_tables(filter_keys: Set["DefinitionTableKey"] | None) -> list[TableSeed]:
+        result: list[TableSeed] = []
+        for selection in selections:
+            if filter_keys is not None and not selection_matches_keys(
+                selection.schema_name, selection.table_name, filter_keys
+            ):
+                continue
+            schema = selection.schema_name.strip() if selection.schema_name else None
+            table_name = selection.table_name.strip() if selection.table_name else selection.table_name
+            result.append(
+                TableSeed(
+                    table_id=build_table_id(selection.id, data_object_id),
+                    table_group_id=group_id,
+                    schema_name=schema,
+                    table_name=table_name,
+                    source_table_id=None,
+                )
+            )
+        return result
+
+    primary = _build_tables(table_keys)
+    if primary:
+        return tuple(primary)
+    if table_keys:
+        fallback = _build_tables(None)
+        return tuple(fallback)
+    return tuple(primary)
+
+
+def ensure_data_quality_metadata(
+    params: DatabricksConnectionParams,
+    seed_override: DataQualitySeed | None = None,
+) -> None:
+    """Ensure the configured data quality schema exists and contains baseline tables.
+
+    When ``seed_override`` is provided the caller is responsible for constructing the
+    desired project/connection/table set (e.g., from a dbt manifest). The ORM-based
+    metadata collection will be skipped in that case.
+    """
 
     if not params.data_quality_auto_manage_tables:
         logger.info("Databricks data quality auto-management disabled; skipping metadata provisioning.")
@@ -95,15 +165,20 @@ def ensure_data_quality_metadata(params: DatabricksConnectionParams) -> None:
         return
 
     try:
-        _apply_schema(params, schema, storage_format)
+        seed = seed_override or _collect_metadata(params)
+        _apply_schema(params, schema, storage_format, seed)
     except SQLAlchemyError as exc:  # pragma: no cover - defensive guard for runtime failures
         logger.exception("Failed to provision data quality metadata tables: %s", exc)
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("Unexpected error while provisioning data quality metadata tables: %s", exc)
 
 
-def _apply_schema(params: DatabricksConnectionParams, schema: str, storage_format: str) -> None:
-    seed = _collect_metadata(params)
+def _apply_schema(
+    params: DatabricksConnectionParams,
+    schema: str,
+    storage_format: str,
+    seed: DataQualitySeed,
+) -> None:
     engine: Engine | None = None
     try:
         engine = create_engine(
@@ -113,6 +188,7 @@ def _apply_schema(params: DatabricksConnectionParams, schema: str, storage_forma
         )
         with engine.connect() as connection:
             _run_statements(connection.execute, _schema_statements(params, schema, storage_format))
+            _upgrade_schema(connection.execute, params, schema)
             _seed_metadata(connection, params, schema, seed)
     finally:
         if engine is not None:
@@ -122,6 +198,25 @@ def _apply_schema(params: DatabricksConnectionParams, schema: str, storage_forma
 def _run_statements(execute, statements: Iterable[str]) -> None:
     for statement in statements:
         execute(text(statement))
+
+
+def _upgrade_schema(execute, params: DatabricksConnectionParams, schema: str) -> None:
+    table_groups_table = _format_table(params.catalog, schema, "dq_table_groups")
+    profiles_table = _format_table(params.catalog, schema, "dq_profiles")
+    statements = [
+        (table_groups_table, "profiling_job_id STRING"),
+        (profiles_table, "databricks_run_id STRING"),
+    ]
+    for table_name, column_definition in statements:
+        statement = text(f"ALTER TABLE {table_name} ADD COLUMNS ({column_definition})")
+        try:
+            execute(statement)
+        except SQLAlchemyError as exc:
+            error_message = str(exc).lower()
+            if "already exists" in error_message:
+                continue
+            logger.warning("Failed to upgrade table %s with column %s: %s", table_name, column_definition, exc)
+            raise
 
 
 def _schema_statements(
@@ -159,7 +254,12 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
         systems = (
             session.execute(
                 select(System).options(
-                    selectinload(System.connections).selectinload(SystemConnection.catalog_selections)
+                    selectinload(System.connections).selectinload(SystemConnection.catalog_selections),
+                    selectinload(System.data_object_links)
+                    .selectinload(DataObjectSystem.data_object)
+                    .selectinload(DataObject.data_definitions)
+                    .selectinload(DataDefinition.tables)
+                    .selectinload(DataDefinitionTable.table),
                 )
             )
             .scalars()
@@ -171,67 +271,83 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
         if system.status and system.status.lower() != "active":
             continue
 
-        connections: list[ConnectionSeed] = []
-        for connection in system.connections:
-            if not connection.active:
+        data_object_links = [link for link in system.data_object_links if link.data_object is not None]
+
+        for link in data_object_links:
+            data_object = link.data_object
+            if data_object is None:
+                continue
+            if data_object.status and data_object.status.lower() == "archived":
                 continue
 
-            connection_id = f"{_CONNECTION_ID_PREFIX}{connection.id}"
-            table_group_id = f"{_TABLE_GROUP_ID_PREFIX}{connection.id}"
+            definitions = [
+                definition
+                for definition in data_object.data_definitions
+                if definition.system_id == system.id
+            ]
 
-            tables = tuple(
-                TableSeed(
-                    table_id=f"{_TABLE_ID_PREFIX}{selection.id}",
-                    table_group_id=table_group_id,
-                    schema_name=(selection.schema_name.strip() if selection.schema_name else None),
-                    table_name=selection.table_name,
+            if not definitions:
+                continue
+
+            definition_keys = create_definition_table_key_set(definitions)
+            connections: list[ConnectionSeed] = []
+
+            for connection in system.connections:
+                if not connection.active:
+                    continue
+
+                tables = _tables_for_connection(
+                    connection,
+                    data_object_id=data_object.id,
+                    table_keys=definition_keys,
                 )
-                for selection in connection.catalog_selections
-            )
 
-            table_groups: tuple[TableGroupSeed, ...]
-            if tables:
+                if not tables:
+                    continue
+
+                connection_id = build_connection_id(connection.id, data_object.id)
+                table_group_id = build_table_group_id(connection.id, data_object.id)
+
                 table_groups = (
                     TableGroupSeed(
                         table_group_id=table_group_id,
                         connection_id=connection_id,
-                        name=f"{system.name} Tables",
-                        description=system.description,
+                        name=f"{data_object.name} Tables",
+                        description=data_object.description or system.description,
                         tables=tables,
                     ),
                 )
-            else:
-                table_groups = ()
 
-            connections.append(
-                ConnectionSeed(
-                    connection_id=connection_id,
-                    project_key=f"{_PROJECT_KEY_PREFIX}{system.id}",
-                    system_id=str(system.id),
-                    name=(
-                        f"{system.name} ({connection.connection_type.upper()})"
-                        if connection.connection_type
-                        else system.name
-                    ),
-                    catalog=params.catalog,
-                    schema_name=params.schema_name,
-                    http_path=params.http_path,
-                    managed_credentials_ref=None,
-                    is_active=bool(connection.active and connection.ingestion_enabled),
-                    table_groups=table_groups,
+                connections.append(
+                    ConnectionSeed(
+                        connection_id=connection_id,
+                        project_key=build_project_key(system.id, data_object.id),
+                        system_id=str(system.id),
+                        name=_format_connection_name(
+                            system.name,
+                            data_object.name,
+                            connection.connection_type,
+                        ),
+                        catalog=params.catalog,
+                        schema_name=params.schema_name,
+                        http_path=params.http_path,
+                        managed_credentials_ref=None,
+                        # Profiling should still consider the connection active even when ingestion is disabled.
+                        is_active=bool(connection.active),
+                        table_groups=table_groups,
+                    )
                 )
-            )
 
-        if connections:
-            projects.append(
-                ProjectSeed(
-                    project_key=f"{_PROJECT_KEY_PREFIX}{system.id}",
-                    name=system.name,
-                    description=system.description,
-                    sql_flavor="databricks-sql",
-                    connections=tuple(connections),
+            if connections:
+                projects.append(
+                    ProjectSeed(
+                        project_key=build_project_key(system.id, data_object.id),
+                        name=f"{system.name} · {data_object.name}",
+                        description=data_object.description or system.description,
+                        sql_flavor="databricks-sql",
+                        connections=tuple(connections),
+                    )
                 )
-            )
 
     return DataQualitySeed(projects=tuple(projects))
 
@@ -370,7 +486,8 @@ USING (
            :name AS name,
            :description AS description,
            :profiling_include_mask AS profiling_include_mask,
-           :profiling_exclude_mask AS profiling_exclude_mask
+           :profiling_exclude_mask AS profiling_exclude_mask,
+           :profiling_job_id AS profiling_job_id
 ) AS source
 ON target.table_group_id = source.table_group_id
 WHEN MATCHED THEN UPDATE SET
@@ -379,6 +496,7 @@ WHEN MATCHED THEN UPDATE SET
     description = source.description,
     profiling_include_mask = source.profiling_include_mask,
     profiling_exclude_mask = source.profiling_exclude_mask,
+    profiling_job_id = source.profiling_job_id,
     updated_at = current_timestamp()
 WHEN NOT MATCHED THEN INSERT (
     table_group_id,
@@ -387,6 +505,7 @@ WHEN NOT MATCHED THEN INSERT (
     description,
     profiling_include_mask,
     profiling_exclude_mask,
+    profiling_job_id,
     created_at,
     updated_at
 )
@@ -397,6 +516,7 @@ VALUES (
     source.description,
     source.profiling_include_mask,
     source.profiling_exclude_mask,
+    source.profiling_job_id,
     current_timestamp(),
     current_timestamp()
 )
@@ -409,6 +529,7 @@ VALUES (
             "description": group_seed.description,
             "profiling_include_mask": group_seed.profiling_include_mask,
             "profiling_exclude_mask": group_seed.profiling_exclude_mask,
+            "profiling_job_id": group_seed.profiling_job_id,
         },
     )
 
@@ -574,8 +695,8 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "name STRING",
                     "description STRING",
                     "sql_flavor STRING",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
-                    "updated_at TIMESTAMP DEFAULT current_timestamp()",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
                 ],
             ),
             (
@@ -589,9 +710,9 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "schema_name STRING",
                     "http_path STRING",
                     "managed_credentials_ref STRING",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
-                    "updated_at TIMESTAMP DEFAULT current_timestamp()",
-                    "is_active BOOLEAN DEFAULT true",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
+                    "is_active BOOLEAN",
                 ],
             ),
             (
@@ -603,8 +724,9 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "description STRING",
                     "profiling_include_mask STRING",
                     "profiling_exclude_mask STRING",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
-                    "updated_at TIMESTAMP DEFAULT current_timestamp()",
+                    "profiling_job_id STRING",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
                 ],
             ),
             (
@@ -615,7 +737,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "schema_name STRING",
                     "table_name STRING",
                     "source_table_id STRING",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
+                    "created_at TIMESTAMP",
                 ],
             ),
             (
@@ -623,12 +745,13 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                 [
                     "profile_run_id STRING NOT NULL",
                     "table_group_id STRING NOT NULL",
-                    "status STRING DEFAULT 'pending'",
+                    "status STRING",
                     "started_at TIMESTAMP",
                     "completed_at TIMESTAMP",
                     "row_count BIGINT",
                     "anomaly_count INT",
                     "payload_path STRING",
+                    "databricks_run_id STRING",
                 ],
             ),
             (
@@ -640,7 +763,23 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "anomaly_type STRING",
                     "severity STRING",
                     "description STRING",
-                    "detected_at TIMESTAMP DEFAULT current_timestamp()",
+                    "detected_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_test_suites",
+                [
+                    "test_suite_key STRING NOT NULL",
+                    "project_key STRING",
+                    "name STRING",
+                    "description STRING",
+                    "severity STRING",
+                    "product_team_id STRING",
+                    "application_id STRING",
+                    "data_object_id STRING",
+                    "data_definition_id STRING",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
                 ],
             ),
             (
@@ -652,8 +791,8 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "name STRING",
                     "rule_type STRING",
                     "definition STRING",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
-                    "updated_at TIMESTAMP DEFAULT current_timestamp()",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
                 ],
             ),
             (
@@ -662,7 +801,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "test_run_id STRING NOT NULL",
                     "test_suite_key STRING",
                     "project_key STRING",
-                    "status STRING DEFAULT 'pending'",
+                    "status STRING",
                     "started_at TIMESTAMP",
                     "completed_at TIMESTAMP",
                     "duration_ms BIGINT",
@@ -682,7 +821,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "expected_value STRING",
                     "actual_value STRING",
                     "message STRING",
-                    "detected_at TIMESTAMP DEFAULT current_timestamp()",
+                    "detected_at TIMESTAMP",
                 ],
             ),
             (
@@ -694,10 +833,10 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "severity STRING",
                     "title STRING",
                     "details STRING",
-                    "acknowledged BOOLEAN DEFAULT false",
+                    "acknowledged BOOLEAN",
                     "acknowledged_by STRING",
                     "acknowledged_at TIMESTAMP",
-                    "created_at TIMESTAMP DEFAULT current_timestamp()",
+                    "created_at TIMESTAMP",
                 ],
             ),
             (
@@ -705,7 +844,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                 [
                     "key STRING NOT NULL",
                     "value STRING",
-                    "updated_at TIMESTAMP DEFAULT current_timestamp()",
+                    "updated_at TIMESTAMP",
                 ],
             ),
         )

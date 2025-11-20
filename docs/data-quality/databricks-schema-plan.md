@@ -68,6 +68,7 @@ Groups of tables (datasets) corresponding to TestGen table groups; each maps to 
 | `description` | STRING | Optional. |
 | `profiling_include_mask` | STRING | Pattern filters (from settings). |
 | `profiling_exclude_mask` | STRING | Pattern filters. |
+| `profiling_job_id` | STRING | Databricks job id assigned to this group. |
 | `created_at` / `updated_at` | TIMESTAMP | |
 
 ### 4. `dq_tables`
@@ -96,6 +97,7 @@ Stores profiling runs results.
 | `row_count` | BIGINT | Optional summary. |
 | `anomaly_count` | INT | Count of detected issues. |
 | `payload_path` | STRING | Path to profile result in lakehouse (if storing large JSON). |
+| `databricks_run_id` | STRING | Run identifier for Databricks job submissions. |
 |
 ### 6. `dq_profile_anomalies`
 

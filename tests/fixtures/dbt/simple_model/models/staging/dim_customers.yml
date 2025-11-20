@@ -1,0 +1,19 @@
+version: 2
+models:
+- name: dim_customers
+  description: Conformed customer dimension.
+  columns:
+  - name: id
+    description: Unique customer id.
+    data_type: int
+    tests:
+    - not_null
+  - name: email
+    description: Customer email alias.
+    data_type: string
+  tags:
+  - staging
+  - dimensions
+  meta:
+    domain: customer_360
+    owner: analytics-team

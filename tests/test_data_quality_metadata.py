@@ -12,6 +12,12 @@ from app.services.data_quality_metadata import (
     TableGroupSeed,
     TableSeed,
 )
+from app.services.data_quality_keys import (
+    build_connection_id,
+    build_project_key,
+    build_table_group_id,
+    build_table_id,
+)
 from app.services import data_quality_metadata
 from app.services.databricks_sql import DatabricksConnectionParams
 
@@ -95,15 +101,16 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
 
     ensure_data_quality_metadata(params)
 
-    assert len(executed) == 14
+    assert len(executed) == 17
     assert executed[0] == "CREATE SCHEMA IF NOT EXISTS `sandbox`.`dq`"
     assert executed[1].startswith("CREATE TABLE IF NOT EXISTS `sandbox`.`dq`.`dq_projects`")
     assert "USING DELTA" in executed[1]
     assert "TBLPROPERTIES" in executed[1]
-    assert executed[-2] == "DELETE FROM `sandbox`.`dq`.`dq_settings` WHERE key = 'schema_version'"
-    assert executed[-1] == (
-        "INSERT INTO `sandbox`.`dq`.`dq_settings` (key, value, updated_at) VALUES (" "'schema_version', '1', current_timestamp())"
-    )
+    assert any("`dq_test_suites`" in statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_table_groups` ADD COLUMNS (profiling_job_id STRING)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (databricks_run_id STRING)" == statement for statement in executed)
+    assert "DELETE FROM `sandbox`.`dq`.`dq_settings` WHERE key = 'schema_version'" in executed
+    assert "INSERT INTO `sandbox`.`dq`.`dq_settings` (key, value, updated_at) VALUES ('schema_version', '1', current_timestamp())" in executed
 
 
 @pytest.mark.parametrize("storage_format", ["iceberg", "csv"])
@@ -148,12 +155,17 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
         return DummyEngine()
 
     def _seed_stub(params: DatabricksConnectionParams) -> DataQualitySeed:
-        connection_id = "conn:abcd"
-        table_group_id = "group:abcd"
-        project_key = "system:proj"
+        system_identifier = "proj"
+        data_object_identifier = "object-1"
+        connection_identifier = "connection-1"
+        selection_identifier = "selection-1234"
+
+        project_key = build_project_key(system_identifier, data_object_identifier)
+        connection_id = build_connection_id(connection_identifier, data_object_identifier)
+        table_group_id = build_table_group_id(connection_identifier, data_object_identifier)
 
         table_seed = TableSeed(
-            table_id="selection:1234",
+            table_id=build_table_id(selection_identifier, data_object_identifier),
             table_group_id=table_group_id,
             schema_name="analytics",
             table_name="orders",
@@ -167,7 +179,7 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
         connection_seed = ConnectionSeed(
             connection_id=connection_id,
             project_key=project_key,
-            system_id="proj",
+            system_id=system_identifier,
             name="System (JDBC)",
             catalog="sandbox",
             schema_name="analytics",

@@ -174,6 +174,23 @@ export const fetchAllDataDefinitions = async (): Promise<DataDefinition[]> => {
   return definitions.map(mapDataDefinition);
 };
 
+export const fetchDataDefinitionsByContext = async (
+  dataObjectId: string,
+  systemId: string
+): Promise<DataDefinition[]> => {
+  const response = await client.get<DataDefinitionResponse[] | PaginatedResponse<DataDefinitionResponse>>(
+    '/data-definitions',
+    {
+      params: {
+        data_object_id: dataObjectId,
+        system_id: systemId
+      }
+    }
+  );
+  const definitions = ensureArrayResponse(response.data);
+  return definitions.map(mapDataDefinition);
+};
+
 export const createDataDefinition = async (
   input: DataDefinitionInput
 ): Promise<DataDefinition> => {

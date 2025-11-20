@@ -1021,6 +1021,7 @@ const ReportingDesignerContent = () => {
       label: table.name,
       subtitle: table.schemaName ? `${table.schemaName}.${table.physicalName}` : table.physicalName,
       meta: table.status ? `Status: ${table.status}` : undefined,
+      group: 'output',
       fields: sortedFields.map((field) => ({
         id: field.id,
         name: field.name,

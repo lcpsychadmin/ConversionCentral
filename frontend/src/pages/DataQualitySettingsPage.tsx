@@ -4,6 +4,7 @@ import { useQuery } from 'react-query';
 import { fetchDatabricksSettings } from '@services/databricksSettingsService';
 import { DatabricksSqlSettings } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import PageHeader from '../components/common/PageHeader';
 
 const resolveErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unexpected error encountered.';
@@ -44,15 +45,10 @@ const DataQualitySettingsPage = () => {
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>
-          Data Quality Settings
-        </Typography>
-        <Typography color="text.secondary">
-          Review the Databricks configuration used to store TestGen metadata and manage
-          auto-provisioning.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Data Quality Settings"
+        subtitle="Review the Databricks workspace configuration that powers TestGen metadata and automation."
+      />
 
       {settingsQuery.isLoading ? (
         <Box display="flex" justifyContent="center" py={4}>

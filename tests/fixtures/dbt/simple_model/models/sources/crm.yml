@@ -1,0 +1,15 @@
+version: 2
+sources:
+- name: crm
+  tables:
+  - name: crm_customers
+    description: Raw CRM customers table.
+    columns:
+    - name: id
+      description: Customer identifier.
+      data_type: int
+    - name: email
+      description: Customer email address.
+      data_type: string
+    meta:
+      sourceName: crm

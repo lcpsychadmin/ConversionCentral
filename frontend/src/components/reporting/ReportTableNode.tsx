@@ -2,11 +2,21 @@ import { useMemo, useState, type DragEvent, type MouseEvent } from 'react';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Checkbox, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import { Handle, NodeProps, Position } from 'reactflow';
 import { NodeResizer } from '@reactflow/node-resizer';
 import '@reactflow/node-resizer/dist/style.css';
+import type {
+  CanvasGraphLayer,
+  CanvasGraphNodeConfig,
+  CanvasGraphNodeOrigin,
+  CanvasGraphResourceType,
+  CanvasGraphColumn
+} from '../../types/canvasGraph';
+
+type ReportTableNodeGroup = 'source' | 'transform' | 'output';
 
 interface ReportTableNodeData {
   tableId: string;
@@ -19,6 +29,15 @@ interface ReportTableNodeData {
     type?: string | null;
     description?: string | null;
   }>;
+  group: ReportTableNodeGroup;
+  canvas?: {
+    resourceType: CanvasGraphResourceType;
+    layer?: CanvasGraphLayer;
+    description?: string | null;
+    origin: CanvasGraphNodeOrigin;
+    columns: CanvasGraphColumn[];
+    config: CanvasGraphNodeConfig;
+  };
   allowSelection?: boolean;
   selectedFieldIds?: string[];
   onFieldToggle?: (fieldId: string) => void;
@@ -30,6 +49,7 @@ interface ReportTableNodeData {
     target: { tableId: string; fieldId: string }
   ) => void;
   onRemoveTable?: (tableId: string) => void;
+  onEditCanvas?: (tableId: string) => void;
 }
 
 export const REPORTING_FIELD_DRAG_TYPE = 'application/reporting-field';
@@ -232,6 +252,26 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
               {data.label}
             </Typography>
           </Box>
+          {data.onEditCanvas && (
+            <Tooltip title="Edit dbt settings">
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  data.onEditCanvas?.(data.tableId);
+                }}
+                sx={{
+                  color: alpha(theme.palette.common.white, 0.9),
+                  '&:hover': {
+                    color: theme.palette.secondary.light,
+                    backgroundColor: alpha(theme.palette.secondary.light, 0.12)
+                  }
+                }}
+              >
+                <SettingsOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           {data.onRemoveTable && (
             <Tooltip title="Remove table">
               <IconButton
@@ -396,5 +436,5 @@ const ReportTableNode = ({ data, selected }: NodeProps<ReportTableNodeData>) => 
   );
 };
 
-export type { ReportTableNodeData };
+export type { ReportTableNodeData, ReportTableNodeGroup };
 export default ReportTableNode;

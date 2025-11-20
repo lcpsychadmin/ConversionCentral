@@ -3,7 +3,8 @@ import {
   DatabricksSqlSettings,
   DatabricksSqlSettingsInput,
   DatabricksSqlSettingsTestResult,
-  DatabricksSqlSettingsUpdate
+  DatabricksSqlSettingsUpdate,
+  DatabricksClusterPolicy
 } from '../types/data';
 
 interface DatabricksSettingsResponse {
@@ -17,6 +18,9 @@ interface DatabricksSettingsResponse {
   dataQualitySchema?: string | null;
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
+  profilingPolicyId?: string | null;
+  profilePayloadBasePath?: string | null;
+  profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -37,6 +41,9 @@ interface DatabricksSettingsTestPayload {
   data_quality_schema?: string | null;
   data_quality_storage_format?: 'delta' | 'hudi';
   data_quality_auto_manage_tables?: boolean;
+  profiling_policy_id?: string | null;
+  profile_payload_base_path?: string | null;
+  profiling_notebook_path?: string | null;
   ingestion_batch_rows?: number | null;
   ingestion_method?: 'sql' | 'spark';
   spark_compute?: 'classic' | 'serverless' | null;
@@ -46,6 +53,19 @@ interface DatabricksSettingsTestResponse {
   success: boolean;
   message: string;
   durationMs?: number | null;
+}
+
+interface DatabricksClusterPolicyResponse {
+  id: string;
+  settingId: string;
+  policyId: string;
+  name: string;
+  description?: string | null;
+  definition?: Record<string, unknown> | null;
+  isActive: boolean;
+  syncedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const mapDatabricksSettings = (
@@ -61,12 +81,30 @@ const mapDatabricksSettings = (
   dataQualitySchema: payload.dataQualitySchema ?? null,
   dataQualityStorageFormat: payload.dataQualityStorageFormat,
   dataQualityAutoManageTables: payload.dataQualityAutoManageTables,
+  profilingPolicyId: payload.profilingPolicyId ?? null,
+  profilingNotebookPath: payload.profilingNotebookPath ?? null,
+  profilePayloadBasePath: payload.profilePayloadBasePath ?? null,
   ingestionBatchRows: payload.ingestionBatchRows ?? null,
   ingestionMethod: payload.ingestionMethod ?? 'sql',
   sparkCompute: payload.sparkCompute ?? null,
   warehouseName: payload.warehouseName ?? null,
   isActive: payload.isActive,
   hasAccessToken: payload.hasAccessToken,
+  createdAt: payload.createdAt,
+  updatedAt: payload.updatedAt
+});
+
+const mapClusterPolicy = (
+  payload: DatabricksClusterPolicyResponse
+): DatabricksClusterPolicy => ({
+  id: payload.id,
+  settingId: payload.settingId,
+  policyId: payload.policyId,
+  name: payload.name,
+  description: payload.description ?? null,
+  definition: payload.definition ?? null,
+  isActive: payload.isActive,
+  syncedAt: payload.syncedAt ?? null,
   createdAt: payload.createdAt,
   updatedAt: payload.updatedAt
 });
@@ -90,6 +128,9 @@ export const createDatabricksSettings = async (
     data_quality_schema: input.dataQualitySchema ?? null,
     data_quality_storage_format: input.dataQualityStorageFormat,
     data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
+    profiling_policy_id: input.profilingPolicyId ?? null,
+    profiling_notebook_path: input.profilingNotebookPath ?? null,
+    profile_payload_base_path: input.profilePayloadBasePath ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic',
@@ -118,6 +159,13 @@ export const updateDatabricksSettings = async (
     ...(input.dataQualityAutoManageTables !== undefined
       ? { data_quality_auto_manage_tables: input.dataQualityAutoManageTables }
       : {}),
+    ...(input.profilingPolicyId !== undefined ? { profiling_policy_id: input.profilingPolicyId } : {}),
+    ...(input.profilingNotebookPath !== undefined
+      ? { profiling_notebook_path: input.profilingNotebookPath }
+      : {}),
+    ...(input.profilePayloadBasePath !== undefined
+      ? { profile_payload_base_path: input.profilePayloadBasePath }
+      : {}),
     ...(input.ingestionBatchRows !== undefined ? { ingestion_batch_rows: input.ingestionBatchRows } : {}),
     ...(input.ingestionMethod !== undefined ? { ingestion_method: input.ingestionMethod } : {}),
     ...(input.sparkCompute !== undefined ? { spark_compute: input.sparkCompute } : {}),
@@ -141,6 +189,9 @@ export const testDatabricksSettings = async (
     data_quality_schema: input.dataQualitySchema ?? null,
     data_quality_storage_format: input.dataQualityStorageFormat,
     data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
+    profiling_policy_id: input.profilingPolicyId ?? null,
+    profiling_notebook_path: input.profilingNotebookPath ?? null,
+    profile_payload_base_path: input.profilePayloadBasePath ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic'
@@ -155,4 +206,18 @@ export const testDatabricksSettings = async (
     message: response.data.message,
     durationMs: response.data.durationMs ?? null
   };
+};
+
+export const fetchDatabricksClusterPolicies = async (): Promise<DatabricksClusterPolicy[]> => {
+  const response = await client.get<DatabricksClusterPolicyResponse[]>(
+    '/databricks/settings/policies'
+  );
+  return response.data.map(mapClusterPolicy);
+};
+
+export const syncDatabricksClusterPolicies = async (): Promise<DatabricksClusterPolicy[]> => {
+  const response = await client.post<DatabricksClusterPolicyResponse[]>(
+    '/databricks/settings/policies/sync'
+  );
+  return response.data.map(mapClusterPolicy);
 };

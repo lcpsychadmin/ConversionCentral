@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.services.data_quality_keys import build_project_key, build_table_group_id
+
 from app.services.data_quality_executor import DataQualityRunExecutor
 from app.services.data_quality_notifications import RunNotification
 from app.services.data_quality_runner import queue_validation_run
@@ -23,6 +25,10 @@ def _build_params(**overrides) -> DatabricksConnectionParams:
     return DatabricksConnectionParams(**base)
 
 
+PROJECT_KEY = build_project_key("system-123", "object-456")
+TEST_SUITE_KEY = build_table_group_id("conn-456", "object-456")
+
+
 def test_queue_validation_run_invokes_executor(monkeypatch):
     calls: dict[str, object] = {}
 
@@ -38,17 +44,17 @@ def test_queue_validation_run_invokes_executor(monkeypatch):
     )
 
     run_id = queue_validation_run(
-        "system:123",
-        test_suite_key="group:456",
+        PROJECT_KEY,
+        test_suite_key=TEST_SUITE_KEY,
         trigger_source="ingestion-run:abc",
         status="running",
         wait=True,
     )
 
     assert run_id == "run-123"
-    assert calls["project_key"] == "system:123"
+    assert calls["project_key"] == PROJECT_KEY
     assert calls["kwargs"] == {
-        "test_suite_key": "group:456",
+        "test_suite_key": TEST_SUITE_KEY,
         "trigger_source": "ingestion-run:abc",
         "start_status": "running",
     }
@@ -112,14 +118,14 @@ def test_data_quality_run_executor_records_results():
     )
 
     run_id = executor.execute(
-        "system:123",
-        test_suite_key="group:456",
+        PROJECT_KEY,
+        test_suite_key=TEST_SUITE_KEY,
         trigger_source="ingestion-run:abc",
     )
 
     assert run_id == "run-1"
-    assert recorded["start"]["project_key"] == "system:123"
-    assert recorded["start"]["test_suite_key"] == "group:456"
+    assert recorded["start"]["project_key"] == PROJECT_KEY
+    assert recorded["start"]["test_suite_key"] == TEST_SUITE_KEY
     assert recorded["record"][0] == "run-1"
     assert len(recorded["record"][1]) == 2
     assert recorded["complete"] == (
@@ -144,7 +150,7 @@ def test_data_quality_run_executor_skips_without_schema():
         notification_service=_capture_notifications(notifications),
     )
 
-    run_id = executor.execute("system:123")
+    run_id = executor.execute(PROJECT_KEY)
     assert run_id is None
     assert notifications == []
 
@@ -177,7 +183,7 @@ def test_data_quality_run_executor_marks_failure():
         notification_service=_capture_notifications(notifications),
     )
 
-    run_id = executor.execute("system:123")
+    run_id = executor.execute(PROJECT_KEY)
     assert run_id == "run-fail"
     assert recorded["complete"][-1][1]["status"] == "failed"
     assert recorded.get("closed") is True
@@ -195,7 +201,7 @@ def test_queue_validation_run_handles_missing_configuration(monkeypatch):
     )
 
     executor = DataQualityRunExecutor(command_runner=lambda *_args: {})
-    assert executor.execute("system:123") is None
+    assert executor.execute(PROJECT_KEY) is None
 
 
 def _capture_notifications(store: list[RunNotification]):

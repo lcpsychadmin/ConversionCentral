@@ -1,4 +1,7 @@
 --- Instructions --
+heroku apps:
+conversion-central-backend
+conversion-central-frontend
 
 Steps:
 1. After executing each task run lint and tests with the following commands:
@@ -57,8 +60,8 @@ I also have this application running locally at http://localhost:8501/
 1. [DONE] Can you review the code and design a plan on how we can integrate this funtionality into our application. I do know that we will have one top level menu item called "Data Quality" all other sub menus and pages will reside under this.
 
 Detailed Implementation Plan:
-1. Inventory the DataOps TestGen repositories (UI, CLI, Docker) and document integration points we must preserve (profiling, test generation, run history, alerts).
-2. Design a Databricks-backed persistence layer that mirrors TestGen metadata tables; define schema defaults and configurable name exposed in warehouse settings.
+1. [DONE] Inventory the DataOps TestGen repositories (UI, CLI, Docker) and document integration points we must preserve (profiling, test generation, run history, alerts).
+2. [DONE] Design a Databricks-backed persistence layer that mirrors TestGen metadata tables; define schema defaults and configurable name exposed in warehouse settings.
 3. [DONE] Extend Databricks warehouse settings API/UI to capture the Data Quality schema name (with validation and rename flow) and propagate it through existing configuration services.
 4. [DONE] Build a provisioning job that creates/updates the Data Quality schema in Databricks, seeds required tables, and stores dataset-to-testgen mappings tied to our systems and connections.
 5. [DONE] Implement a backend client/service that wraps TestGen functionality (CLI or API) while redirecting storage operations to Databricks and authenticating with managed warehouse credentials.
@@ -68,8 +71,41 @@ Detailed Implementation Plan:
 9. [DONE] Add notifications/webhooks so TestGen anomalies flow into our alerting pipeline and optionally block downstream approvals when severity thresholds are met.
 10. Expand CI/CD to include the Data Quality service/container (if needed), add integration tests against a Databricks test schema, run full lint/pytest/npm suites, and update deployment docs for local/Heroku setups.
 
+dbt canvas model upgrade:
+1. [DONE] Capture baseline of current table relationship builder graph payload and document required metadata for dbt Canvas (node types, coordinates, edge semantics, join details).
+2. [DONE] Research dbt Canvas JSON schema, sample exports, and minimum viable fields; archive references in docs/ for the team.
+3. [DONE] Define a shared TypeScript interface for a "canvas graph" (nodes, edges, dbt attributes) that can be serialized by the UI and processed by the backend.
+4. [DONE] Extend React Flow node/edge state to store dbt-specific settings (model layer, materialization, tags, column test flags, descriptions, exposures/metrics).
+5. [DONE] Build UI controls (side panel or modal) for editing the new dbt attributes on tables and joins, including validation and sensible defaults.
+6. [DONE] Add transformation-focused controls (materialization options, pre/post hooks, incremental settings) so Canvas users can manage dbt transformation behavior directly from the relationship builder.
+7. [DONE] Implement a frontend exporter that converts the React Flow state into the shared canvas graph structure, preserving positions and metadata.
+8. [DONE] Add a backend service that accepts the canvas graph and generates dbt artifacts (dbt_project.yml, sources, models, schema yaml, canvas.json).
+9. [DONE] Create automated tests/fixtures that feed sample graphs through the translator and verify the resulting dbt files compile (`dbt parse`) and match expectations.
+10. [DONE] Integrate generated dbt outputs into the existing TestGen seeding flow (ingest manifest.json to refresh projects/connections/table groups).
+11. [DONE] Provide a CLI/script entry point to regenerate dbt + TestGen assets from a data definition, and document the workflow in README/docs.
+12. [DONE] Update CI/CD to run the new translator tests, bundle artifacts as needed, and validate the dbt project builds without breaking existing pipelines.
+13. [DONE] Plan follow-up enhancements (grouping, annotations, exposures) to reach feature parity with dbt Canvas UX once the core pipeline works.
+14. [In Progress] Capture dbt environment prerequisites (install dbt-core + dbt-databricks, configure profiles.yml for the Databricks warehouse) and automate the bootstrap so all translator commands run against Databricks.
+15. Reframe the relationship builder state so tables map into source, transform, and output groups while keeping the Canvas export backwards compatible.
+16. Replace the current input drawer with a docked palette that exposes source tables, transform steps, and output targets with quick-add actions.
+17. Introduce distinct React Flow node types for source, transform, and output (plus optional metric/exposure) with tier-specific styling and mini toolbars.
+18. Enhance drag-and-drop joins: highlight valid drop zones, auto-launch the join dialog on connect, and preserve existing field drag semantics.
+19. Split the Canvas side panel into node metadata vs. joins/tests tabs so dbt attributes, hooks, and column settings stay organized.
+20. Add layout aids (swim lanes, snap-to-layer alignment, mini-map overlays) to make transform/output tiers obvious on the canvas.
+21. Extend the Canvas exporter to capture the new metadata and validate the backend translator still emits correct dbt artifacts.
+22. Wrap the UX behind a feature flag, add focused unit/E2E coverage for the new interactions, and document rollout steps in docs/dbt-canvas-model-upgrade.md.
 
 
+
+Refactor Initial Build
+I've created a folder that contains screenshots from the testgen system that we will use for reference
+1. [Done] Update datasets to be based on the Product Team, Application, Data Object Hierarchy with the Data Defintion tables being the lowest level.
+2. [Done] Update run history & alerts to utilize the new dataset hierarchy.
+3. We need a place where we can create, view, and modify test suites. These test suites will be the definition of what the test runs will execute. landing page screenshot is located at /screenshots/data quality/test suites.png 
+4. When creating a new test suite we will capture the following information test suite name, test suite description, application/data object, and severity. screenshot is located at /screenshots/data quality/test suite creat modal.png
+5. Next we need to build the test suite definition page, a link to this will be on the test suite landing page for each of the test suites. This page will let us define by table/field what tests to run. the landing page screenshot is at /screenshots/data quality/test suite definition.png
+6. When adding a new test we'll be presented with a number of different test types (/screenshots/data quality/test types.txt). AFter selecting the type the modal will display the fields required for that test type (/screenshots/data quality/test suite create modal.png)
+7. when selecting a test from the test suite definition page details will show below the table at the bottom (/screenshots/data quality/test suite definition details.png). There is also an button to view the column profiling for this test (/screenshots/data quality/test suite column profiling)
 
 
 --- Data Migration Implementation ---
@@ -87,3 +123,10 @@ https://github.com/dbt-labs/dbt-core
 
 
 --- Approvals & Workflows ---
+
+
+heroku config:set DATABRICKS_PROFILE_NOTEBOOK_PATH=/Repos/<workspace>/<repo>/profiling.py --app conversion-central-backend
+/Workspace/Users/j.wes.collins@outlook.com/conversion-central/data quality/data profiling
+heroku config:set DATABRICKS_PROFILE_POLICY_ID=<policy-id> --app conversion-central-backend
+:: or, if you already have a dedicated cluster:
+heroku config:set DATABRICKS_PROFILE_EXISTING_CLUSTER_ID=<cluster-id> --app conversion-central-backend

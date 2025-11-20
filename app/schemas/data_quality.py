@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -53,6 +55,52 @@ class TestGenProfileRun(BaseModel):
     payload_path: Optional[str] = None
 
 
+class TestGenColumnMetric(BaseModel):
+    key: str
+    label: str
+    value: Optional[Any] = None
+    formatted: Optional[str] = None
+    unit: Optional[str] = None
+
+
+class TestGenColumnValueFrequency(BaseModel):
+    value: Optional[Any] = None
+    count: Optional[int] = None
+    percentage: Optional[float] = None
+
+
+class TestGenColumnHistogramBin(BaseModel):
+    label: str
+    count: Optional[int] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
+class TestGenProfileAnomaly(BaseModel):
+    table_name: Optional[str] = None
+    column_name: Optional[str] = None
+    anomaly_type: str
+    severity: str
+    description: str
+    detected_at: Optional[datetime] = None
+
+
+class TestGenColumnProfile(BaseModel):
+    table_group_id: str
+    profile_run_id: Optional[str] = None
+    status: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    row_count: Optional[int] = None
+    table_name: Optional[str] = None
+    column_name: str
+    data_type: Optional[str] = None
+    metrics: List[TestGenColumnMetric] = Field(default_factory=list)
+    top_values: List[TestGenColumnValueFrequency] = Field(default_factory=list)
+    histogram: List[TestGenColumnHistogramBin] = Field(default_factory=list)
+    anomalies: List[TestGenProfileAnomaly] = Field(default_factory=list)
+
+
 class TestGenTestRun(BaseModel):
     test_run_id: str
     test_suite_key: Optional[str] = None
@@ -64,6 +112,52 @@ class TestGenTestRun(BaseModel):
     total_tests: Optional[int] = None
     failed_tests: Optional[int] = None
     trigger_source: Optional[str] = None
+
+
+class TestSuiteSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class TestSuiteBase(BaseModel):
+    description: Optional[str] = None
+    product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
+    application_id: Optional[UUID] = Field(default=None, alias="applicationId")
+    data_object_id: Optional[UUID] = Field(default=None, alias="dataObjectId")
+    data_definition_id: Optional[UUID] = Field(default=None, alias="dataDefinitionId")
+    project_key: Optional[str] = Field(default=None, alias="projectKey")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class TestSuiteCreateRequest(TestSuiteBase):
+    name: str = Field(..., min_length=1, max_length=200)
+    severity: TestSuiteSeverity = Field(default=TestSuiteSeverity.MEDIUM)
+
+
+class TestSuiteUpdateRequest(TestSuiteBase):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    severity: Optional[TestSuiteSeverity] = None
+
+
+class TestGenTestSuite(BaseModel):
+    test_suite_key: str = Field(alias="testSuiteKey")
+    project_key: Optional[str] = Field(default=None, alias="projectKey")
+    name: str
+    description: Optional[str] = None
+    severity: Optional[TestSuiteSeverity] = None
+    product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
+    application_id: Optional[UUID] = Field(default=None, alias="applicationId")
+    data_object_id: Optional[UUID] = Field(default=None, alias="dataObjectId")
+    data_definition_id: Optional[UUID] = Field(default=None, alias="dataDefinitionId")
+    created_at: Optional[datetime] = Field(default=None, alias="createdAt")
+    updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 class TestGenAlert(BaseModel):
@@ -160,3 +254,210 @@ class AlertAcknowledgeRequest(BaseModel):
     acknowledged: bool = True
     acknowledged_by: Optional[str] = None
     acknowledged_at: Optional[datetime] = None
+
+
+class DataQualityDatasetTable(BaseModel):
+    data_definition_table_id: UUID = Field(alias="dataDefinitionTableId")
+    table_id: UUID = Field(alias="tableId")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: str = Field(alias="tableName")
+    physical_name: str = Field(alias="physicalName")
+    alias: Optional[str] = None
+    description: Optional[str] = None
+    load_order: Optional[int] = Field(default=None, alias="loadOrder")
+    is_constructed: bool = Field(alias="isConstructed")
+    table_type: Optional[str] = Field(default=None, alias="tableType")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetDefinition(BaseModel):
+    data_definition_id: UUID = Field(alias="dataDefinitionId")
+    description: Optional[str] = None
+    tables: List[DataQualityDatasetTable] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetDataObject(BaseModel):
+    data_object_id: UUID = Field(alias="dataObjectId")
+    name: str
+    description: Optional[str] = None
+    data_definitions: List[DataQualityDatasetDefinition] = Field(default_factory=list, alias="dataDefinitions")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetApplication(BaseModel):
+    application_id: UUID = Field(alias="applicationId")
+    name: str
+    description: Optional[str] = None
+    physical_name: str = Field(alias="physicalName")
+    data_objects: List[DataQualityDatasetDataObject] = Field(default_factory=list, alias="dataObjects")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetProductTeam(BaseModel):
+    product_team_id: UUID = Field(alias="productTeamId")
+    name: str
+    description: Optional[str] = None
+    applications: List[DataQualityDatasetApplication] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunSummary(BaseModel):
+    table_group_id: str = Field(alias="tableGroupId")
+    profile_run_id: str = Field(alias="profileRunId")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityBulkProfileRunResponse(BaseModel):
+    requested_table_count: int = Field(alias="requestedTableCount")
+    targeted_table_group_count: int = Field(alias="targetedTableGroupCount")
+    profile_runs: List[DataQualityProfileRunSummary] = Field(default_factory=list, alias="profileRuns")
+    skipped_table_ids: List[UUID] = Field(default_factory=list, alias="skippedTableIds")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunEntry(BaseModel):
+    profile_run_id: str = Field(alias="profileRunId")
+    table_group_id: str = Field(alias="tableGroupId")
+    table_group_name: Optional[str] = Field(default=None, alias="tableGroupName")
+    connection_id: Optional[UUID] = Field(default=None, alias="connectionId")
+    connection_name: Optional[str] = Field(default=None, alias="connectionName")
+    catalog: Optional[str] = None
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    data_object_id: Optional[UUID] = Field(default=None, alias="dataObjectId")
+    data_object_name: Optional[str] = Field(default=None, alias="dataObjectName")
+    application_id: Optional[UUID] = Field(default=None, alias="applicationId")
+    application_name: Optional[str] = Field(default=None, alias="applicationName")
+    product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
+    product_team_name: Optional[str] = Field(default=None, alias="productTeamName")
+    status: str
+    started_at: Optional[datetime] = Field(default=None, alias="startedAt")
+    completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
+    duration_ms: Optional[int] = Field(default=None, alias="durationMs")
+    row_count: Optional[int] = Field(default=None, alias="rowCount")
+    anomaly_count: Optional[int] = Field(default=None, alias="anomalyCount")
+    payload_path: Optional[str] = Field(default=None, alias="payloadPath")
+    databricks_run_id: Optional[str] = Field(default=None, alias="databricksRunId")
+    anomalies_by_severity: Dict[str, int] = Field(default_factory=dict, alias="anomaliesBySeverity")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunTableGroup(BaseModel):
+    table_group_id: str = Field(alias="tableGroupId")
+    table_group_name: Optional[str] = Field(default=None, alias="tableGroupName")
+    connection_id: Optional[UUID] = Field(default=None, alias="connectionId")
+    connection_name: Optional[str] = Field(default=None, alias="connectionName")
+    catalog: Optional[str] = None
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    data_object_id: Optional[UUID] = Field(default=None, alias="dataObjectId")
+    data_object_name: Optional[str] = Field(default=None, alias="dataObjectName")
+    application_id: Optional[UUID] = Field(default=None, alias="applicationId")
+    application_name: Optional[str] = Field(default=None, alias="applicationName")
+    product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
+    product_team_name: Optional[str] = Field(default=None, alias="productTeamName")
+    profiling_job_id: Optional[str] = Field(default=None, alias="profilingJobId")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunListResponse(BaseModel):
+    runs: List[DataQualityProfileRunEntry]
+    table_groups: List[DataQualityProfileRunTableGroup] = Field(default_factory=list, alias="tableGroups")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class TestDefinitionBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    rule_type: str = Field(..., alias="ruleType", min_length=1, max_length=120)
+    data_definition_table_id: UUID = Field(..., alias="dataDefinitionTableId")
+    column_name: Optional[str] = Field(default=None, alias="columnName")
+    definition: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class TestDefinitionCreateRequest(TestDefinitionBase):
+    pass
+
+
+class TestDefinitionUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    rule_type: Optional[str] = Field(default=None, alias="ruleType", min_length=1, max_length=120)
+    data_definition_table_id: Optional[UUID] = Field(default=None, alias="dataDefinitionTableId")
+    column_name: Optional[str] = Field(default=None, alias="columnName")
+    definition: Optional[Dict[str, Any]] = Field(default=None)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class TestGenSuiteTest(BaseModel):
+    test_id: str = Field(alias="testId")
+    test_suite_key: str = Field(alias="testSuiteKey")
+    table_group_id: str = Field(alias="tableGroupId")
+    table_id: Optional[str] = Field(default=None, alias="tableId")
+    data_definition_table_id: Optional[UUID] = Field(default=None, alias="dataDefinitionTableId")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: Optional[str] = Field(default=None, alias="tableName")
+    physical_name: Optional[str] = Field(default=None, alias="physicalName")
+    column_name: Optional[str] = Field(default=None, alias="columnName")
+    rule_type: str = Field(alias="ruleType")
+    name: str
+    definition: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = Field(default=None, alias="createdAt")
+    updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityTestTypeParameter(BaseModel):
+    name: str
+    prompt: Optional[str] = None
+    help: Optional[str] = None
+    default_value: Optional[str] = Field(default=None, alias="defaultValue")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityTestType(BaseModel):
+    test_type: str = Field(alias="testType")
+    rule_type: str = Field(alias="ruleType")
+    id: Optional[str] = None
+    name_short: Optional[str] = Field(default=None, alias="nameShort")
+    name_long: Optional[str] = Field(default=None, alias="nameLong")
+    description: Optional[str] = None
+    usage_notes: Optional[str] = Field(default=None, alias="usageNotes")
+    dq_dimension: Optional[str] = Field(default=None, alias="dqDimension")
+    run_type: Optional[str] = Field(default=None, alias="runType")
+    test_scope: Optional[str] = Field(default=None, alias="testScope")
+    default_severity: Optional[str] = Field(default=None, alias="defaultSeverity")
+    column_prompt: Optional[str] = Field(default=None, alias="columnPrompt")
+    column_help: Optional[str] = Field(default=None, alias="columnHelp")
+    sql_flavors: List[str] = Field(default_factory=list, alias="sqlFlavors")
+    parameters: List[DataQualityTestTypeParameter] = Field(default_factory=list)
+    source_file: Optional[str] = Field(default=None, alias="sourceFile")
+
+    class Config:
+        allow_population_by_field_name = True

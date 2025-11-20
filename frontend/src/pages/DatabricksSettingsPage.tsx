@@ -1,22 +1,30 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   CircularProgress,
   FormControlLabel,
+  IconButton,
   MenuItem,
   Paper,
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 import PageHeader from '../components/common/PageHeader';
 import { useAuth } from '../context/AuthContext';
 import { useDatabricksSettings } from '../hooks/useDatabricksSettings';
-import { DatabricksSqlSettingsInput, DatabricksSqlSettingsUpdate } from '../types/data';
+import {
+  DatabricksSqlSettings,
+  DatabricksSqlSettingsInput,
+  DatabricksSqlSettingsUpdate,
+} from '../types/data';
 
 interface FormState {
   displayName: string;
@@ -28,6 +36,9 @@ interface FormState {
   dataQualitySchema: string;
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
+  profilingPolicyId: string;
+  profilePayloadBasePath: string;
+  profilingNotebookPath: string;
   ingestionBatchRows: string;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute: 'classic' | 'serverless';
@@ -45,6 +56,9 @@ const emptyForm: FormState = {
   dataQualitySchema: 'dq_metadata',
   dataQualityStorageFormat: 'delta',
   dataQualityAutoManageTables: true,
+  profilingPolicyId: '',
+  profilePayloadBasePath: '',
+  profilingNotebookPath: '',
   ingestionBatchRows: '',
   ingestionMethod: 'sql',
   sparkCompute: 'classic',
@@ -52,18 +66,41 @@ const emptyForm: FormState = {
   accessToken: '',
 };
 
+const mapSettingsToForm = (settings: DatabricksSqlSettings): FormState => ({
+  displayName: settings.displayName,
+  workspaceHost: settings.workspaceHost,
+  httpPath: settings.httpPath,
+  catalog: settings.catalog ?? '',
+  schemaName: settings.schemaName ?? '',
+  constructedSchema: settings.constructedSchema ?? '',
+  dataQualitySchema: settings.dataQualitySchema ?? '',
+  dataQualityStorageFormat: settings.dataQualityStorageFormat,
+  dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
+  profilingPolicyId: settings.profilingPolicyId ?? '',
+  profilePayloadBasePath: settings.profilePayloadBasePath ?? '',
+  profilingNotebookPath: settings.profilingNotebookPath ?? '',
+  ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
+  ingestionMethod: settings.ingestionMethod,
+  sparkCompute: settings.sparkCompute ?? 'classic',
+  warehouseName: settings.warehouseName ?? '',
+  accessToken: '',
+});
+
 const DataWarehouseSettingsPage = () => {
   const { hasRole } = useAuth();
   const canManage = hasRole('admin');
 
   const {
     settingsQuery,
+    policiesQuery,
     createSettings,
     updateSettings,
     testSettings,
+    syncPolicies,
     creating,
     updating,
     testing,
+    syncingPolicies,
   } = useDatabricksSettings();
 
   const { data: settings, isLoading, isFetching, isError, error } = settingsQuery;
@@ -81,22 +118,7 @@ const DataWarehouseSettingsPage = () => {
       return;
     }
 
-    setForm({
-      displayName: settings.displayName,
-      workspaceHost: settings.workspaceHost,
-      httpPath: settings.httpPath,
-      catalog: settings.catalog ?? '',
-      schemaName: settings.schemaName ?? '',
-      constructedSchema: settings.constructedSchema ?? '',
-      dataQualitySchema: settings.dataQualitySchema ?? '',
-      dataQualityStorageFormat: settings.dataQualityStorageFormat,
-      dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
-      ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
-      ingestionMethod: settings.ingestionMethod,
-      sparkCompute: settings.sparkCompute ?? 'classic',
-      warehouseName: settings.warehouseName ?? '',
-      accessToken: '',
-    });
+    setForm(mapSettingsToForm(settings));
     setClearToken(false);
   }, [settings, isLoading]);
 
@@ -106,6 +128,13 @@ const DataWarehouseSettingsPage = () => {
   const effectiveToken = trimValue(form.accessToken);
   const canTest = effectiveToken.length > 0 && !clearToken;
   const labelPropsFor = (value?: string | null) => ({ shrink: trimValue(value).length > 0 });
+  const policyOptions = policiesQuery.data ?? [];
+  const selectedPolicy = policyOptions.find(
+    (policy) => policy.policyId === trimValue(form.profilingPolicyId),
+  );
+  const policyHelperText = policiesQuery.isError
+    ? 'Unable to load cluster policies. Refresh to try again.'
+    : 'Optional. Select a synced policy or paste a policy id for profiling jobs.';
 
   const headerDescription = useMemo(() => {
     if (settings) {
@@ -174,6 +203,9 @@ const DataWarehouseSettingsPage = () => {
       dataQualitySchema: trimValue(form.dataQualitySchema) || null,
       dataQualityStorageFormat: form.dataQualityStorageFormat,
       dataQualityAutoManageTables: form.dataQualityAutoManageTables,
+      profilingPolicyId: trimValue(form.profilingPolicyId) || null,
+      profilePayloadBasePath: trimValue(form.profilePayloadBasePath) || null,
+      profilingNotebookPath: trimValue(form.profilingNotebookPath) || null,
       ingestionBatchRows: parseBatchRows(form.ingestionBatchRows),
       ingestionMethod: effectiveMethod,
       sparkCompute: effectiveCompute,
@@ -198,7 +230,7 @@ const DataWarehouseSettingsPage = () => {
     const update: DatabricksSqlSettingsUpdate = {};
     const parsedBatchRows = parseBatchRows(form.ingestionBatchRows);
     const effectiveMethod = form.ingestionMethod === 'spark' ? 'spark' : 'sql';
-  const effectiveCompute = form.sparkCompute === 'serverless' ? 'serverless' : 'classic';
+    const effectiveCompute = form.sparkCompute === 'serverless' ? 'serverless' : 'classic';
 
     const trimmedDisplayName = trimValue(form.displayName);
     if (trimmedDisplayName && trimmedDisplayName !== settings.displayName) {
@@ -243,6 +275,21 @@ const DataWarehouseSettingsPage = () => {
       update.dataQualityAutoManageTables = form.dataQualityAutoManageTables;
     }
 
+    const trimmedProfilingPolicyId = trimValue(form.profilingPolicyId);
+    if (trimmedProfilingPolicyId !== (settings.profilingPolicyId ?? '')) {
+      update.profilingPolicyId = trimmedProfilingPolicyId ? trimmedProfilingPolicyId : null;
+    }
+
+    const trimmedProfilePayloadPath = trimValue(form.profilePayloadBasePath);
+    if (trimmedProfilePayloadPath !== (settings.profilePayloadBasePath ?? '')) {
+      update.profilePayloadBasePath = trimmedProfilePayloadPath ? trimmedProfilePayloadPath : null;
+    }
+
+    const trimmedProfilingNotebookPath = trimValue(form.profilingNotebookPath);
+    if (trimmedProfilingNotebookPath !== (settings.profilingNotebookPath ?? '')) {
+      update.profilingNotebookPath = trimmedProfilingNotebookPath ? trimmedProfilingNotebookPath : null;
+    }
+
     if (parsedBatchRows !== (settings.ingestionBatchRows ?? null)) {
       update.ingestionBatchRows = parsedBatchRows;
     }
@@ -275,22 +322,7 @@ const DataWarehouseSettingsPage = () => {
 
   const handleReset = () => {
     if (settings) {
-      setForm({
-        displayName: settings.displayName,
-        workspaceHost: settings.workspaceHost,
-        httpPath: settings.httpPath,
-        catalog: settings.catalog ?? '',
-        schemaName: settings.schemaName ?? '',
-        constructedSchema: settings.constructedSchema ?? '',
-        dataQualitySchema: settings.dataQualitySchema ?? '',
-        dataQualityStorageFormat: settings.dataQualityStorageFormat,
-        dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
-        ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
-        ingestionMethod: settings.ingestionMethod,
-        sparkCompute: settings.sparkCompute ?? 'classic',
-        warehouseName: settings.warehouseName ?? '',
-        accessToken: '',
-      });
+      setForm(mapSettingsToForm(settings));
       setClearToken(false);
     } else {
       setForm(emptyForm);
@@ -304,6 +336,17 @@ const DataWarehouseSettingsPage = () => {
     }
 
     await testSettings(buildPayload());
+  };
+
+  const handleSyncPolicies = async () => {
+    if (!canManage) {
+      return;
+    }
+    try {
+      await syncPolicies();
+    } catch {
+      /* errors handled via toast inside hook */
+    }
   };
 
   if (isLoading && !settings) {
@@ -438,6 +481,101 @@ const DataWarehouseSettingsPage = () => {
               <MenuItem value="hudi">Hudi</MenuItem>
             </TextField>
           </Stack>
+
+          <TextField
+            label="Profiling Payload Folder"
+            value={form.profilePayloadBasePath}
+            onChange={handleChange('profilePayloadBasePath')}
+            disabled={disableInputs}
+            helperText="Optional DBFS/S3 path (e.g. dbfs:/profiles) where profiling payloads are written."
+            fullWidth
+            InputLabelProps={labelPropsFor(form.profilePayloadBasePath)}
+          />
+
+          <TextField
+            label="Profiling Notebook Path"
+            value={form.profilingNotebookPath}
+            onChange={handleChange('profilingNotebookPath')}
+            disabled={disableInputs}
+            helperText="Notebook path that executes profiling jobs (e.g. /Repos/.../profiling)."
+            fullWidth
+            InputLabelProps={labelPropsFor(form.profilingNotebookPath)}
+          />
+
+          <Autocomplete
+            freeSolo
+            options={policyOptions}
+            value={selectedPolicy ?? null}
+            onChange={(_, value) => {
+              if (typeof value === 'string') {
+                setForm((previous) => ({ ...previous, profilingPolicyId: value }));
+                return;
+              }
+              setForm((previous) => ({ ...previous, profilingPolicyId: value?.policyId ?? '' }));
+            }}
+            inputValue={form.profilingPolicyId}
+            onInputChange={(_, value, reason) => {
+              if (reason === 'reset') {
+                return;
+              }
+              setForm((previous) => ({ ...previous, profilingPolicyId: value }));
+            }}
+            getOptionLabel={(option) => {
+              if (typeof option === 'string') {
+                return option;
+              }
+              return option.name || option.policyId;
+            }}
+            isOptionEqualToValue={(option, value) => option.policyId === value.policyId}
+            renderOption={(props, option) => (
+              <li {...props} key={option.policyId}>
+                <Stack spacing={0.25}>
+                  <Typography variant="body2" fontWeight={600}>
+                    {option.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {option.policyId}
+                  </Typography>
+                </Stack>
+              </li>
+            )}
+            disabled={disableInputs}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Profiling Cluster Policy"
+                helperText={policyHelperText}
+                fullWidth
+                InputLabelProps={labelPropsFor(form.profilingPolicyId)}
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {(policiesQuery.isFetching || syncingPolicies) && <CircularProgress size={18} />}
+                      <Tooltip title="Sync policies from Databricks">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={handleSyncPolicies}
+                            disabled={disableInputs || syncingPolicies}
+                          >
+                            <RefreshIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {params.InputProps.endAdornment}
+                    </Stack>
+                  ),
+                }}
+              />
+            )}
+          />
+
+          {selectedPolicy?.description && (
+            <Typography variant="caption" color="text.secondary">
+              {selectedPolicy.description}
+            </Typography>
+          )}
 
           <FormControlLabel
             control={

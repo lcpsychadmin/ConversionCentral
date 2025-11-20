@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import DatabricksSqlSetting
+from app.models import DatabricksClusterPolicy, DatabricksSqlSetting
 from app.config import get_settings
 from app.schemas import (
     DatabricksSqlSettingCreate,
@@ -15,6 +15,7 @@ from app.schemas import (
     DatabricksSqlSettingTestRequest,
     DatabricksSqlSettingTestResult,
     DatabricksSqlSettingUpdate,
+    DatabricksClusterPolicyRead,
 )
 from app.ingestion import reset_ingestion_engine
 from app.services.databricks_bootstrap import ensure_databricks_connection
@@ -23,6 +24,7 @@ from app.services.databricks_sql import (
     DatabricksConnectionParams,
     test_databricks_connection,
 )
+from app.services.databricks_policies import DatabricksPolicySyncError, sync_cluster_policies
 
 router = APIRouter(prefix="/databricks/settings", tags=["Databricks Settings"])
 
@@ -37,6 +39,9 @@ def _serialize(
     data_quality_schema_fallback: str | None = None,
     data_quality_storage_format_fallback: str | None = None,
     data_quality_auto_manage_tables_fallback: bool | None = None,
+    profiling_policy_id_fallback: str | None = None,
+    profile_payload_base_path_fallback: str | None = None,
+    profiling_notebook_path_fallback: str | None = None,
 ) -> DatabricksSqlSettingRead:
     constructed_schema = setting.constructed_schema
     if (constructed_schema is None or not constructed_schema.strip()) and constructed_schema_fallback:
@@ -62,6 +67,22 @@ def _serialize(
     else:
         data_quality_auto_manage_tables = True
 
+    profiling_policy_id = (
+        setting.profiling_policy_id.strip()
+        if isinstance(setting.profiling_policy_id, str) and setting.profiling_policy_id.strip()
+        else None
+    )
+    if not profiling_policy_id and profiling_policy_id_fallback:
+        profiling_policy_id = profiling_policy_id_fallback.strip() or None
+
+    profile_payload_base_path = (
+        setting.profile_payload_base_path.strip()
+        if isinstance(setting.profile_payload_base_path, str) and setting.profile_payload_base_path.strip()
+        else None
+    )
+    if not profile_payload_base_path and profile_payload_base_path_fallback:
+        profile_payload_base_path = profile_payload_base_path_fallback.strip() or None
+
     ingestion_batch_rows = setting.ingestion_batch_rows
     if ingestion_batch_rows is None and ingestion_batch_rows_fallback:
         ingestion_batch_rows = ingestion_batch_rows_fallback
@@ -71,6 +92,14 @@ def _serialize(
 
     spark_compute = setting.spark_compute or spark_compute_fallback
     spark_compute = spark_compute.strip().lower() if isinstance(spark_compute, str) and spark_compute.strip() else None
+
+    profiling_notebook_path = (
+        setting.profiling_notebook_path.strip()
+        if isinstance(setting.profiling_notebook_path, str) and setting.profiling_notebook_path.strip()
+        else None
+    )
+    if not profiling_notebook_path and profiling_notebook_path_fallback:
+        profiling_notebook_path = profiling_notebook_path_fallback.strip() or None
 
     return DatabricksSqlSettingRead(
         id=setting.id,
@@ -91,6 +120,9 @@ def _serialize(
         data_quality_schema=data_quality_schema,
         data_quality_storage_format=data_quality_storage_format,
         data_quality_auto_manage_tables=data_quality_auto_manage_tables,
+        profiling_policy_id=profiling_policy_id,
+        profile_payload_base_path=profile_payload_base_path,
+        profiling_notebook_path=profiling_notebook_path,
     )
 
 
@@ -119,12 +151,16 @@ def get_databricks_setting(db: Session = Depends(get_db)) -> DatabricksSqlSettin
         data_quality_schema_fallback=config.databricks_data_quality_schema,
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
+        profiling_policy_id_fallback=config.databricks_profile_policy_id,
+        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
+        profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
 
 
 @router.post("", response_model=DatabricksSqlSettingRead, status_code=status.HTTP_201_CREATED)
 def create_databricks_setting(
     payload: DatabricksSqlSettingCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> DatabricksSqlSettingRead:
     existing = _get_active_setting(db)
@@ -147,6 +183,9 @@ def create_databricks_setting(
         data_quality_schema=payload.data_quality_schema,
         data_quality_storage_format=payload.data_quality_storage_format,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
+        profiling_policy_id=payload.profiling_policy_id,
+        profile_payload_base_path=payload.profile_payload_base_path,
+        profiling_notebook_path=payload.profiling_notebook_path,
     )
     try:
         test_databricks_connection(params)
@@ -167,6 +206,13 @@ def create_databricks_setting(
             if isinstance(payload.data_quality_storage_format, str) and payload.data_quality_storage_format.strip()
             else None,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
+        profiling_policy_id=payload.profiling_policy_id.strip() if payload.profiling_policy_id else None,
+        profile_payload_base_path=payload.profile_payload_base_path.strip()
+        if payload.profile_payload_base_path
+        else None,
+        profiling_notebook_path=payload.profiling_notebook_path.strip()
+        if payload.profiling_notebook_path
+        else None,
         ingestion_batch_rows=payload.ingestion_batch_rows,
         ingestion_method=payload.ingestion_method or "sql",
         spark_compute=payload.spark_compute,
@@ -188,9 +234,12 @@ def create_databricks_setting(
         data_quality_schema_fallback=config.databricks_data_quality_schema,
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
+        profiling_policy_id_fallback=config.databricks_profile_policy_id,
+        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
+        profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
     reset_ingestion_engine()
-    ensure_databricks_connection()
+    background_tasks.add_task(ensure_databricks_connection)
     return record
 
 
@@ -198,6 +247,7 @@ def create_databricks_setting(
 def update_databricks_setting(
     setting_id: UUID,
     payload: DatabricksSqlSettingUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> DatabricksSqlSettingRead:
     setting = db.get(DatabricksSqlSetting, setting_id)
@@ -229,6 +279,16 @@ def update_databricks_setting(
             setting.data_quality_storage_format = data["data_quality_storage_format"].strip().lower()
         if "data_quality_auto_manage_tables" in data and data["data_quality_auto_manage_tables"] is not None:
             setting.data_quality_auto_manage_tables = bool(data["data_quality_auto_manage_tables"])
+        if "profiling_policy_id" in data:
+            setting.profiling_policy_id = data["profiling_policy_id"].strip() if data["profiling_policy_id"] else None
+        if "profile_payload_base_path" in data:
+            setting.profile_payload_base_path = (
+                data["profile_payload_base_path"].strip() if data["profile_payload_base_path"] else None
+            )
+        if "profiling_notebook_path" in data:
+            setting.profiling_notebook_path = (
+                data["profiling_notebook_path"].strip() if data["profiling_notebook_path"] else None
+            )
         if "ingestion_batch_rows" in data:
             setting.ingestion_batch_rows = data["ingestion_batch_rows"]
         if "ingestion_method" in data and data["ingestion_method"] is not None:
@@ -251,25 +311,17 @@ def update_databricks_setting(
         elif data.get("is_active") is False:
             setting.is_active = False
 
-    # Validate the connection if any core parameters changed.
-    should_validate = any(
-        key in data
-        for key in (
-            "workspace_host",
-            "http_path",
-            "catalog",
-            "schema_name",
-            "constructed_schema",
-            "data_quality_schema",
-            "data_quality_storage_format",
-            "data_quality_auto_manage_tables",
-            "ingestion_batch_rows",
-            "warehouse_name",
-            "ingestion_method",
-            "access_token",
-            "spark_compute",
-        )
-    )
+    # Only re-test the Databricks connection when fields that affect the actual
+    # warehouse credentials change so metadata edits (e.g., profiling paths)
+    # don't block on a live connection attempt.
+    connection_validation_fields = {
+        "workspace_host",
+        "http_path",
+        "catalog",
+        "schema_name",
+        "access_token",
+    }
+    should_validate = any(field in data for field in connection_validation_fields)
     if should_validate and setting.access_token:
         params = DatabricksConnectionParams(
             workspace_host=setting.workspace_host,
@@ -287,6 +339,9 @@ def update_databricks_setting(
                 bool(setting.data_quality_auto_manage_tables)
                 if setting.data_quality_auto_manage_tables is not None
                 else True,
+            profiling_policy_id=setting.profiling_policy_id,
+            profile_payload_base_path=setting.profile_payload_base_path,
+            profiling_notebook_path=setting.profiling_notebook_path,
         )
         try:
             test_databricks_connection(params)
@@ -305,9 +360,12 @@ def update_databricks_setting(
         data_quality_schema_fallback=config.databricks_data_quality_schema,
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
+        profiling_policy_id_fallback=config.databricks_profile_policy_id,
+        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
+        profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
     reset_ingestion_engine()
-    ensure_databricks_connection()
+    background_tasks.add_task(ensure_databricks_connection)
     return record
 
 
@@ -326,6 +384,9 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         data_quality_schema=payload.data_quality_schema.strip() if payload.data_quality_schema else None,
         data_quality_storage_format=payload.data_quality_storage_format,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
+        profiling_policy_id=payload.profiling_policy_id.strip() if payload.profiling_policy_id else None,
+        profile_payload_base_path=payload.profile_payload_base_path,
+        profiling_notebook_path=payload.profiling_notebook_path,
     )
     try:
         elapsed_ms, summary = test_databricks_connection(params)
@@ -336,4 +397,32 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         message=f"Connection successful ({summary}).",
         duration_ms=elapsed_ms,
     )
+
+
+@router.get("/policies", response_model=list[DatabricksClusterPolicyRead])
+def list_cluster_policies(db: Session = Depends(get_db)) -> list[DatabricksClusterPolicyRead]:
+    setting = _get_active_setting(db)
+    if setting is None:
+        return []
+
+    stmt = (
+        select(DatabricksClusterPolicy)
+        .where(
+            DatabricksClusterPolicy.setting_id == setting.id,
+            DatabricksClusterPolicy.is_active.is_(True),
+        )
+        .order_by(DatabricksClusterPolicy.name.asc())
+    )
+    return list(db.execute(stmt).scalars())
+
+
+@router.post("/policies/sync", response_model=list[DatabricksClusterPolicyRead])
+def sync_cluster_policies_endpoint(db: Session = Depends(get_db)) -> list[DatabricksClusterPolicyRead]:
+    try:
+        policies = sync_cluster_policies(db)
+        db.commit()
+    except DatabricksPolicySyncError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return policies
 

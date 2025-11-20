@@ -24,7 +24,10 @@ import UploadDataPage from '@pages/UploadDataPage';
 import DataQualityOverviewPage from '@pages/DataQualityOverviewPage';
 import DataQualityDatasetsPage from '@pages/DataQualityDatasetsPage';
 import DataQualityRunHistoryPage from '@pages/DataQualityRunHistoryPage';
+import DataQualityProfilingRunsPage from '@pages/DataQualityProfilingRunsPage';
 import DataQualityTestLibraryPage from '@pages/DataQualityTestLibraryPage';
+import DataQualityTestSuitesPage from '@pages/DataQualityTestSuitesPage';
+import DataQualityTestSuiteDefinitionPage from '@pages/DataQualityTestSuiteDefinitionPage';
 import DataQualitySettingsPage from '@pages/DataQualitySettingsPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
@@ -88,6 +91,9 @@ const router = createBrowserRouter([
           { path: 'reporting/catalog', element: <ReportingCatalogPage /> },
           { path: 'data-quality', element: <DataQualityOverviewPage /> },
           { path: 'data-quality/datasets', element: <DataQualityDatasetsPage /> },
+          { path: 'data-quality/profiling-runs', element: <DataQualityProfilingRunsPage /> },
+          { path: 'data-quality/test-suites', element: <DataQualityTestSuitesPage /> },
+          { path: 'data-quality/test-suites/:testSuiteKey', element: <DataQualityTestSuiteDefinitionPage /> },
           { path: 'data-quality/test-library', element: <DataQualityTestLibraryPage /> },
           { path: 'data-quality/run-history', element: <DataQualityRunHistoryPage /> },
           { path: 'data-quality/settings', element: <DataQualitySettingsPage /> }

@@ -34,6 +34,11 @@ from app.services.ingestion_loader import (
     SparkTableLoader,
     build_loader_plan,
 )
+from app.services.data_quality_keys import (
+    build_table_group_id,
+    parse_project_key,
+    project_keys_for_table_selection,
+)
 from app.services.data_quality_runner import queue_validation_run
 
 logger = logging.getLogger(__name__)
@@ -434,8 +439,8 @@ class ScheduledIngestionEngine:
             schedule.last_run_error = run.error_message
 
     def _mark_run_completed(self, schedule_id: UUID, run_id: UUID, outcome: IngestionOutcome) -> None:
-        project_key: str | None = None
-        test_suite_key: str | None = None
+        project_keys: set[str] = set()
+        connection_identifier: UUID | None = None
         with self._session_scope() as session:
             run = session.get(IngestionRun, run_id)
             schedule = session.get(IngestionSchedule, schedule_id)
@@ -458,23 +463,34 @@ class ScheduledIngestionEngine:
                 schedule.last_watermark_timestamp = outcome.watermark_timestamp
             if outcome.watermark_id is not None:
                 schedule.last_watermark_id = outcome.watermark_id
-            try:
-                connection = schedule.table_selection.system_connection
-            except AttributeError:
-                connection = None
+            selection = getattr(schedule, "table_selection", None)
+            connection = getattr(selection, "system_connection", None)
+
             if connection and connection.system_id:
-                project_key = f"system:{connection.system_id}"
-                test_suite_key = f"group:{connection.id}"
+                connection_identifier = connection.id
+                schema_name = getattr(selection, "schema_name", None)
+                table_name = getattr(selection, "table_name", None)
+                project_keys = project_keys_for_table_selection(
+                    session,
+                    connection.system_id,
+                    schema_name,
+                    table_name,
+                )
         logger.debug(
             "Persisted completion metadata for run %s (schedule %s)", run_id, schedule_id
         )
-        if project_key:
+        if project_keys:
             trigger_source = f"ingestion-run:{run_id}"
-            queue_validation_run(
-                project_key,
-                test_suite_key=test_suite_key,
-                trigger_source=trigger_source,
-            )
+            for key in project_keys:
+                _, data_object_id = parse_project_key(key)
+                suite_key = None
+                if data_object_id and connection_identifier:
+                    suite_key = build_table_group_id(connection_identifier, data_object_id)
+                queue_validation_run(
+                    key,
+                    test_suite_key=suite_key,
+                    trigger_source=trigger_source,
+                )
 
     def _update_run_progress(
         self,

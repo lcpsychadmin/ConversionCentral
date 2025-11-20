@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "project_name": "canvas_demo",
+    "dbt_version": "1.7.0",
+    "generated_at": "2025-01-01T00:00:00.000000Z",
+    "adapter_type": "duckdb"
+  },
+  "nodes": {
+    "model.canvas_demo.dim_customers": {
+      "unique_id": "model.canvas_demo.dim_customers",
+      "name": "dim_customers",
+      "resource_type": "model",
+      "relation_name": "\"main\".\"staging\".\"dim_customers\"",
+      "database": "main",
+      "schema": "staging",
+      "alias": "dim_customers",
+      "description": "Conformed customer dimension.",
+      "depends_on": {
+        "nodes": [
+          "source.canvas_demo.crm.crm_customers"
+        ],
+        "macros": []
+      },
+      "tags": [
+        "staging",
+        "dimensions"
+      ],
+      "meta": {
+        "domain": "customer_360"
+      },
+      "config": {
+        "materialized": "view",
+        "schema": "staging",
+        "tags": [
+          "staging",
+          "dimensions"
+        ]
+      }
+    }
+  },
+  "sources": {
+    "source.canvas_demo.crm.crm_customers": {
+      "unique_id": "source.canvas_demo.crm.crm_customers",
+      "resource_type": "source",
+      "name": "crm_customers",
+      "source_name": "crm",
+      "database": "main",
+      "schema": "crm",
+      "identifier": "crm_customers",
+      "description": "Raw CRM customers table.",
+      "relation_name": "\"main\".\"crm\".\"crm_customers\"",
+      "meta": {
+        "sourceName": "crm"
+      }
+    }
+  },
+  "exposures": {
+  },
+  "metrics": {
+  }
+}

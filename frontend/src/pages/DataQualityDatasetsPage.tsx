@@ -1,276 +1,327 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MouseEvent, useCallback, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Alert,
   Box,
+  Button,
   CircularProgress,
-  FormControl,
-  Grid,
-  InputLabel,
   List,
   ListItem,
   ListItemText,
-  MenuItem,
   Paper,
-  Select,
   Stack,
   Typography
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useQuery } from 'react-query';
+import { useMutation, useQuery } from 'react-query';
+import { Link as RouterLink } from 'react-router-dom';
+import { fetchDatasetHierarchy, startDataObjectProfileRuns } from '@services/dataQualityService';
 import {
-  fetchDataQualityConnections,
-  fetchDataQualityProjects,
-  fetchDataQualityTableGroups,
-  fetchDataQualityTables
-} from '@services/dataQualityService';
-import {
-  DataQualityConnection,
-  DataQualityProject,
-  DataQualityTable,
-  DataQualityTableGroup
+  DataQualityDatasetApplication,
+  DataQualityDatasetDefinition,
+  DataQualityDatasetObject,
+  DataQualityDatasetProductTeam,
+  DataQualityDatasetTable
 } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import PageHeader from '../components/common/PageHeader';
 
 const resolveErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unexpected error encountered.';
-const formatLabel = (value?: string | null) => (value && value.trim().length > 0 ? value : '—');
 
-const TableGroupPanel = ({
-  group,
-  onError
-}: {
-  group: DataQualityTableGroup;
-  onError?: (error: unknown) => void;
-}) => {
-  const tablesQuery = useQuery<DataQualityTable[]>(
-    ['data-quality', 'tables', group.tableGroupId],
-    () => fetchDataQualityTables(group.tableGroupId),
-    {
-      staleTime: 2 * 60 * 1000,
-      onError
-    }
-  );
+const formatDescription = (value?: string | null) =>
+  value && value.trim().length > 0 ? value : 'No description provided.';
+
+const formatTablePrimary = (table: DataQualityDatasetTable) => {
+  const schemaPrefix = table.schemaName ? `${table.schemaName}.` : '';
+  return `${schemaPrefix}${table.tableName}`;
+};
+
+const formatTableSecondary = (table: DataQualityDatasetTable) => {
+  const details: string[] = [];
+  if (table.alias && table.alias !== table.tableName) {
+    details.push(`Alias: ${table.alias}`);
+  }
+  if (table.description) {
+    details.push(table.description);
+  }
+  if (table.tableType) {
+    details.push(`Type: ${table.tableType}`);
+  }
+  if (table.isConstructed) {
+    details.push('Constructed table');
+  }
+  if (table.loadOrder !== undefined && table.loadOrder !== null) {
+    details.push(`Load order ${table.loadOrder}`);
+  }
+  return details.join(' • ');
+};
+
+const TablesList = ({ tables }: { tables: DataQualityDatasetTable[] }) => {
+  if (!tables.length) {
+    return <Typography color="text.secondary">No tables registered yet.</Typography>;
+  }
 
   return (
-    <Accordion sx={{ bgcolor: 'background.default' }}>
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Stack spacing={0.5}>
-          <Typography fontWeight={600}>{group.name}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {group.description ?? 'No description provided.'}
-          </Typography>
-        </Stack>
-      </AccordionSummary>
-      <AccordionDetails>
-        {tablesQuery.isLoading ? (
-          <Box display="flex" justifyContent="center" py={2}>
-            <CircularProgress size={24} />
-          </Box>
-        ) : tablesQuery.isError ? (
-          <Alert severity="error">Failed to load tables.</Alert>
-        ) : tablesQuery.data && tablesQuery.data.length > 0 ? (
-          <List dense disablePadding>
-            {tablesQuery.data.map((table) => (
-              <ListItem key={table.tableId} divider>
-                <ListItemText
-                  primary={`${table.schemaName ?? 'default'}.${table.tableName}`}
-                  secondary={
-                    table.sourceTableId
-                      ? `Linked to source table ${table.sourceTableId}`
-                      : 'Derived from ingestion selections'
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-        ) : (
-          <Typography color="text.secondary">No tables registered yet.</Typography>
-        )}
-      </AccordionDetails>
-    </Accordion>
+    <List dense disablePadding>
+      {tables.map((table) => (
+        <ListItem key={table.dataDefinitionTableId} divider>
+          <ListItemText
+            primary={formatTablePrimary(table)}
+            secondary={formatTableSecondary(table) || undefined}
+          />
+        </ListItem>
+      ))}
+    </List>
   );
 };
 
-const ConnectionPanel = ({
-  connection,
-  onError
-}: {
-  connection: DataQualityConnection;
-  onError?: (context: 'groups' | 'tables', error: unknown) => void;
-}) => {
-  const groupsQuery = useQuery<DataQualityTableGroup[]>(
-    ['data-quality', 'table-groups', connection.connectionId],
-    () => fetchDataQualityTableGroups(connection.connectionId),
-    {
-      staleTime: 2 * 60 * 1000,
-      onError: (error) => onError?.('groups', error)
+const DataDefinitionSection = ({ definition }: { definition: DataQualityDatasetDefinition }) => (
+  <Paper variant="outlined" sx={{ p: 2 }}>
+    <Stack spacing={1.5}>
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle1" fontWeight={600}>
+          Data Definition
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {formatDescription(definition.description)}
+        </Typography>
+      </Stack>
+      <TablesList tables={definition.tables} />
+    </Stack>
+  </Paper>
+);
+
+interface DataObjectAccordionProps {
+  dataObject: DataQualityDatasetObject;
+  onRunProfiling?: (dataObjectId: string) => void;
+  isProfiling?: boolean;
+}
+
+const DataObjectAccordion = ({ dataObject, onRunProfiling, isProfiling }: DataObjectAccordionProps) => {
+  const hasTables = dataObject.dataDefinitions.some((definition) => definition.tables.length > 0);
+
+  const handleRunProfiling = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!hasTables || !onRunProfiling) {
+      return;
     }
-  );
+    onRunProfiling(dataObject.dataObjectId);
+  };
 
   return (
     <Accordion>
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Stack spacing={0.5}>
-          <Typography fontWeight={600}>{connection.name}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Catalog: {formatLabel(connection.catalog)} · Schema: {formatLabel(connection.schemaName)}
-          </Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" width="100%">
+          <Stack spacing={0.5} pr={2}>
+            <Typography fontWeight={600}>{dataObject.name}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {formatDescription(dataObject.description)}
+            </Typography>
+          </Stack>
+          {onRunProfiling ? (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleRunProfiling}
+              disabled={!hasTables || isProfiling}
+              startIcon={isProfiling ? <CircularProgress size={14} color="inherit" /> : undefined}
+            >
+              {isProfiling ? 'Running…' : 'Run Profiling'}
+            </Button>
+          ) : null}
         </Stack>
       </AccordionSummary>
       <AccordionDetails>
-        {groupsQuery.isLoading ? (
-          <Box display="flex" justifyContent="center" py={2}>
-            <CircularProgress size={24} />
-          </Box>
-        ) : groupsQuery.isError ? (
-          <Alert severity="error">Failed to load table groups.</Alert>
-        ) : groupsQuery.data && groupsQuery.data.length > 0 ? (
-          <Stack spacing={1.5}>
-            {groupsQuery.data.map((group) => (
-              <TableGroupPanel
-                key={group.tableGroupId}
-                group={group}
-                onError={(error) => onError?.('tables', error)}
-              />
-            ))}
-          </Stack>
-        ) : (
-          <Typography color="text.secondary">No table groups registered.</Typography>
-        )}
+        <Stack spacing={2}>
+          {dataObject.dataDefinitions.length > 0 ? (
+            dataObject.dataDefinitions.map((definition) => (
+              <DataDefinitionSection key={definition.dataDefinitionId} definition={definition} />
+            ))
+          ) : (
+            <Typography color="text.secondary">No data definitions registered.</Typography>
+          )}
+        </Stack>
       </AccordionDetails>
     </Accordion>
   );
 };
 
-const useProjects = (onError?: (error: unknown) => void) =>
-  useQuery<DataQualityProject[]>(['data-quality', 'projects'], fetchDataQualityProjects, {
-    staleTime: 5 * 60 * 1000,
-    onError
-  });
+interface ApplicationAccordionProps {
+  application: DataQualityDatasetApplication;
+  onRunProfiling?: (dataObjectId: string) => void;
+  profilingState?: { activeId: string | null; isLoading: boolean };
+}
 
-const useConnections = (projectKey: string | null, onError?: (error: unknown) => void) =>
-  useQuery<DataQualityConnection[]>(
-    ['data-quality', 'connections', projectKey],
-    () => fetchDataQualityConnections(projectKey ?? ''),
-    {
-      enabled: Boolean(projectKey),
-      staleTime: 2 * 60 * 1000,
-      onError
-    }
-  );
+const ApplicationAccordion = ({ application, onRunProfiling, profilingState }: ApplicationAccordionProps) => (
+  <Accordion>
+    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+      <Stack spacing={0.5}>
+        <Typography fontWeight={600}>{application.name}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {`Physical name: ${application.physicalName}`} ·{' '}
+          {`${application.dataObjects.length} data object${application.dataObjects.length === 1 ? '' : 's'}`}
+        </Typography>
+        {application.description ? (
+          <Typography variant="body2" color="text.secondary">
+            {application.description}
+          </Typography>
+        ) : null}
+      </Stack>
+    </AccordionSummary>
+    <AccordionDetails>
+      <Stack spacing={1.5}>
+        {application.dataObjects.length > 0 ? (
+          application.dataObjects.map((dataObject) => (
+            <DataObjectAccordion
+              key={dataObject.dataObjectId}
+              dataObject={dataObject}
+              onRunProfiling={onRunProfiling}
+              isProfiling={
+                Boolean(profilingState?.isLoading && profilingState?.activeId === dataObject.dataObjectId)
+              }
+            />
+          ))
+        ) : (
+          <Typography color="text.secondary">No data objects mapped yet.</Typography>
+        )}
+      </Stack>
+    </AccordionDetails>
+  </Accordion>
+);
+
+interface ProductTeamAccordionProps {
+  productTeam: DataQualityDatasetProductTeam;
+  onRunProfiling?: (dataObjectId: string) => void;
+  profilingState?: { activeId: string | null; isLoading: boolean };
+}
+
+const ProductTeamAccordion = ({
+  productTeam,
+  onRunProfiling,
+  profilingState
+}: ProductTeamAccordionProps) => (
+  <Accordion defaultExpanded>
+    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+      <Stack spacing={0.5}>
+        <Typography fontWeight={600}>{productTeam.name}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {formatDescription(productTeam.description)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {`${productTeam.applications.length} application${productTeam.applications.length === 1 ? '' : 's'}`}
+        </Typography>
+      </Stack>
+    </AccordionSummary>
+    <AccordionDetails>
+      <Stack spacing={1.5}>
+        {productTeam.applications.length > 0 ? (
+          productTeam.applications.map((application) => (
+            <ApplicationAccordion
+              key={application.applicationId}
+              application={application}
+              onRunProfiling={onRunProfiling}
+              profilingState={profilingState}
+            />
+          ))
+        ) : (
+          <Typography color="text.secondary">No applications configured yet.</Typography>
+        )}
+      </Stack>
+    </AccordionDetails>
+  </Accordion>
+);
 
 const DataQualityDatasetsPage = () => {
-  const { snackbar, showError } = useSnackbarFeedback();
+  const { snackbar, showError, showSuccess } = useSnackbarFeedback();
+  const [profilingTargetId, setProfilingTargetId] = useState<string | null>(null);
 
-  const handleProjectsError = useCallback(
-    (error: unknown) => {
-      showError(`Unable to load TestGen projects: ${resolveErrorMessage(error)}`);
+  const runProfilingMutation = useMutation(startDataObjectProfileRuns, {
+    onMutate: (dataObjectId: string) => {
+      setProfilingTargetId(dataObjectId);
     },
-    [showError]
-  );
-
-  const handleConnectionsError = useCallback(
-    (error: unknown) => {
-      showError(`Failed to load connections for the selected project: ${resolveErrorMessage(error)}`);
+    onSuccess: (result) => {
+      const started = result.profileRuns.length;
+      const skipped = result.skippedTableIds.length;
+      const messageParts = [
+        started > 0
+          ? `Profiling started for ${started} table group${started === 1 ? '' : 's'}.`
+          : 'No profiling runs were started.'
+      ];
+      if (skipped > 0) {
+        messageParts.push(
+          `${skipped} table${skipped === 1 ? '' : 's'} skipped due to missing connections.`
+        );
+      }
+      showSuccess(messageParts.join(' '));
     },
-    [showError]
-  );
-
-  const projectsQuery = useProjects(handleProjectsError);
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selectedProjectKey && projectsQuery.data && projectsQuery.data.length > 0) {
-      setSelectedProjectKey(projectsQuery.data[0].projectKey);
+    onError: (error) => {
+      showError(`Unable to start profiling: ${resolveErrorMessage(error)}`);
+    },
+    onSettled: () => {
+      setProfilingTargetId(null);
     }
-  }, [projectsQuery.data, selectedProjectKey]);
+  });
 
-  const connectionsQuery = useConnections(selectedProjectKey, handleConnectionsError);
-
-  const handleNestedError = useCallback(
-    (context: 'groups' | 'tables', error: unknown) => {
-      const prefix = context === 'groups' ? 'Failed to load table groups' : 'Failed to load tables';
-      showError(`${prefix}: ${resolveErrorMessage(error)}`);
+  const handleRunProfiling = useCallback(
+    (dataObjectId: string) => {
+      runProfilingMutation.mutate(dataObjectId);
     },
-    [showError]
+    [runProfilingMutation]
   );
 
-  const selectedProject = useMemo(() => {
-    if (!projectsQuery.data || !selectedProjectKey) {
-      return null;
+  const profilingState = {
+    activeId: profilingTargetId,
+    isLoading: runProfilingMutation.isLoading
+  };
+
+  const hierarchyQuery = useQuery<DataQualityDatasetProductTeam[]>(
+    ['data-quality', 'dataset-hierarchy'],
+    fetchDatasetHierarchy,
+    {
+      staleTime: 5 * 60 * 1000,
+      onError: (error) => {
+        showError(`Unable to load dataset hierarchy: ${resolveErrorMessage(error)}`);
+      }
     }
-    return projectsQuery.data.find((project) => project.projectKey === selectedProjectKey) ?? null;
-  }, [projectsQuery.data, selectedProjectKey]);
+  );
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>
-          Data Quality Datasets
-        </Typography>
-        <Typography color="text.secondary">
-          Explore the TestGen project hierarchy, connections, and registered tables sourced from
-          your ingestion selections.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Data Quality Datasets"
+        subtitle="Explore product teams, applications, data objects, and their registered data definitions synchronized from Conversion Central."
+        actions={
+          <Button component={RouterLink} to="/data-quality/profiling-runs" variant="outlined">
+            View Profiling Runs
+          </Button>
+        }
+      />
 
-      <Paper elevation={1} sx={{ p: 3 }}>
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6} lg={4}>
-            <FormControl fullWidth>
-              <InputLabel id="dq-project-select-label">Project</InputLabel>
-              <Select
-                labelId="dq-project-select-label"
-                label="Project"
-                value={selectedProjectKey ?? ''}
-                onChange={(event) => setSelectedProjectKey(event.target.value || null)}
-                disabled={projectsQuery.isLoading || !projectsQuery.data?.length}
-              >
-                {projectsQuery.data?.map((project) => (
-                  <MenuItem key={project.projectKey} value={project.projectKey}>
-                    {project.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} md={6} lg={8}>
-            <Typography variant="body1" sx={{ mt: { xs: 2, md: 0 } }}>
-              {selectedProject?.description ?? 'Select a project to inspect its datasets.'}
-            </Typography>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {projectsQuery.isLoading ? (
+      {hierarchyQuery.isLoading ? (
         <Box display="flex" justifyContent="center" py={4}>
           <CircularProgress />
         </Box>
-      ) : projectsQuery.isError ? (
-        <Alert severity="error">Unable to load TestGen projects.</Alert>
-      ) : connectionsQuery.isLoading ? (
-        <Box display="flex" justifyContent="center" py={4}>
-          <CircularProgress />
-        </Box>
-      ) : connectionsQuery.isError ? (
-        <Alert severity="error">Failed to load connections for the selected project.</Alert>
-      ) : connectionsQuery.data && connectionsQuery.data.length > 0 ? (
-        <Stack spacing={1.5}>
-          {connectionsQuery.data.map((connection) => (
-            <ConnectionPanel
-              key={connection.connectionId}
-              connection={connection}
-              onError={handleNestedError}
+      ) : hierarchyQuery.isError ? (
+        <Alert severity="error">Unable to load the dataset hierarchy.</Alert>
+      ) : hierarchyQuery.data && hierarchyQuery.data.length > 0 ? (
+        <Stack spacing={2}>
+          {hierarchyQuery.data.map((productTeam) => (
+            <ProductTeamAccordion
+              key={productTeam.productTeamId}
+              productTeam={productTeam}
+              onRunProfiling={handleRunProfiling}
+              profilingState={profilingState}
             />
           ))}
         </Stack>
       ) : (
         <Paper elevation={0} sx={{ p: 3 }}>
           <Typography color="text.secondary">
-            No active connections have been synchronized for this project yet.
+            No dataset metadata has been captured yet. Create data definitions to populate this view.
           </Typography>
         </Paper>
       )}

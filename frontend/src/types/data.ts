@@ -192,6 +192,9 @@ export interface DatabricksSqlSettings {
   dataQualitySchema?: string | null;
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
+  profilingPolicyId?: string | null;
+  profilePayloadBasePath?: string | null;
+  profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -213,6 +216,9 @@ export interface DatabricksSqlSettingsInput {
   dataQualitySchema?: string | null;
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
+  profilingPolicyId?: string | null;
+  profilePayloadBasePath?: string | null;
+  profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -230,6 +236,9 @@ export interface DatabricksSqlSettingsUpdate {
   dataQualitySchema?: string | null;
   dataQualityStorageFormat?: 'delta' | 'hudi';
   dataQualityAutoManageTables?: boolean;
+  profilingPolicyId?: string | null;
+  profilePayloadBasePath?: string | null;
+  profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
   sparkCompute?: 'classic' | 'serverless' | null;
@@ -241,6 +250,19 @@ export interface DatabricksSqlSettingsTestResult {
   success: boolean;
   message: string;
   durationMs?: number | null;
+}
+
+export interface DatabricksClusterPolicy {
+  id: string;
+  settingId: string;
+  policyId: string;
+  name: string;
+  description?: string | null;
+  definition?: Record<string, unknown> | null;
+  isActive: boolean;
+  syncedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DatabricksDataType {
@@ -446,6 +468,96 @@ export interface DataQualityProfileRun {
   payloadPath?: string | null;
 }
 
+export interface DataQualityProfileRunEntry {
+  profileRunId: string;
+  tableGroupId: string;
+  tableGroupName?: string | null;
+  connectionId?: string | null;
+  connectionName?: string | null;
+  catalog?: string | null;
+  schemaName?: string | null;
+  dataObjectId?: string | null;
+  dataObjectName?: string | null;
+  applicationId?: string | null;
+  applicationName?: string | null;
+  productTeamId?: string | null;
+  productTeamName?: string | null;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  rowCount?: number | null;
+  anomalyCount?: number | null;
+  payloadPath?: string | null;
+  anomaliesBySeverity: Record<string, number>;
+}
+
+export interface DataQualityProfileRunTableGroup {
+  tableGroupId: string;
+  tableGroupName?: string | null;
+  connectionId?: string | null;
+  connectionName?: string | null;
+  catalog?: string | null;
+  schemaName?: string | null;
+  dataObjectId?: string | null;
+  dataObjectName?: string | null;
+  applicationId?: string | null;
+  applicationName?: string | null;
+  productTeamId?: string | null;
+  productTeamName?: string | null;
+}
+
+export interface DataQualityProfileRunListResponse {
+  runs: DataQualityProfileRunEntry[];
+  tableGroups: DataQualityProfileRunTableGroup[];
+}
+
+export interface DataQualityProfileAnomaly {
+  tableName?: string | null;
+  columnName?: string | null;
+  anomalyType: string;
+  severity: string;
+  description: string;
+  detectedAt?: string | null;
+}
+
+export interface DataQualityColumnMetric {
+  key: string;
+  label: string;
+  value?: number | string | null;
+  formatted?: string | null;
+  unit?: string | null;
+}
+
+export interface DataQualityColumnValueFrequency {
+  value?: unknown;
+  count?: number | null;
+  percentage?: number | null;
+}
+
+export interface DataQualityColumnHistogramBin {
+  label: string;
+  count?: number | null;
+  lower?: number | null;
+  upper?: number | null;
+}
+
+export interface DataQualityColumnProfile {
+  tableGroupId: string;
+  profileRunId?: string | null;
+  status?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  rowCount?: number | null;
+  tableName?: string | null;
+  columnName: string;
+  dataType?: string | null;
+  metrics: DataQualityColumnMetric[];
+  topValues: DataQualityColumnValueFrequency[];
+  histogram: DataQualityColumnHistogramBin[];
+  anomalies: DataQualityProfileAnomaly[];
+}
+
 export interface DataQualityTestRun {
   testRunId: string;
   testSuiteKey?: string | null;
@@ -457,6 +569,94 @@ export interface DataQualityTestRun {
   totalTests?: number | null;
   failedTests?: number | null;
   triggerSource?: string | null;
+}
+
+export type DataQualityTestSuiteSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface DataQualityTestSuite {
+  testSuiteKey: string;
+  projectKey?: string | null;
+  name: string;
+  description?: string | null;
+  severity?: DataQualityTestSuiteSeverity | null;
+  productTeamId?: string | null;
+  applicationId?: string | null;
+  dataObjectId?: string | null;
+  dataDefinitionId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface DataQualityTestSuiteInput {
+  name: string;
+  description?: string | null;
+  severity?: DataQualityTestSuiteSeverity | null;
+  projectKey?: string | null;
+  productTeamId?: string | null;
+  applicationId?: string | null;
+  dataObjectId?: string | null;
+  dataDefinitionId?: string | null;
+}
+
+export type DataQualityTestSuiteUpdate = Partial<DataQualityTestSuiteInput>;
+
+export interface DataQualitySuiteTest {
+  testId: string;
+  testSuiteKey: string;
+  tableGroupId: string;
+  tableId?: string | null;
+  dataDefinitionTableId?: string | null;
+  schemaName?: string | null;
+  tableName?: string | null;
+  physicalName?: string | null;
+  columnName?: string | null;
+  ruleType: string;
+  name: string;
+  definition: Record<string, unknown>;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface DataQualitySuiteTestInput {
+  name: string;
+  ruleType: string;
+  dataDefinitionTableId: string;
+  columnName?: string | null;
+  definition?: Record<string, unknown>;
+}
+
+export interface DataQualitySuiteTestUpdate {
+  name?: string;
+  ruleType?: string;
+  dataDefinitionTableId?: string;
+  columnName?: string | null;
+  definition?: Record<string, unknown>;
+}
+
+export interface DataQualityTestTypeParameter {
+  name: string;
+  prompt?: string | null;
+  help?: string | null;
+  defaultValue?: string | null;
+}
+
+export interface DataQualityTestType {
+  testType: string;
+  ruleType: string;
+  id?: string | null;
+  nameShort?: string | null;
+  nameLong?: string | null;
+  description?: string | null;
+  usageNotes?: string | null;
+  dqDimension?: string | null;
+  runType?: string | null;
+  testScope?: string | null;
+  defaultSeverity?: string | null;
+  columnPrompt?: string | null;
+  columnHelp?: string | null;
+  sqlFlavors: string[];
+  parameters: DataQualityTestTypeParameter[];
+  sourceFile?: string | null;
 }
 
 export interface DataQualityAlert {
@@ -478,6 +678,54 @@ export interface DataQualityProfileRunStartResponse {
 
 export interface DataQualityTestRunStartResponse {
   testRunId: string;
+}
+
+export interface DataQualityDatasetTable {
+  dataDefinitionTableId: string;
+  tableId: string;
+  schemaName: string | null;
+  tableName: string;
+  physicalName: string;
+  alias?: string | null;
+  description?: string | null;
+  loadOrder?: number | null;
+  isConstructed: boolean;
+  tableType?: string | null;
+}
+
+export interface DataQualityDatasetDefinition {
+  dataDefinitionId: string;
+  description?: string | null;
+  tables: DataQualityDatasetTable[];
+}
+
+export interface DataQualityDatasetObject {
+  dataObjectId: string;
+  name: string;
+  description?: string | null;
+  dataDefinitions: DataQualityDatasetDefinition[];
+}
+
+export interface DataQualityDatasetApplication {
+  applicationId: string;
+  name: string;
+  description?: string | null;
+  physicalName: string;
+  dataObjects: DataQualityDatasetObject[];
+}
+
+export interface DataQualityDatasetProductTeam {
+  productTeamId: string;
+  name: string;
+  description?: string | null;
+  applications: DataQualityDatasetApplication[];
+}
+
+export interface DataQualityBulkProfileRunResponse {
+  requestedTableCount: number;
+  targetedTableGroupCount: number;
+  profileRuns: { tableGroupId: string; profileRunId: string }[];
+  skippedTableIds: string[];
 }
 
 export interface UploadDataColumnOverrideInput {

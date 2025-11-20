@@ -1057,6 +1057,21 @@ class DatabricksSqlSettingBase(BaseModel):
         True,
         description="Automatically manage data quality metadata tables when true.",
     )
+    profiling_policy_id: Optional[str] = Field(
+        None,
+        max_length=120,
+        description="Cluster policy id to apply when creating profiling jobs.",
+    )
+    profiling_notebook_path: Optional[str] = Field(
+        None,
+        max_length=400,
+        description="Workspace notebook path executed for profiling runs.",
+    )
+    profile_payload_base_path: Optional[str] = Field(
+        None,
+        max_length=400,
+        description="Base folder path for storing profiling payloads (e.g. dbfs:/profiles).",
+    )
     ingestion_method: str = Field(
         "sql",
         regex=r"^(sql|spark)$",
@@ -1104,6 +1119,8 @@ class DatabricksSqlSettingBase(BaseModel):
         "data_quality_schema",
         "warehouse_name",
         "spark_compute",
+        "profiling_policy_id",
+        "profile_payload_base_path",
         pre=True,
     )
     def _strip_optional_value(cls, value: str | None) -> str | None:
@@ -1136,6 +1153,9 @@ class DatabricksSqlSettingUpdate(BaseModel):
     data_quality_schema: Optional[str | None] = Field(None, max_length=120)
     data_quality_storage_format: Optional[str | None] = Field(None, regex=r"^(delta|hudi)$")
     data_quality_auto_manage_tables: Optional[bool] = None
+    profiling_policy_id: Optional[str | None] = Field(None, max_length=120)
+    profile_payload_base_path: Optional[str | None] = Field(None, max_length=400)
+    profiling_notebook_path: Optional[str | None] = Field(None, max_length=400)
     ingestion_method: Optional[str | None] = Field(
         None,
         regex=r"^(sql|spark)$",
@@ -1176,6 +1196,8 @@ class DatabricksSqlSettingUpdate(BaseModel):
         "data_quality_storage_format",
         "warehouse_name",
         "spark_compute",
+        "profiling_policy_id",
+        "profile_payload_base_path",
         pre=True,
     )
     def _strip_optional(cls, value: str | None) -> str | None:
@@ -1209,6 +1231,17 @@ class DatabricksSqlSettingTestResult(BaseModel):
     success: bool
     message: str
     duration_ms: float | None = None
+
+
+class DatabricksClusterPolicyRead(TimestampSchema):
+    id: UUID
+    setting_id: UUID
+    policy_id: str
+    name: str
+    description: Optional[str] = None
+    definition: dict[str, Any] | None = None
+    is_active: bool = True
+    synced_at: datetime | None = None
 
 
 class SapHanaSettingBase(BaseModel):

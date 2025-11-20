@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
+from app.services.data_quality_keys import (
+    build_connection_id,
+    build_project_key,
+    build_table_group_id,
+    build_table_id,
+)
 from app.services.data_quality_testgen import (
     AlertRecord,
     ProfileAnomaly,
@@ -100,19 +108,25 @@ def _install_dummy_engine(monkeypatch, executed, should_fail: bool = False, resu
     monkeypatch.setattr(data_quality_testgen, "create_engine", lambda url, **kwargs: dummy)
 
 
+PROJECT_KEY = build_project_key("system-abc", "object-xyz")
+CONNECTION_ID = build_connection_id("conn-1", "object-xyz")
+TABLE_GROUP_ID = build_table_group_id("conn-1", "object-xyz")
+TABLE_ID = build_table_id("selection-1", "object-xyz")
+
+
 def test_start_profile_run_inserts_rows(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
     _install_dummy_engine(monkeypatch, executed)
 
     client = TestGenClient(sample_params, schema="dq")
-    run_id = client.start_profile_run("group:abc", payload_path="dbfs:/runs/profile.json")
+    run_id = client.start_profile_run(TABLE_GROUP_ID, payload_path="dbfs:/runs/profile.json")
     client.close()
 
     assert run_id
     assert executed
     statement, params = executed[0]
     assert "INSERT INTO `sandbox`.`dq`.`dq_profiles`" in statement
-    assert params["table_group_id"] == "group:abc"
+    assert params["table_group_id"] == TABLE_GROUP_ID
     assert params["payload_path"] == "dbfs:/runs/profile.json"
 
 
@@ -160,7 +174,7 @@ def test_list_projects_returns_records(monkeypatch, sample_params):
     results = [
         [
             {
-                "project_key": "system:abc",
+                "project_key": PROJECT_KEY,
                 "name": "System",
                 "description": "desc",
                 "sql_flavor": "databricks-sql",
@@ -173,54 +187,54 @@ def test_list_projects_returns_records(monkeypatch, sample_params):
     rows = client.list_projects()
     client.close()
 
-    assert rows[0]["project_key"] == "system:abc"
+    assert rows[0]["project_key"] == PROJECT_KEY
     statement, _ = executed[0]
     assert "SELECT project_key" in statement
 
 
 def test_list_connections_filters_by_project(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
-    results = [[{"connection_id": "conn-1"}]]
+    results = [[{"connection_id": CONNECTION_ID}]]
     _install_dummy_engine(monkeypatch, executed, results_sequence=results)
 
     client = TestGenClient(sample_params, schema="dq")
-    rows = client.list_connections("system:abc")
+    rows = client.list_connections(PROJECT_KEY)
     client.close()
 
-    assert rows[0]["connection_id"] == "conn-1"
+    assert rows[0]["connection_id"] == CONNECTION_ID
     statement, params = executed[0]
     assert "WHERE project_key = :project_key" in statement
-    assert params["project_key"] == "system:abc"
+    assert params["project_key"] == PROJECT_KEY
 
 
 def test_list_table_groups_filters_by_connection(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
-    results = [[{"table_group_id": "group-1"}]]
+    results = [[{"table_group_id": TABLE_GROUP_ID}]]
     _install_dummy_engine(monkeypatch, executed, results_sequence=results)
 
     client = TestGenClient(sample_params, schema="dq")
-    rows = client.list_table_groups("conn-1")
+    rows = client.list_table_groups(CONNECTION_ID)
     client.close()
 
-    assert rows[0]["table_group_id"] == "group-1"
+    assert rows[0]["table_group_id"] == TABLE_GROUP_ID
     statement, params = executed[0]
     assert "WHERE connection_id = :connection_id" in statement
-    assert params["connection_id"] == "conn-1"
+    assert params["connection_id"] == CONNECTION_ID
 
 
 def test_list_tables_filters_by_table_group(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
-    results = [[{"table_id": "tbl-1"}]]
+    results = [[{"table_id": TABLE_ID}]]
     _install_dummy_engine(monkeypatch, executed, results_sequence=results)
 
     client = TestGenClient(sample_params, schema="dq")
-    rows = client.list_tables("group-1")
+    rows = client.list_tables(TABLE_GROUP_ID)
     client.close()
 
-    assert rows[0]["table_id"] == "tbl-1"
+    assert rows[0]["table_id"] == TABLE_ID
     statement, params = executed[0]
     assert "WHERE table_group_id = :table_group_id" in statement
-    assert params["table_group_id"] == "group-1"
+    assert params["table_group_id"] == TABLE_GROUP_ID
 
 
 def test_recent_alerts_excludes_acknowledged_by_default(monkeypatch, sample_params):
@@ -278,7 +292,7 @@ def test_start_and_complete_test_run(monkeypatch, sample_params):
     _install_dummy_engine(monkeypatch, executed)
 
     client = TestGenClient(sample_params, schema="dq")
-    test_run_id = client.start_test_run(project_key="system:abc", test_suite_key="suite", total_tests=5)
+    test_run_id = client.start_test_run(project_key=PROJECT_KEY, test_suite_key="suite", total_tests=5)
 
     results = [
         TestResultRecord(
@@ -302,7 +316,7 @@ def test_start_and_complete_test_run(monkeypatch, sample_params):
     update_stmt, update_params = executed[2]
 
     assert "INSERT INTO `sandbox`.`dq`.`dq_test_runs`" in insert_run_stmt
-    assert insert_run_params["project_key"] == "system:abc"
+    assert insert_run_params["project_key"] == PROJECT_KEY
     assert insert_run_params["total_tests"] == 5
 
     assert "INSERT INTO `sandbox`.`dq`.`dq_test_results`" in insert_result_stmt
@@ -316,27 +330,165 @@ def test_start_and_complete_test_run(monkeypatch, sample_params):
 
 def test_recent_runs_helpers_apply_limits(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
-    results = [[{"profile_run_id": "p1"}], [{"test_run_id": "t1"}]]
+    results = [[], [], [{"profile_run_id": "p1"}], [{"test_run_id": "t1"}]]
     _install_dummy_engine(monkeypatch, executed, results_sequence=results)
 
     client = TestGenClient(sample_params, schema="dq")
-    profiles = client.recent_profile_runs("group-1", limit=7)
-    tests = client.recent_test_runs("system:abc", limit=3)
+    profiles = client.recent_profile_runs(TABLE_GROUP_ID, limit=7)
+    tests = client.recent_test_runs(PROJECT_KEY, limit=3)
     client.close()
 
     assert profiles[0]["profile_run_id"] == "p1"
     assert tests[0]["test_run_id"] == "t1"
 
-    profile_stmt, profile_params = executed[0]
-    test_stmt, test_params = executed[1]
+    profile_stmt, profile_params = next(
+        ((stmt, params) for stmt, params in executed if "SELECT profile_run_id" in stmt)
+    )
+    test_stmt, test_params = next(
+        ((stmt, params) for stmt, params in executed if "SELECT test_run_id" in stmt)
+    )
 
     assert "LIMIT :limit" in profile_stmt
     assert profile_params["limit"] == 7
-    assert profile_params["table_group_id"] == "group-1"
+    assert profile_params["table_group_id"] == TABLE_GROUP_ID
 
     assert "LIMIT :limit" in test_stmt
     assert test_params["limit"] == 3
-    assert test_params["project_key"] == "system:abc"
+    assert test_params["project_key"] == PROJECT_KEY
+
+
+def test_column_profile_parses_payload(monkeypatch, sample_params):
+    executed: list[tuple[str, dict[str, Any]]] = []
+    payload = json.dumps(
+        {
+            "tables": [
+                {
+                    "table_name": "orders",
+                    "columns": [
+                        {
+                            "column_name": "total",
+                            "data_type": "DECIMAL",
+                            "metrics": {
+                                "distinct_count": 10,
+                                "null_percent": 0.25,
+                                "avg": 42.1234,
+                                "min": 1,
+                                "max": 99,
+                            },
+                            "top_values": [
+                                {"value": "100", "count": 2, "percentage": 0.1}
+                            ],
+                            "histogram": [
+                                {"label": "0-10", "count": 5}
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    profile_row = {
+        "profile_run_id": "run-1",
+        "table_group_id": TABLE_GROUP_ID,
+        "status": "completed",
+        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        "row_count": 120,
+        "anomaly_count": 1,
+        "payload_path": payload,
+    }
+
+    anomaly_row = {
+        "table_name": "orders",
+        "column_name": "total",
+        "anomaly_type": "null_density",
+        "severity": "high",
+        "description": "Null ratio increased",
+        "detected_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+    }
+
+    results_sequence = [[profile_row], [anomaly_row]]
+    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
+
+    client = TestGenClient(sample_params, schema="dq")
+    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
+    client.close()
+
+    assert profile is not None
+    assert profile["profile_run_id"] == "run-1"
+    assert profile["column_name"] == "total"
+    assert profile["data_type"] == "DECIMAL"
+
+    metrics = {metric["key"]: metric for metric in profile["metrics"]}
+    assert metrics["distinct_count"]["value"] == 10
+    assert metrics["null_percent"]["formatted"] == "25.00%"
+
+    top_values = profile["top_values"]
+    assert top_values and top_values[0]["percentage"] == 10.0
+
+    anomalies = profile["anomalies"]
+    assert anomalies and anomalies[0]["anomaly_type"] == "null_density"
+
+
+def test_column_profile_reads_dbfs_payload(monkeypatch, sample_params):
+    executed: list[tuple[str, dict[str, Any]]] = []
+    payload = {
+        "tables": [
+            {
+                "table_name": "orders",
+                "columns": [
+                    {
+                        "column_name": "total",
+                        "data_type": "DOUBLE",
+                        "metrics": {"null_percent": 0.1, "mean": 42},
+                    }
+                ],
+            }
+        ]
+    }
+    raw_bytes = json.dumps(payload).encode("utf-8")
+    encoded = base64.b64encode(raw_bytes).decode("ascii")
+
+    profile_row = {
+        "profile_run_id": "run-dbfs",
+        "table_group_id": TABLE_GROUP_ID,
+        "status": "completed",
+        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        "row_count": 321,
+        "anomaly_count": 0,
+        "payload_path": "dbfs:/tmp/profiles/run-dbfs.json",
+    }
+
+    results_sequence = [[profile_row], []]
+    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
+
+    def fake_request(self, url, token, payload_dict):
+        return {"bytes_read": len(raw_bytes), "data": encoded}
+
+    monkeypatch.setattr(TestGenClient, "_request_dbfs", fake_request, raising=False)
+
+    client = TestGenClient(sample_params, schema="dq")
+    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
+    client.close()
+
+    assert profile is not None
+    assert profile["profile_run_id"] == "run-dbfs"
+    assert profile["metrics"]
+    assert any(metric["key"] == "null_percent" for metric in profile["metrics"])
+
+
+def test_column_profile_returns_none_when_missing_run(monkeypatch, sample_params):
+    executed: list[tuple[str, dict[str, Any]]] = []
+    results_sequence: list[list[dict[str, Any]]] = [[]]
+    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
+
+    client = TestGenClient(sample_params, schema="dq")
+    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
+    client.close()
+
+    assert profile is None
 
 
 def test_create_alert(monkeypatch, sample_params):
@@ -379,5 +531,5 @@ def test_execute_wraps_sqlalchemy_errors(monkeypatch, sample_params):
 
     client = TestGenClient(sample_params, schema="dq")
     with pytest.raises(TestGenClientError):
-        client.start_profile_run("group:1")
+        client.start_profile_run(TABLE_GROUP_ID)
     client.close()

@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "projectName": "Canvas Demo",
+    "definitionId": "demo_definition",
+    "generatedBy": "unit-test",
+    "generatedAt": "2025-01-01T00:00:00Z"
+  },
+  "nodes": [
+    {
+      "id": "source.crm.customers",
+      "name": "crm_customers",
+      "label": "CRM Customers",
+      "resourceType": "source",
+      "position": { "x": 0, "y": 0 },
+      "layer": "source",
+      "description": "Raw CRM customers table.",
+      "origin": {
+        "dataDefinitionTableId": "table-001",
+        "systemId": "crm",
+        "schemaName": "crm",
+        "tableName": "customers",
+        "isConstructed": false
+      },
+      "columns": [
+        {
+          "id": "source.crm.customers.id",
+          "name": "id",
+          "dataType": "int",
+          "description": "Customer identifier."
+        },
+        {
+          "id": "source.crm.customers.email",
+          "name": "email",
+          "dataType": "string",
+          "description": "Customer email address."
+        }
+      ],
+      "meta": {
+        "sourceName": "crm"
+      }
+    },
+    {
+      "id": "model.dim_customers",
+      "name": "dim_customers",
+      "label": "Dim Customers",
+      "resourceType": "model",
+      "position": { "x": 400, "y": 120 },
+      "layer": "staging",
+      "description": "Conformed customer dimension.",
+      "config": {
+        "materialization": "view",
+        "tags": ["staging", "dimensions"],
+        "owner": "analytics-team"
+      },
+      "columns": [
+        {
+          "id": "model.dim_customers.id",
+          "name": "id",
+          "dataType": "int",
+          "description": "Unique customer id.",
+          "tests": [
+            {
+              "name": "not_null"
+            }
+          ]
+        },
+        {
+          "id": "model.dim_customers.email",
+          "name": "email",
+          "dataType": "string",
+          "description": "Customer email alias."
+        }
+      ],
+      "meta": {
+        "domain": "customer_360"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge.source.crm.customers->model.dim_customers",
+      "source": "source.crm.customers",
+      "target": "model.dim_customers",
+      "type": "source",
+      "description": "Source to staging model join."
+    }
+  ],
+  "groups": [],
+  "warnings": []
+}

@@ -7,12 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.ingestion.engine import get_ingestion_connection_params
-from app.models import DataObjectDependency, DependencyApproval, Table, TableDependency, User
+from app.models import DataObjectDependency, DependencyApproval, TableDependency, User
 from app.schemas import (
     DependencyApprovalCreate,
     DependencyApprovalDecision,
     DependencyApprovalRead,
     DependencyApprovalUpdate,
+)
+from app.services.data_quality_keys import (
+    project_keys_for_data_object,
+    project_keys_for_table,
 )
 from app.services.data_quality_testgen import TestGenClient, TestGenClientError
 
@@ -56,28 +60,17 @@ def _collect_project_keys(
 
     if data_object_dependency_id:
         dependency = db.get(DataObjectDependency, data_object_dependency_id)
-        if dependency and dependency.predecessor:
-            for link in dependency.predecessor.system_links:
-                if link.system_id:
-                    project_keys.add(f"system:{link.system_id}")
-        if dependency and dependency.successor:
-            for link in dependency.successor.system_links:
-                if link.system_id:
-                    project_keys.add(f"system:{link.system_id}")
+        if dependency:
+            project_keys.update(project_keys_for_data_object(db, dependency.predecessor_id))
+            project_keys.update(project_keys_for_data_object(db, dependency.successor_id))
 
     if table_dependency_id:
         dependency = db.get(TableDependency, table_dependency_id)
         if dependency:
-            project_keys.update(_project_keys_for_table(dependency.predecessor))
-            project_keys.update(_project_keys_for_table(dependency.successor))
+            project_keys.update(project_keys_for_table(db, dependency.predecessor_id))
+            project_keys.update(project_keys_for_table(db, dependency.successor_id))
 
     return project_keys
-
-
-def _project_keys_for_table(table: Optional[Table]) -> Set[str]:
-    if table is None or table.system_id is None:
-        return set()
-    return {f"system:{table.system_id}"}
 
 
 def _guard_data_quality(project_keys: Set[str]) -> None:

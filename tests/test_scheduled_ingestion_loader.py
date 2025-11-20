@@ -10,6 +10,7 @@ from app.ingestion.engine import reset_ingestion_engine
 from app.services.databricks_sql import DatabricksConnectionParams
 from sqlalchemy import Column, Integer, MetaData, Table
 
+from app.services.data_quality_keys import build_project_key, build_table_group_id
 from app.services.ingestion_loader import BaseTableLoader, DatabricksTableLoader, SparkTableLoader
 from app.services.scheduled_ingestion import (
     IngestionOutcome,
@@ -21,8 +22,11 @@ from app.services.scheduled_ingestion import (
 from app.schemas import IngestionLoadStrategy, IngestionRunStatus, SystemConnectionType
 from app.models import (
     ConnectionTableSelection,
+    DataObject,
+    DataObjectSystem,
     IngestionRun,
     IngestionSchedule,
+    ProcessArea,
     System,
     SystemConnection,
 )
@@ -246,6 +250,17 @@ def test_completed_ingestion_triggers_data_quality_run(db_session, monkeypatch: 
     db_session.add(system)
     db_session.flush()
 
+    process_area = ProcessArea(name="Sales")
+    db_session.add(process_area)
+    db_session.flush()
+
+    data_object = DataObject(process_area_id=process_area.id, name="Pipeline")
+    db_session.add(data_object)
+    db_session.flush()
+
+    db_session.add(DataObjectSystem(data_object_id=data_object.id, system_id=system.id))
+    db_session.flush()
+
     connection = SystemConnection(
         system_id=system.id,
         connection_type=SystemConnectionType.JDBC.value,
@@ -295,7 +310,10 @@ def test_completed_ingestion_triggers_data_quality_run(db_session, monkeypatch: 
 
     engine._mark_run_completed(schedule.id, run.id, outcome)
 
-    assert captured["project_key"] == f"system:{system.id}"
-    assert captured["test_suite_key"] == f"group:{connection.id}"
+    expected_project_key = build_project_key(system.id, data_object.id)
+    expected_suite_key = build_table_group_id(connection.id, data_object.id)
+
+    assert captured["project_key"] == expected_project_key
+    assert captured["test_suite_key"] == expected_suite_key
     assert captured["trigger_source"] == f"ingestion-run:{run.id}"
     assert captured["status"] == "pending"

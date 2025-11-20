@@ -20,6 +20,7 @@ import {
 } from '@services/dataQualityService';
 import { DataQualityProject, DataQualityTestRun } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import PageHeader from '../components/common/PageHeader';
 
 const resolveErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unexpected error encountered.';
@@ -152,15 +153,10 @@ const DataQualityTestLibraryPage = () => {
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>
-          Test Library
-        </Typography>
-        <Typography color="text.secondary">
-          Review recent DataOps TestGen executions per project. Automated rule synchronization will
-          surface here as we expand the integration.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Test Library"
+        subtitle="Review recent TestGen executions per project while automated rule coverage continues to expand."
+      />
 
       {projectsQuery.isLoading ? (
         <Box display="flex" justifyContent="center" py={4}>
