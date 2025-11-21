@@ -113,6 +113,74 @@ Detailed anomalies per profile run.
 | `description` | STRING | Human-readable summary. |
 | `detected_at` | TIMESTAMP | |
 
+### 6a. `dq_profile_columns`
+
+Materialized column-level metrics emitted directly from the Databricks profiling notebook. Replaces TestGen's `profile_results` table and aligns with its metric vocabulary so downstream anomaly and scoring SQL can be re-used with minimal tweaks.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `profile_run_id` | STRING | FK → `dq_profiles`. Z-Order along with `table_name` for efficient drill-down. |
+| `schema_name` | STRING | Logical schema of the profiled table. |
+| `table_name` | STRING | Fully qualified table identifier (matching notebook label). |
+| `column_name` | STRING | Column identifier. |
+| `qualified_name` | STRING | Optional fully-qualified `catalog.schema.table.column` for debugging. |
+| `data_type` | STRING | Spark data type string (e.g., `decimal(10,2)`). |
+| `general_type` | STRING | Normalized TestGen type (`A`=alpha/string, `N`=numeric, `D`=date/datetime, `B`=boolean, `X`=other). |
+| `ordinal_position` | INT | Column order inside the table. |
+| `row_count` | BIGINT | Total table rows seen during profiling. |
+| `null_count` | BIGINT | Count of null rows for this column. |
+| `non_null_count` | BIGINT | Convenience field, mirrors TestGen metrics. |
+| `distinct_count` | BIGINT | `approx_count_distinct` result (nullable if not computed). |
+| `min_value` | STRING | Stringified min (numeric/date/string as text). |
+| `max_value` | STRING | Stringified max. |
+| `avg_value` | DOUBLE | For numeric columns. |
+| `stddev_value` | DOUBLE | Population stddev for numeric. |
+| `median_value` | DOUBLE | 50th percentile via `percentile_approx`. |
+| `p95_value` | DOUBLE | 95th percentile. |
+| `true_count` | BIGINT | Boolean columns only. |
+| `false_count` | BIGINT | Boolean columns only. |
+| `min_length` | INT | Smallest string length. |
+| `max_length` | INT | Largest string length. |
+| `avg_length` | DOUBLE | Average string length. |
+| `non_ascii_ratio` | DOUBLE | Ratio of rows containing non-ASCII characters (nullable). |
+| `min_date` | DATE | Earliest date/timestamp truncated to day. |
+| `max_date` | DATE | Latest date/timestamp truncated to day. |
+| `date_span_days` | INT | `datediff(max_date, min_date)` for date/time columns. |
+| `metrics_json` | STRING | JSON blob for extensibility (e.g., pattern counts). |
+| `generated_at` | TIMESTAMP | Default `current_timestamp()`. |
+
+Storage guidance:
+
+- Delta table partitioned by `profile_run_id` and Z-Ordered on (`profile_run_id`, `table_name`, `column_name`).
+- Auto-vacuum within 14 days; profiling is append-only per run.
+- Notebook writes via `MERGE` keyed on (`profile_run_id`, `table_name`, `column_name`).
+
+### 6b. `dq_profile_column_values`
+
+Captures value distributions, frequency counts, or histogram buckets for selected columns (mirrors TestGen secondary profiling updates and contingency prep tables).
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `profile_run_id` | STRING | FK → `dq_profiles`. |
+| `schema_name` | STRING | Column schema context. |
+| `table_name` | STRING | Column table context. |
+| `column_name` | STRING | Column identifier. |
+| `value` | STRING | Literal value (stringified) or bucket label. |
+| `value_hash` | STRING | Optional hash for large values; aids deduplication. |
+| `frequency` | BIGINT | Count of rows matching the value/bucket. |
+| `relative_freq` | DOUBLE | `frequency / row_count` when row count is known. |
+| `rank` | INT | Rank ordering by frequency (1 = most common). |
+| `bucket_label` | STRING | When histogram bucket (e.g., `0-10`, `A-M`). Nullable otherwise. |
+| `bucket_lower_bound` | DOUBLE | Numeric bucket lower edge (nullable). |
+| `bucket_upper_bound` | DOUBLE | Numeric bucket upper edge (nullable). |
+| `generated_at` | TIMESTAMP | Default `current_timestamp()`. |
+
+Storage guidance:
+
+- Delta table clustered/Z-Ordered on (`profile_run_id`, `table_name`, `column_name`).
+- Keep only top N frequencies per column (default 25) plus histogram buckets so the dataset stays manageable.
+- Notebook writes append-only; downstream consumers filter by `rank` or `relative_freq` thresholds.
+
 ### 7. `dq_tests`
 
 Generated tests (rules) for each dataset.

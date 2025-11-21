@@ -62,6 +62,13 @@ class Settings(BaseSettings):
         env="DATABRICKS_DATA_QUALITY_AUTO_MANAGE_TABLES",
         description="When true the application auto-creates or upgrades data quality metadata tables.",
     )
+    testgen_profile_table_reads_enabled: bool = Field(
+        True,
+        env="TESTGEN_PROFILE_TABLE_READS_ENABLED",
+        description=(
+            "When true the TestGen column profile endpoint reads from dq_profile_columns before falling back to payloads."
+        ),
+    )
     databricks_profile_notebook_path: str | None = Field(
         default=None,
         env="DATABRICKS_PROFILE_NOTEBOOK_PATH",

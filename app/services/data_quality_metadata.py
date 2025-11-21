@@ -33,7 +33,7 @@ from app.services.data_quality_keys import (
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 _SUPPORTED_STORAGE_FORMATS = {"delta"}
 _PROJECT_KEY_PREFIX = "system:"
 _CONNECTION_ID_PREFIX = "conn:"
@@ -764,6 +764,58 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "severity STRING",
                     "description STRING",
                     "detected_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_columns",
+                [
+                    "profile_run_id STRING NOT NULL",
+                    "schema_name STRING",
+                    "table_name STRING NOT NULL",
+                    "column_name STRING NOT NULL",
+                    "qualified_name STRING",
+                    "data_type STRING",
+                    "general_type STRING",
+                    "ordinal_position INT",
+                    "row_count BIGINT",
+                    "null_count BIGINT",
+                    "non_null_count BIGINT",
+                    "distinct_count BIGINT",
+                    "min_value STRING",
+                    "max_value STRING",
+                    "avg_value DOUBLE",
+                    "stddev_value DOUBLE",
+                    "median_value DOUBLE",
+                    "p95_value DOUBLE",
+                    "true_count BIGINT",
+                    "false_count BIGINT",
+                    "min_length INT",
+                    "max_length INT",
+                    "avg_length DOUBLE",
+                    "non_ascii_ratio DOUBLE",
+                    "min_date DATE",
+                    "max_date DATE",
+                    "date_span_days INT",
+                    "metrics_json STRING",
+                    "generated_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_column_values",
+                [
+                    "profile_run_id STRING NOT NULL",
+                    "schema_name STRING",
+                    "table_name STRING NOT NULL",
+                    "column_name STRING NOT NULL",
+                    "value STRING",
+                    "value_hash STRING",
+                    "frequency BIGINT",
+                    "relative_freq DOUBLE",
+                    "rank INT",
+                    "bucket_label STRING",
+                    "bucket_lower_bound DOUBLE",
+                    "bucket_upper_bound DOUBLE",
+                    "generated_at TIMESTAMP",
                 ],
             ),
             (

@@ -17,8 +17,9 @@ from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.config import Settings, get_settings
 from app.services.databricks_sql import DatabricksConnectionParams, build_sqlalchemy_url
-from app.services.data_quality_metadata import _format_table
+from app.services.data_quality_metadata import _format_table, _table_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,10 @@ _PERCENT_METRIC_KEYS = {
     "valid_percent",
 }
 
+_PROFILE_TABLE_DEFINITIONS = _table_definitions()
+_PROFILE_COLUMNS_DEFINITION = tuple(_PROFILE_TABLE_DEFINITIONS.get("dq_profile_columns", ()))
+_PROFILE_COLUMN_VALUES_DEFINITION = tuple(_PROFILE_TABLE_DEFINITIONS.get("dq_profile_column_values", ()))
+
 
 @dataclass(frozen=True)
 class ProfileAnomaly:
@@ -141,7 +146,13 @@ class TestGenClientError(RuntimeError):
 class TestGenClient:
     """Utility for interacting with Databricks-backed TestGen tables."""
 
-    def __init__(self, params: DatabricksConnectionParams, schema: str) -> None:
+    def __init__(
+        self,
+        params: DatabricksConnectionParams,
+        schema: str,
+        *,
+        settings: Settings | None = None,
+    ) -> None:
         schema = (schema or "").strip()
         if not schema:
             raise ValueError("Data quality schema is required to initialize TestGenClient.")
@@ -150,6 +161,10 @@ class TestGenClient:
         self._schema = schema
         self._engine: Engine | None = None
         self._profiling_support_verified = False
+        self._settings = settings or get_settings()
+        self._profile_table_reads_enabled = bool(
+            getattr(self._settings, "testgen_profile_table_reads_enabled", True)
+        )
 
     def close(self) -> None:
         if self._engine is not None:
@@ -189,6 +204,7 @@ class TestGenClient:
 
         table_groups_table = _format_table(self._params.catalog, self._schema, "dq_table_groups")
         profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
+        ddl_statements = self._profile_detail_table_statements()
         statements = (
             text(f"ALTER TABLE {table_groups_table} ADD COLUMNS (profiling_job_id STRING)"),
             text(f"ALTER TABLE {profiles_table} ADD COLUMNS (databricks_run_id STRING)"),
@@ -196,6 +212,11 @@ class TestGenClient:
 
         try:
             with self._get_engine().begin() as connection:
+                for ddl in ddl_statements:
+                    try:
+                        connection.execute(ddl)
+                    except SQLAlchemyError as exc:
+                        raise
                 for statement in statements:
                     try:
                         connection.execute(statement)
@@ -210,6 +231,31 @@ class TestGenClient:
             ) from exc
 
         self._profiling_support_verified = True
+
+    def _profile_detail_table_statements(self) -> tuple[Any, ...]:
+        definitions = (
+            ("dq_profile_columns", _PROFILE_COLUMNS_DEFINITION),
+            ("dq_profile_column_values", _PROFILE_COLUMN_VALUES_DEFINITION),
+        )
+        storage_format = (self._params.data_quality_storage_format or "delta").strip().lower() or "delta"
+        using_clause = storage_format.upper()
+        properties_clause = (
+            " TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true', 'delta.autoOptimize.autoCompact' = 'true')"
+            if storage_format == "delta"
+            else ""
+        )
+
+        statements: list[Any] = []
+        for table_name, columns in definitions:
+            if not columns:
+                continue
+            qualified = _format_table(self._params.catalog, self._schema, table_name)
+            columns_sql = ",\n                ".join(columns)
+            ddl = text(
+                f"CREATE TABLE IF NOT EXISTS {qualified} (\n                {columns_sql}\n            ) USING {using_clause}{properties_clause}"
+            )
+            statements.append(ddl)
+        return tuple(statements)
 
     def list_projects(self) -> list[dict[str, Any]]:
         projects_table = _format_table(self._params.catalog, self._schema, "dq_projects")
@@ -662,13 +708,25 @@ class TestGenClient:
         if not run:
             return None
 
-        payload = self._load_profile_payload(run.get("payload_path"))
-        table_entry, column_entry = self._locate_column_profile(
-            payload,
+        table_entry: Mapping[str, Any] | None = None
+        column_entry: Mapping[str, Any] | None = None
+
+        table_profile_entries = self._load_column_profile_from_tables(
+            run,
+            normalized_column=normalized_column,
             table_name=table_name,
             physical_name=physical_name,
-            column_name=normalized_column,
         )
+        if table_profile_entries:
+            table_entry, column_entry = table_profile_entries
+        else:
+            payload = self._load_profile_payload(run.get("payload_path"))
+            table_entry, column_entry = self._locate_column_profile(
+                payload,
+                table_name=table_name,
+                physical_name=physical_name,
+                column_name=normalized_column,
+            )
 
         metrics = self._build_column_metrics(column_entry)
         if run.get("row_count") is not None and not any(metric.get("key") == "row_count" for metric in metrics):
@@ -1087,6 +1145,251 @@ class TestGenClient:
             f"FROM {anomalies_table} WHERE {' AND '.join(filters)} ORDER BY detected_at DESC"
         )
         return self._fetch(statement, params)
+
+    def _load_column_profile_from_tables(
+        self,
+        run: Mapping[str, Any],
+        *,
+        normalized_column: str,
+        table_name: str | None,
+        physical_name: str | None,
+    ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None] | None:
+        if not self._profile_table_reads_enabled:
+            return None
+
+        profile_run_id = (run.get("profile_run_id") or "").strip()
+        if not profile_run_id:
+            return None
+
+        candidates = self._table_filter_candidates(table_name, physical_name)
+        if not candidates:
+            candidates = (None,)
+        else:
+            candidates = (*candidates, None)
+
+        for candidate in candidates:
+            try:
+                column_row = self._fetch_profile_column(
+                    profile_run_id,
+                    normalized_column,
+                    table_filter=candidate,
+                )
+            except TestGenClientError as exc:
+                logger.warning("Column profile table lookup failed; falling back to payload: %s", exc)
+                return None
+
+            if not column_row:
+                continue
+
+            try:
+                value_rows = self._fetch_profile_column_values(
+                    profile_run_id,
+                    normalized_column,
+                    table_filter=candidate,
+                )
+            except TestGenClientError as exc:
+                logger.warning("Column profile values lookup failed; falling back to payload: %s", exc)
+                return None
+
+            return self._build_table_profile_entries(column_row, value_rows)
+
+        return None
+
+    def _fetch_profile_column(
+        self,
+        profile_run_id: str,
+        column_name: str,
+        *,
+        table_filter: str | None,
+    ) -> dict[str, Any] | None:
+        columns_table = _format_table(self._params.catalog, self._schema, "dq_profile_columns")
+        filters = [
+            "profile_run_id = :profile_run_id",
+            "LOWER(column_name) = :column_name",
+        ]
+        params: dict[str, Any] = {
+            "profile_run_id": profile_run_id,
+            "column_name": column_name.lower(),
+        }
+        if table_filter:
+            filters.append(
+                "(LOWER(table_name) = :table_name OR LOWER(CONCAT_WS('.', schema_name, table_name)) = :table_name)"
+            )
+            params["table_name"] = table_filter
+
+        statement = text(
+            f"SELECT * FROM {columns_table} WHERE {' AND '.join(filters)} ORDER BY generated_at DESC LIMIT 1"
+        )
+
+        rows = self._with_profiling_retry(lambda: self._fetch(statement, params))
+        return rows[0] if rows else None
+
+    def _fetch_profile_column_values(
+        self,
+        profile_run_id: str,
+        column_name: str,
+        *,
+        table_filter: str | None,
+    ) -> list[dict[str, Any]]:
+        values_table = _format_table(self._params.catalog, self._schema, "dq_profile_column_values")
+        filters = [
+            "profile_run_id = :profile_run_id",
+            "LOWER(column_name) = :column_name",
+        ]
+        params: dict[str, Any] = {
+            "profile_run_id": profile_run_id,
+            "column_name": column_name.lower(),
+        }
+        if table_filter:
+            filters.append(
+                "(LOWER(table_name) = :table_name OR LOWER(CONCAT_WS('.', schema_name, table_name)) = :table_name)"
+            )
+            params["table_name"] = table_filter
+
+        order_clause = (
+            "ORDER BY CASE WHEN bucket_label IS NULL AND bucket_lower_bound IS NULL AND bucket_upper_bound IS NULL THEN 0 ELSE 1 END, "
+            "COALESCE(rank, 2147483647), "
+            "bucket_label"
+        )
+        statement = text(
+            f"SELECT * FROM {values_table} WHERE {' AND '.join(filters)} {order_clause}"
+        )
+        return self._with_profiling_retry(lambda: self._fetch(statement, params))
+
+    def _table_filter_candidates(self, *names: str | None) -> tuple[str, ...]:
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for name in names:
+            normalized = self._normalize_name(name)
+            if not normalized or normalized in seen:
+                continue
+            candidates.append(normalized)
+            seen.add(normalized)
+            if "." in normalized:
+                unqualified = normalized.split(".")[-1]
+                if unqualified and unqualified not in seen:
+                    candidates.append(unqualified)
+                    seen.add(unqualified)
+        return tuple(candidates)
+
+    def _build_table_profile_entries(
+        self,
+        column_row: Mapping[str, Any],
+        value_rows: Sequence[Mapping[str, Any]] | None,
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+        metrics_payload = self._column_metrics_from_row(column_row)
+        column_name = column_row.get("column_name")
+        column_entry: dict[str, Any] = {
+            "column_name": column_name,
+            "column": column_name,
+            "name": column_name,
+            "data_type": column_row.get("data_type"),
+            "metrics": metrics_payload,
+        }
+        if metrics_payload.get("null_ratio") is not None:
+            column_entry["null_ratio"] = metrics_payload["null_ratio"]
+
+        top_values_payload, histogram_payload = self._partition_value_rows(value_rows or [])
+        if top_values_payload:
+            column_entry["top_values"] = top_values_payload
+        if histogram_payload:
+            column_entry["histogram"] = histogram_payload
+
+        table_label = column_row.get("table_name")
+        table_entry: dict[str, Any] = {
+            "table_name": table_label,
+            "name": table_label,
+        }
+        qualified_name = column_row.get("qualified_name")
+        if qualified_name:
+            table_entry["qualified_name"] = qualified_name
+            table_entry["physical_name"] = qualified_name
+
+        schema_name = column_row.get("schema_name")
+        if schema_name:
+            table_entry["schema_name"] = schema_name
+
+        return table_entry, column_entry
+
+    def _column_metrics_from_row(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        metrics: dict[str, Any] = {
+            "row_count": row.get("row_count"),
+            "distinct_count": row.get("distinct_count"),
+            "null_count": row.get("null_count"),
+            "non_null_count": row.get("non_null_count"),
+            "min_value": row.get("min_value"),
+            "max_value": row.get("max_value"),
+            "avg_value": row.get("avg_value"),
+            "stddev_value": row.get("stddev_value"),
+            "median_value": row.get("median_value"),
+            "p95_value": row.get("p95_value"),
+            "true_count": row.get("true_count"),
+            "false_count": row.get("false_count"),
+            "min_length": row.get("min_length"),
+            "max_length": row.get("max_length"),
+            "avg_length": row.get("avg_length"),
+            "non_ascii_ratio": row.get("non_ascii_ratio"),
+            "min_date": row.get("min_date"),
+            "max_date": row.get("max_date"),
+            "date_span_days": row.get("date_span_days"),
+            "null_ratio": None,
+        }
+
+        row_count = row.get("row_count")
+        null_count = row.get("null_count")
+        if row_count and null_count is not None:
+            try:
+                metrics["null_ratio"] = float(null_count) / float(row_count)
+            except (TypeError, ValueError, ZeroDivisionError):
+                metrics["null_ratio"] = None
+
+        if metrics.get("non_null_count") is None and row_count is not None and null_count is not None:
+            try:
+                metrics["non_null_count"] = max(int(row_count) - int(null_count), 0)
+            except (TypeError, ValueError):
+                metrics["non_null_count"] = None
+
+        metrics_json = row.get("metrics_json")
+        if isinstance(metrics_json, str) and metrics_json.strip():
+            try:
+                parsed = json.loads(metrics_json)
+            except (json.JSONDecodeError, TypeError):
+                parsed = None
+            if isinstance(parsed, Mapping):
+                for key, value in parsed.items():
+                    metrics.setdefault(key, value)
+
+        return metrics
+
+    def _partition_value_rows(
+        self,
+        value_rows: Sequence[Mapping[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        top_values: list[dict[str, Any]] = []
+        histogram: list[dict[str, Any]] = []
+        for row in value_rows:
+            bucket_label = row.get("bucket_label")
+            lower = row.get("bucket_lower_bound")
+            upper = row.get("bucket_upper_bound")
+            has_bucket = bucket_label is not None or lower is not None or upper is not None
+            if has_bucket:
+                histogram.append(
+                    {
+                        "label": bucket_label,
+                        "lower": lower,
+                        "upper": upper,
+                        "count": row.get("frequency"),
+                    }
+                )
+            else:
+                top_values.append(
+                    {
+                        "value": row.get("value"),
+                        "count": row.get("frequency"),
+                        "percentage": row.get("relative_freq"),
+                    }
+                )
+        return top_values, histogram
 
     def _load_profile_payload(self, raw_payload: Any) -> Any:
         if raw_payload is None:
