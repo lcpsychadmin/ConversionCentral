@@ -26,6 +26,7 @@ from app.services.data_quality_profiling import (
     CALLBACK_URL_PLACEHOLDER,
     DataQualityProfilingService,
     ProfilingConfigurationError,
+    ProfilingConcurrencyLimitError,
     ProfilingServiceError,
     ProfilingTargetNotFound,
 )
@@ -145,6 +146,8 @@ def start_profile_runs_for_data_object(
                 exc,
             )
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        except ProfilingConcurrencyLimitError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except ProfilingServiceError as exc:  # pragma: no cover - defensive
             logger.exception(
                 "Profiling service error for table_group_id=%s",

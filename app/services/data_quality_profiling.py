@@ -44,6 +44,10 @@ class ProfilingJobError(ProfilingServiceError):
     """Raised when Databricks job provisioning or execution fails."""
 
 
+class ProfilingConcurrencyLimitError(ProfilingJobError):
+    """Raised when Databricks job concurrency limits prevent new runs."""
+
+
 @dataclass(frozen=True)
 class ProfilingTarget:
     table_group_id: str
@@ -127,7 +131,10 @@ class DataQualityProfilingService:
         except ProfilingServiceError:
             self._mark_run_failed(profile_run_id)
             raise
-        except (DatabricksJobsError, TestGenClientError) as exc:
+        except DatabricksJobsError as exc:
+            self._mark_run_failed(profile_run_id)
+            raise self._translate_jobs_error(exc) from exc
+        except TestGenClientError as exc:
             self._mark_run_failed(profile_run_id)
             raise ProfilingJobError(str(exc)) from exc
 
@@ -352,6 +359,20 @@ class DataQualityProfilingService:
             self._client.complete_profile_run(profile_run_id, status="failed")
         except TestGenClientError as exc:  # pragma: no cover - defensive logging
             logger.warning("Failed to mark profile run %s as failed: %s", profile_run_id, exc)
+
+    @staticmethod
+    def _translate_jobs_error(exc: DatabricksJobsError) -> ProfilingJobError:
+        message = str(exc)
+        lowered = message.lower()
+        if "active runs" in lowered and ("limit" in lowered or "429" in lowered):
+            friendly = (
+                "Another profiling run is already in progress for this job; wait for the current run to finish "
+                "or increase the Databricks job concurrency limit."
+            )
+            return ProfilingConcurrencyLimitError(friendly)
+        if "request timeout" in lowered or "timed out" in lowered:
+            return ProfilingJobError("Databricks did not respond in time; please retry the profiling run.")
+        return ProfilingJobError(message)
 
     def _get_jobs_client(self) -> DatabricksJobsClient:
         if self._jobs_client is None:
