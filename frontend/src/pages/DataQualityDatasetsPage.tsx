@@ -1,4 +1,4 @@
-import { MouseEvent, useCallback, useState } from 'react';
+import { MouseEvent, useCallback, useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -6,6 +6,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   List,
   ListItem,
@@ -15,15 +16,20 @@ import {
   Typography
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useMutation, useQuery } from 'react-query';
+import { useMutation, useQueries, UseQueryResult, useQuery } from 'react-query';
 import { Link as RouterLink } from 'react-router-dom';
-import { fetchDatasetHierarchy, startDataObjectProfileRuns } from '@services/dataQualityService';
+import {
+  fetchDataQualityProfileRuns,
+  fetchDatasetHierarchy,
+  startDataObjectProfileRuns
+} from '@services/dataQualityService';
 import {
   DataQualityDatasetApplication,
   DataQualityDatasetDefinition,
   DataQualityDatasetObject,
   DataQualityDatasetProductTeam,
-  DataQualityDatasetTable
+  DataQualityDatasetTable,
+  DataQualityProfileRunListResponse
 } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
 import PageHeader from '../components/common/PageHeader';
@@ -33,6 +39,62 @@ const resolveErrorMessage = (error: unknown) =>
 
 const formatDescription = (value?: string | null) =>
   value && value.trim().length > 0 ? value : 'No description provided.';
+
+const STATUS_RUNNING = ['running', 'queued', 'pending', 'in_progress', 'starting'];
+const STATUS_FAILED = ['failed', 'error', 'errored', 'cancelled', 'canceled'];
+
+const isTerminalStatus = (status?: string | null) => {
+  const normalized = (status ?? '').toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (STATUS_RUNNING.includes(normalized)) {
+    return false;
+  }
+  return true;
+};
+
+const formatStatusLabel = (status?: string | null) => {
+  if (!status) {
+    return 'Pending';
+  }
+  const normalized = status.replace(/_/g, ' ').trim();
+  return normalized.length ? normalized[0].toUpperCase() + normalized.slice(1) : 'Pending';
+};
+
+const resolveStatusChipColor = (
+  status?: string | null
+): 'default' | 'info' | 'success' | 'warning' | 'error' => {
+  const normalized = (status ?? '').toLowerCase();
+  if (!normalized || STATUS_RUNNING.includes(normalized)) {
+    return 'info';
+  }
+  if (STATUS_FAILED.includes(normalized)) {
+    return 'error';
+  }
+  return 'success';
+};
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) {
+    return '—';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '—';
+  }
+  return parsed.toLocaleString();
+};
+
+const describeStatusTimestamps = (startedAt?: string | null, completedAt?: string | null) => {
+  if (startedAt && completedAt) {
+    return `Started ${formatDateTime(startedAt)} · Completed ${formatDateTime(completedAt)}`;
+  }
+  if (startedAt) {
+    return `Started ${formatDateTime(startedAt)} · Waiting for completion`;
+  }
+  return 'Waiting for Databricks job to launch…';
+};
 
 const formatTablePrimary = (table: DataQualityDatasetTable) => {
   const schemaPrefix = table.schemaName ? `${table.schemaName}.` : '';
@@ -238,12 +300,59 @@ const ProductTeamAccordion = ({
 const DataQualityDatasetsPage = () => {
   const { snackbar, showError, showSuccess } = useSnackbarFeedback();
   const [profilingTargetId, setProfilingTargetId] = useState<string | null>(null);
+  const [monitoredRuns, setMonitoredRuns] = useState<
+    { tableGroupId: string; profileRunId: string; status?: string | null }[]
+  >([]);
+
+  const monitorQueries = useQueries(
+    monitoredRuns.map((run) => ({
+      queryKey: ['data-quality', 'profiling-runs', 'monitor', run.tableGroupId],
+      queryFn: () =>
+        fetchDataQualityProfileRuns({
+          tableGroupId: run.tableGroupId,
+          limit: 5,
+          includeGroups: false
+        }),
+      enabled: Boolean(monitoredRuns.length),
+      refetchInterval: (data?: DataQualityProfileRunListResponse) => {
+        const match = data?.runs.find((entry) => entry.profileRunId === run.profileRunId);
+        return match && isTerminalStatus(match.status) ? false : 5000;
+      }
+    }))
+  ) as UseQueryResult<DataQualityProfileRunListResponse>[];
+
+  const monitoredRunStatuses = useMemo(() => {
+    return monitoredRuns.map((run, idx) => {
+      const query = monitorQueries[idx];
+      const entry = query?.data?.runs.find((candidate) => candidate.profileRunId === run.profileRunId);
+      return {
+        ...run,
+        status: entry?.status ?? run.status ?? null,
+        startedAt: entry?.startedAt ?? null,
+        completedAt: entry?.completedAt ?? null,
+        isLoading: query?.isFetching ?? query?.isLoading ?? false
+      };
+    });
+  }, [monitorQueries, monitoredRuns]);
+
+  const monitoredError = monitorQueries.find((query) => query?.isError);
+  const monitorErrorMessage = monitoredError ? resolveErrorMessage(monitoredError.error) : null;
+  const hasPendingMonitoredRuns = monitoredRunStatuses.some((run) => !isTerminalStatus(run.status));
+  const monitorIsFetching = monitorQueries.some((query) => query?.isFetching);
 
   const runProfilingMutation = useMutation(startDataObjectProfileRuns, {
     onMutate: (dataObjectId: string) => {
       setProfilingTargetId(dataObjectId);
     },
     onSuccess: (result) => {
+      setMonitoredRuns((previous) => {
+        const dedup = new Map(previous.map((run) => [run.profileRunId, run]));
+        result.profileRuns.forEach((run) => {
+          dedup.set(run.profileRunId, { ...run, status: 'queued' });
+        });
+        const entries = Array.from(dedup.values());
+        return entries.length > 10 ? entries.slice(entries.length - 10) : entries;
+      });
       const started = result.profileRuns.length;
       const skipped = result.skippedTableIds.length;
       const messageParts = [
@@ -265,6 +374,10 @@ const DataQualityDatasetsPage = () => {
       setProfilingTargetId(null);
     }
   });
+
+  const handleClearMonitoredRuns = () => {
+    setMonitoredRuns([]);
+  };
 
   const handleRunProfiling = useCallback(
     (dataObjectId: string) => {
@@ -300,6 +413,76 @@ const DataQualityDatasetsPage = () => {
           </Button>
         }
       />
+
+      {monitoredRunStatuses.length > 0 ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'center' }}>
+              <Typography fontWeight={600}>Recent profiling requests</Typography>
+              {hasPendingMonitoredRuns ? (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Background jobs are launching. We refresh every few seconds.
+                  </Typography>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  All requested runs have been dispatched.
+                </Typography>
+              )}
+              <Box flexGrow={1} />
+              <Button
+                size="small"
+                onClick={handleClearMonitoredRuns}
+                disabled={monitorIsFetching && hasPendingMonitoredRuns}
+              >
+                Clear
+              </Button>
+            </Stack>
+            {monitorErrorMessage ? <Alert severity="warning">{monitorErrorMessage}</Alert> : null}
+            <Stack spacing={1.5}>
+              {monitoredRunStatuses.map((run) => (
+                <Paper key={run.profileRunId} variant="outlined" sx={{ p: 1.5 }}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1.5}
+                    alignItems={{ sm: 'center' }}
+                    justifyContent="space-between"
+                  >
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" color="text.secondary">
+                        Table Group
+                      </Typography>
+                      <Typography fontFamily="monospace" fontSize={14}>
+                        {run.tableGroupId}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Run ID: {run.profileRunId}
+                      </Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {run.isLoading ? <CircularProgress size={16} /> : null}
+                      <Chip label={formatStatusLabel(run.status)} color={resolveStatusChipColor(run.status)} size="small" />
+                    </Stack>
+                    <Button
+                      component={RouterLink}
+                      to={`/data-quality/profiling-runs?tableGroupId=${encodeURIComponent(run.tableGroupId)}`}
+                      variant="outlined"
+                      size="small"
+                    >
+                      View runs
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {describeStatusTimestamps(run.startedAt, run.completedAt)}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+          </Stack>
+        </Paper>
+      ) : null}
 
       {hierarchyQuery.isLoading ? (
         <Box display="flex" justifyContent="center" py={4}>

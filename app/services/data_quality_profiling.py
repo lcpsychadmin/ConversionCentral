@@ -72,6 +72,14 @@ class ProfilingLaunchResult:
     payload_path: str | None
 
 
+@dataclass(frozen=True)
+class PreparedProfileRun:
+    target: ProfilingTarget
+    profile_run_id: str
+    payload_path: str | None
+    callback_url: str | None
+
+
 class DataQualityProfilingService:
     """Coordinates Databricks-managed profiling runs for TestGen table groups."""
 
@@ -97,9 +105,24 @@ class DataQualityProfilingService:
         *,
         callback_url_template: str | None = None,
     ) -> ProfilingLaunchResult:
-        target = self._load_target(table_group_id)
-        job_id = self._ensure_job(target)
+        prepared = self.prepare_profile_run(
+            table_group_id,
+            callback_url_template=callback_url_template,
+        )
+        return self.launch_prepared_profile_run(prepared)
 
+    def prepare_profile_run(
+        self,
+        table_group_id: str,
+        *,
+        callback_url_template: str | None = None,
+    ) -> PreparedProfileRun:
+        target = self._load_target(table_group_id)
+        notebook_path = self._resolve_profile_notebook_path()
+        if not notebook_path:
+            raise ProfilingConfigurationError(
+                "Databricks profiling notebook path is not configured. Update the Databricks settings before running profiling."
+            )
         profile_run_id = self._client.start_profile_run(table_group_id)
         payload_path = self._build_payload_path(table_group_id, profile_run_id)
         callback_url = self._build_callback_url(callback_url_template, profile_run_id)
@@ -115,35 +138,45 @@ class DataQualityProfilingService:
                 self._mark_run_failed(profile_run_id)
                 raise ProfilingJobError(str(exc)) from exc
 
+        return PreparedProfileRun(
+            target=target,
+            profile_run_id=profile_run_id,
+            payload_path=payload_path,
+            callback_url=callback_url,
+        )
+
+    def launch_prepared_profile_run(self, prepared: PreparedProfileRun) -> ProfilingLaunchResult:
+        job_id = self._ensure_job(prepared.target)
+
         try:
             run_handle = self._launch_run(
-                target,
+                prepared.target,
                 job_id,
-                profile_run_id,
-                payload_path,
-                callback_url,
+                prepared.profile_run_id,
+                prepared.payload_path,
+                prepared.callback_url,
             )
             self._client.update_profile_run_databricks_run(
-                profile_run_id,
+                prepared.profile_run_id,
                 databricks_run_id=str(run_handle.run_id),
                 payload_path=None,
             )
         except ProfilingServiceError:
-            self._mark_run_failed(profile_run_id)
+            self._mark_run_failed(prepared.profile_run_id)
             raise
         except DatabricksJobsError as exc:
-            self._mark_run_failed(profile_run_id)
+            self._mark_run_failed(prepared.profile_run_id)
             raise self._translate_jobs_error(exc) from exc
         except TestGenClientError as exc:
-            self._mark_run_failed(profile_run_id)
+            self._mark_run_failed(prepared.profile_run_id)
             raise ProfilingJobError(str(exc)) from exc
 
         return ProfilingLaunchResult(
-            table_group_id=table_group_id,
-            profile_run_id=profile_run_id,
+            table_group_id=prepared.target.table_group_id,
+            profile_run_id=prepared.profile_run_id,
             job_id=job_id,
             databricks_run_id=run_handle.run_id,
-            payload_path=payload_path,
+            payload_path=prepared.payload_path,
         )
 
     def _load_target(self, table_group_id: str) -> ProfilingTarget:

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -26,7 +26,6 @@ from app.services.data_quality_profiling import (
     CALLBACK_URL_PLACEHOLDER,
     DataQualityProfilingService,
     ProfilingConfigurationError,
-    ProfilingConcurrencyLimitError,
     ProfilingServiceError,
     ProfilingTargetNotFound,
 )
@@ -35,6 +34,21 @@ from app.services.data_quality_testgen import TestGenClient, TestGenClientError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/data-quality", tags=["Data Quality"])
+
+
+def _launch_profile_run_background(
+    profiling_service: DataQualityProfilingService,
+    prepared_run,
+) -> None:
+    try:
+        profiling_service.launch_prepared_profile_run(prepared_run)
+    except ProfilingServiceError as exc:  # pragma: no cover - defensive logging
+        logger.error(
+            "Deferred profiling launch failed for table_group_id=%s profile_run_id=%s: %s",
+            getattr(prepared_run.target, "table_group_id", "unknown"),
+            getattr(prepared_run, "profile_run_id", "unknown"),
+            exc,
+        )
 
 
 def _try_parse_uuid(value: str | None) -> UUID | None:
@@ -100,11 +114,12 @@ def get_profiling_service(client: TestGenClient = Depends(get_testgen_client)) -
 @router.post(
     "/datasets/{data_object_id}/profile-runs",
     response_model=DataQualityBulkProfileRunResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 def start_profile_runs_for_data_object(
     data_object_id: UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     profiling_service: DataQualityProfilingService = Depends(get_profiling_service),
 ) -> DataQualityBulkProfileRunResponse:
@@ -133,7 +148,7 @@ def start_profile_runs_for_data_object(
 
     for table_group_id in table_group_ids:
         try:
-            result = profiling_service.start_profile_for_table_group(
+            prepared = profiling_service.prepare_profile_run(
                 table_group_id,
                 callback_url_template=callback_template,
             )
@@ -146,17 +161,20 @@ def start_profile_runs_for_data_object(
                 exc,
             )
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-        except ProfilingConcurrencyLimitError as exc:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except ProfilingServiceError as exc:  # pragma: no cover - defensive
             logger.exception(
                 "Profiling service error for table_group_id=%s",
                 table_group_id,
             )
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
         profile_runs.append(
-            DataQualityProfileRunSummary(table_group_id=table_group_id, profile_run_id=result.profile_run_id)
+            DataQualityProfileRunSummary(
+                table_group_id=table_group_id,
+                profile_run_id=prepared.profile_run_id,
+            )
         )
+        background_tasks.add_task(_launch_profile_run_background, profiling_service, prepared)
 
     return DataQualityBulkProfileRunResponse(
         requested_table_count=requested_table_count,

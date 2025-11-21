@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -24,7 +24,7 @@ import {
   Typography
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 
 import PageHeader from '@components/common/PageHeader';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
@@ -118,6 +118,8 @@ const formatSeveritySummary = (counts?: Record<string, number> | null): string =
 const LIMIT_OPTIONS = [25, 50, 100];
 
 const DataQualityProfilingRunsPage = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { snackbar, showError, showSuccess } = useSnackbarFeedback();
 
@@ -125,6 +127,31 @@ const DataQualityProfilingRunsPage = () => {
   const [statusFilter, setStatusFilter] = useState<ProfileStatusFilter>('all');
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [limit, setLimit] = useState<number>(50);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const paramGroupId = params.get('tableGroupId') || 'all';
+    setSelectedGroupId((current) => (current === paramGroupId ? current : paramGroupId));
+  }, [location.search]);
+
+  const updateSelectedGroupParam = useCallback(
+    (groupId: string) => {
+      const params = new URLSearchParams(location.search);
+      if (!groupId || groupId === 'all') {
+        params.delete('tableGroupId');
+      } else {
+        params.set('tableGroupId', groupId);
+      }
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : ''
+        },
+        { replace: true }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
 
   const profileRunsQuery = useQuery<DataQualityProfileRunListResponse>(
     ['data-quality', 'profiling-runs', limit],
@@ -156,8 +183,9 @@ const DataQualityProfilingRunsPage = () => {
     const exists = tableGroups.some((group) => group.tableGroupId === selectedGroupId);
     if (!exists) {
       setSelectedGroupId('all');
+      updateSelectedGroupParam('all');
     }
-  }, [selectedGroupId, tableGroups]);
+  }, [selectedGroupId, tableGroups, updateSelectedGroupParam]);
 
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
@@ -199,7 +227,9 @@ const DataQualityProfilingRunsPage = () => {
   );
 
   const handleGroupChange = (event: SelectChangeEvent<string>) => {
-    setSelectedGroupId(event.target.value);
+    const value = event.target.value;
+    setSelectedGroupId(value);
+    updateSelectedGroupParam(value);
   };
 
   const handleStatusChange = (event: SelectChangeEvent<string>) => {

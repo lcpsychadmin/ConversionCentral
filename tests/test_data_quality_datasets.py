@@ -16,25 +16,56 @@ from app.models.entities import (
     Table,
 )
 from app.services.data_quality_keys import build_table_group_id
-from app.services.data_quality_profiling import ProfilingLaunchResult
+from app.services.data_quality_profiling import (
+    PreparedProfileRun,
+    ProfilingLaunchResult,
+    ProfilingTarget,
+)
 
 
 class StubProfilingService:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.launched: list[str] = []
         self.sequence = 0
 
-    def start_profile_for_table_group(self, table_group_id: str) -> ProfilingLaunchResult:
+    def prepare_profile_run(self, table_group_id: str, **_) -> PreparedProfileRun:
         self.sequence += 1
         run_id = f"profile-run-{self.sequence}"
         self.calls.append(table_group_id)
-        return ProfilingLaunchResult(
+        target = ProfilingTarget(
             table_group_id=table_group_id,
+            table_group_name=None,
+            connection_id="conn",
+            connection_name=None,
+            catalog=None,
+            schema_name=None,
+            http_path=None,
+            project_key=None,
+            system_id=None,
+            profiling_job_id=None,
+            is_active=True,
+        )
+        return PreparedProfileRun(
+            target=target,
             profile_run_id=run_id,
+            payload_path=None,
+            callback_url=None,
+        )
+
+    def launch_prepared_profile_run(self, prepared_run: PreparedProfileRun) -> ProfilingLaunchResult:
+        self.launched.append(prepared_run.target.table_group_id)
+        return ProfilingLaunchResult(
+            table_group_id=prepared_run.target.table_group_id,
+            profile_run_id=prepared_run.profile_run_id,
             job_id=100 + self.sequence,
             databricks_run_id=200 + self.sequence,
-            payload_path=None,
+            payload_path=prepared_run.payload_path,
         )
+
+    def start_profile_for_table_group(self, table_group_id: str, **kwargs) -> ProfilingLaunchResult:
+        prepared = self.prepare_profile_run(table_group_id, **kwargs)
+        return self.launch_prepared_profile_run(prepared)
 
 
 @contextmanager
@@ -196,7 +227,7 @@ def test_start_profile_runs_for_data_object(client, db_session):
     with override_profiling_service(stub):
         response = client.post(f"/data-quality/datasets/{context['data_object_id']}/profile-runs")
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     body = response.json()
     assert body["requestedTableCount"] == 1
     assert body["targetedTableGroupCount"] == 1
