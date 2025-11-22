@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -78,56 +76,6 @@ class DummyEngine:
         self._should_fail = should_fail
         self._results_sequence = results_sequence or []
 
-    def begin(self):
-        if self._should_fail:
-            raise RuntimeError("engine failure")
-        return DummyTransaction(self._executed, self._results_sequence)
-
-    def connect(self) -> DummyConnection:
-        if self._should_fail:
-            raise RuntimeError("engine failure")
-        return DummyConnection(self._executed, self._results_sequence)
-
-    def dispose(self) -> None:
-        return None
-
-
-@pytest.fixture()
-def sample_params() -> DatabricksConnectionParams:
-    return DatabricksConnectionParams(
-        workspace_host="adb",
-        http_path="/sql/path",
-        access_token="token",
-        catalog="sandbox",
-        data_quality_schema="dq",
-    )
-
-
-def _install_dummy_engine(monkeypatch, executed, should_fail: bool = False, results_sequence=None) -> None:
-    dummy = DummyEngine(executed, should_fail=should_fail, results_sequence=results_sequence)
-    monkeypatch.setattr(data_quality_testgen, "create_engine", lambda url, **kwargs: dummy)
-
-
-PROJECT_KEY = build_project_key("system-abc", "object-xyz")
-CONNECTION_ID = build_connection_id("conn-1", "object-xyz")
-TABLE_GROUP_ID = build_table_group_id("conn-1", "object-xyz")
-TABLE_ID = build_table_id("selection-1", "object-xyz")
-
-
-def test_start_profile_run_inserts_rows(monkeypatch, sample_params):
-    executed: list[tuple[str, dict[str, Any]]] = []
-    _install_dummy_engine(monkeypatch, executed)
-
-    client = TestGenClient(sample_params, schema="dq")
-    run_id = client.start_profile_run(TABLE_GROUP_ID, payload_path="dbfs:/runs/profile.json")
-    client.close()
-
-    assert run_id
-    assert executed
-    statement, params = executed[0]
-    assert "INSERT INTO `sandbox`.`dq`.`dq_profiles`" in statement
-    assert params["table_group_id"] == TABLE_GROUP_ID
-    assert params["payload_path"] == "dbfs:/runs/profile.json"
 
 
 def test_complete_profile_run_updates_and_records_anomalies(monkeypatch, sample_params):
@@ -357,79 +305,6 @@ def test_recent_runs_helpers_apply_limits(monkeypatch, sample_params):
     assert test_params["project_key"] == PROJECT_KEY
 
 
-def test_column_profile_parses_payload(monkeypatch, sample_params):
-    executed: list[tuple[str, dict[str, Any]]] = []
-    payload = json.dumps(
-        {
-            "tables": [
-                {
-                    "table_name": "orders",
-                    "columns": [
-                        {
-                            "column_name": "total",
-                            "data_type": "DECIMAL",
-                            "metrics": {
-                                "distinct_count": 10,
-                                "null_percent": 0.25,
-                                "avg": 42.1234,
-                                "min": 1,
-                                "max": 99,
-                            },
-                            "top_values": [
-                                {"value": "100", "count": 2, "percentage": 0.1}
-                            ],
-                            "histogram": [
-                                {"label": "0-10", "count": 5}
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
-    )
-
-    profile_row = {
-        "profile_run_id": "run-1",
-        "table_group_id": TABLE_GROUP_ID,
-        "status": "completed",
-        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "row_count": 120,
-        "anomaly_count": 1,
-        "payload_path": payload,
-    }
-
-    anomaly_row = {
-        "table_name": "orders",
-        "column_name": "total",
-        "anomaly_type": "null_density",
-        "severity": "high",
-        "description": "Null ratio increased",
-        "detected_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-    }
-
-    results_sequence = [[profile_row], [], [], [], [], [], [], [anomaly_row]]
-    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
-
-    client = TestGenClient(sample_params, schema="dq")
-    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
-    client.close()
-
-    assert profile is not None
-    assert profile["profile_run_id"] == "run-1"
-    assert profile["column_name"] == "total"
-    assert profile["data_type"] == "DECIMAL"
-
-    metrics = {metric["key"]: metric for metric in profile["metrics"]}
-    assert metrics["distinct_count"]["value"] == 10
-    assert metrics["null_percent"]["formatted"] == "25.00%"
-
-    top_values = profile["top_values"]
-    assert top_values and top_values[0]["percentage"] == 10.0
-
-    anomalies = profile["anomalies"]
-    assert anomalies and anomalies[0]["anomaly_type"] == "null_density"
-
 def test_column_profile_prefers_detail_tables_when_available(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
     profile_row = {
@@ -440,7 +315,6 @@ def test_column_profile_prefers_detail_tables_when_available(monkeypatch, sample
         "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
         "row_count": 250,
         "anomaly_count": 0,
-        "payload_path": None,
     }
     column_row = {
         "profile_run_id": "run-2",
@@ -514,22 +388,6 @@ def test_column_profile_prefers_detail_tables_when_available(monkeypatch, sample
 
 def test_column_profile_sql_path_can_be_disabled(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []
-    payload = json.dumps(
-        {
-            "tables": [
-                {
-                    "table_name": "orders",
-                    "columns": [
-                        {
-                            "column_name": "total",
-                            "data_type": "STRING",
-                            "metrics": {"null_percent": 0.1},
-                        }
-                    ],
-                }
-            ]
-        }
-    )
     profile_row = {
         "profile_run_id": "run-flag",
         "table_group_id": TABLE_GROUP_ID,
@@ -538,18 +396,8 @@ def test_column_profile_sql_path_can_be_disabled(monkeypatch, sample_params):
         "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
         "row_count": 99,
         "anomaly_count": 0,
-        "payload_path": payload,
     }
-    anomaly_row = {
-        "table_name": "orders",
-        "column_name": "total",
-        "anomaly_type": "null_density",
-        "severity": "medium",
-        "description": "Null ratio increased",
-        "detected_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-    }
-
-    results_sequence = [[profile_row], [anomaly_row]]
+    results_sequence = [[profile_row]]
     _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
 
     class StubSettings:
@@ -559,112 +407,9 @@ def test_column_profile_sql_path_can_be_disabled(monkeypatch, sample_params):
     profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
     client.close()
 
-    assert profile is not None
-    assert profile["data_type"] == "STRING"
+    assert profile is None
     assert not any("dq_profile_columns" in stmt for stmt, _ in executed)
 
-
-def test_column_profile_falls_back_when_sql_errors(monkeypatch, sample_params):
-    executed: list[tuple[str, dict[str, Any]]] = []
-    payload = json.dumps(
-        {
-            "tables": [
-                {
-                    "table_name": "orders",
-                    "columns": [
-                        {
-                            "column_name": "total",
-                            "data_type": "VARCHAR",
-                            "metrics": {"null_percent": 0.2},
-                        }
-                    ],
-                }
-            ]
-        }
-    )
-    profile_row = {
-        "profile_run_id": "run-fallback",
-        "table_group_id": TABLE_GROUP_ID,
-        "status": "completed",
-        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "row_count": 77,
-        "anomaly_count": 0,
-        "payload_path": payload,
-    }
-    anomaly_row = {
-        "table_name": "orders",
-        "column_name": "total",
-        "anomaly_type": "null_density",
-        "severity": "low",
-        "description": "Null ratio increased",
-        "detected_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-    }
-    results_sequence = [[profile_row], [], [], [], [], [anomaly_row]]
-    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
-
-    def boom(*args, **kwargs):
-        raise TestGenClientError("dq_profile_columns not found")
-
-    class StubSettings:
-        testgen_profile_table_reads_enabled = True
-
-    monkeypatch.setattr(TestGenClient, "_fetch_profile_column", boom, raising=False)
-
-    client = TestGenClient(sample_params, schema="dq", settings=StubSettings())
-    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
-    client.close()
-
-    assert profile is not None
-    assert profile["data_type"] == "VARCHAR"
-
-
-def test_column_profile_reads_dbfs_payload(monkeypatch, sample_params):
-    executed: list[tuple[str, dict[str, Any]]] = []
-    payload = {
-        "tables": [
-            {
-                "table_name": "orders",
-                "columns": [
-                    {
-                        "column_name": "total",
-                        "data_type": "DOUBLE",
-                        "metrics": {"null_percent": 0.1, "mean": 42},
-                    }
-                ],
-            }
-        ]
-    }
-    raw_bytes = json.dumps(payload).encode("utf-8")
-    encoded = base64.b64encode(raw_bytes).decode("ascii")
-
-    profile_row = {
-        "profile_run_id": "run-dbfs",
-        "table_group_id": TABLE_GROUP_ID,
-        "status": "completed",
-        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "completed_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
-        "row_count": 321,
-        "anomaly_count": 0,
-        "payload_path": "dbfs:/tmp/profiles/run-dbfs.json",
-    }
-
-    results_sequence = [[profile_row], []]
-    _install_dummy_engine(monkeypatch, executed, results_sequence=results_sequence)
-
-    def fake_request(self, url, token, payload_dict):
-        return {"bytes_read": len(raw_bytes), "data": encoded}
-
-    monkeypatch.setattr(TestGenClient, "_request_dbfs", fake_request, raising=False)
-
-    client = TestGenClient(sample_params, schema="dq")
-    profile = client.column_profile(TABLE_GROUP_ID, column_name="total", table_name="orders")
-    client.close()
-
-    assert profile is not None
-    assert profile["profile_run_id"] == "run-dbfs"
-    assert profile["metrics"]
-    assert any(metric["key"] == "null_percent" for metric in profile["metrics"])
 
 
 def test_column_profile_returns_none_when_missing_run(monkeypatch, sample_params):

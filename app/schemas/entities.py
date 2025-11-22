@@ -1067,11 +1067,6 @@ class DatabricksSqlSettingBase(BaseModel):
         max_length=400,
         description="Workspace notebook path executed for profiling runs.",
     )
-    profile_payload_base_path: Optional[str] = Field(
-        None,
-        max_length=400,
-        description="Base folder path for storing profiling payloads (e.g. dbfs:/profiles).",
-    )
     ingestion_method: str = Field(
         "sql",
         regex=r"^(sql|spark)$",
@@ -1120,7 +1115,6 @@ class DatabricksSqlSettingBase(BaseModel):
         "warehouse_name",
         "spark_compute",
         "profiling_policy_id",
-        "profile_payload_base_path",
         pre=True,
     )
     def _strip_optional_value(cls, value: str | None) -> str | None:
@@ -1154,7 +1148,6 @@ class DatabricksSqlSettingUpdate(BaseModel):
     data_quality_storage_format: Optional[str | None] = Field(None, regex=r"^(delta|hudi)$")
     data_quality_auto_manage_tables: Optional[bool] = None
     profiling_policy_id: Optional[str | None] = Field(None, max_length=120)
-    profile_payload_base_path: Optional[str | None] = Field(None, max_length=400)
     profiling_notebook_path: Optional[str | None] = Field(None, max_length=400)
     ingestion_method: Optional[str | None] = Field(
         None,
@@ -1197,7 +1190,6 @@ class DatabricksSqlSettingUpdate(BaseModel):
         "warehouse_name",
         "spark_compute",
         "profiling_policy_id",
-        "profile_payload_base_path",
         pre=True,
     )
     def _strip_optional(cls, value: str | None) -> str | None:

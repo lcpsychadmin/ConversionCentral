@@ -99,11 +99,6 @@ class Settings(BaseSettings):
         env="DATABRICKS_PROFILE_CALLBACK_TOKEN",
         description="Shared secret injected into Databricks jobs for authenticating callbacks.",
     )
-    databricks_profile_payload_base_path: str | None = Field(
-        default=None,
-        env="DATABRICKS_PROFILE_PAYLOAD_BASE_PATH",
-        description="Optional DBFS/S3 base path to store profiling payloads (e.g. dbfs:/profiles).",
-    )
     databricks_ingestion_method: str | None = Field(
         default=None,
         env="DATABRICKS_INGESTION_METHOD",

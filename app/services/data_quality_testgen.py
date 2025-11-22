@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import math
@@ -10,7 +9,6 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 from sqlalchemy import bindparam, create_engine, text
@@ -26,8 +24,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 _UNSET = object()
-_DBFS_READ_CHUNK = 1_048_576  # 1 MB window aligns with DBFS read contract
-
 _COLUMN_METRIC_ORDER = [
     "row_count",
     "distinct_count",
@@ -585,7 +581,7 @@ class TestGenClient:
     def recent_profile_runs(self, table_group_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
         profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
         statement = text(
-            f"SELECT profile_run_id, table_group_id, status, started_at, completed_at, row_count, anomaly_count, payload_path, databricks_run_id "
+            f"SELECT profile_run_id, table_group_id, status, started_at, completed_at, row_count, anomaly_count, databricks_run_id "
             f"FROM {profiles_table} WHERE table_group_id = :table_group_id ORDER BY started_at DESC LIMIT :limit"
         )
 
@@ -621,7 +617,6 @@ class TestGenClient:
                 p.completed_at,
                 p.row_count,
                 p.anomaly_count,
-                p.payload_path,
                 p.databricks_run_id,
                 g.name AS table_group_name,
                 g.description AS table_group_description,
@@ -717,16 +712,10 @@ class TestGenClient:
             table_name=table_name,
             physical_name=physical_name,
         )
-        if table_profile_entries:
-            table_entry, column_entry = table_profile_entries
-        else:
-            payload = self._load_profile_payload(run.get("payload_path"))
-            table_entry, column_entry = self._locate_column_profile(
-                payload,
-                table_name=table_name,
-                physical_name=physical_name,
-                column_name=normalized_column,
-            )
+        if not table_profile_entries:
+            return None
+
+        table_entry, column_entry = table_profile_entries
 
         metrics = self._build_column_metrics(column_entry)
         if run.get("row_count") is not None and not any(metric.get("key") == "row_count" for metric in metrics):
@@ -873,21 +862,19 @@ class TestGenClient:
         *,
         status: str = "running",
         started_at: datetime | None = None,
-        payload_path: str | None = None,
     ) -> str:
         profile_run_id = str(uuid.uuid4())
         started_at = started_at or datetime.now(timezone.utc)
         profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
         statement = text(
-            f"INSERT INTO {profiles_table} (profile_run_id, table_group_id, status, started_at, payload_path) "
-            "VALUES (:profile_run_id, :table_group_id, :status, :started_at, :payload_path)"
+            f"INSERT INTO {profiles_table} (profile_run_id, table_group_id, status, started_at) "
+            "VALUES (:profile_run_id, :table_group_id, :status, :started_at)"
         )
         params = {
             "profile_run_id": profile_run_id,
             "table_group_id": table_group_id,
             "status": status,
             "started_at": started_at,
-            "payload_path": payload_path,
         }
         self._execute(statement, params)
         return profile_run_id
@@ -913,19 +900,16 @@ class TestGenClient:
         profile_run_id: str,
         *,
         databricks_run_id: str | None,
-        payload_path: str | None = None,
     ) -> None:
         profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
         statement = text(
-            f"UPDATE {profiles_table} SET databricks_run_id = :databricks_run_id, "
-            "payload_path = COALESCE(:payload_path, payload_path) WHERE profile_run_id = :profile_run_id"
+            f"UPDATE {profiles_table} SET databricks_run_id = :databricks_run_id WHERE profile_run_id = :profile_run_id"
         )
         return self._with_profiling_retry(
             lambda: self._execute(
                 statement,
                 {
                     "databricks_run_id": databricks_run_id,
-                    "payload_path": payload_path,
                     "profile_run_id": profile_run_id,
                 },
             )
@@ -1118,7 +1102,7 @@ class TestGenClient:
     def _latest_completed_profile_run(self, table_group_id: str) -> dict[str, Any] | None:
         profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
         statement = text(
-            f"SELECT profile_run_id, table_group_id, status, started_at, completed_at, row_count, anomaly_count, payload_path "
+            f"SELECT profile_run_id, table_group_id, status, started_at, completed_at, row_count, anomaly_count "
             f"FROM {profiles_table} "
             "WHERE table_group_id = :table_group_id "
             "AND (completed_at IS NOT NULL OR LOWER(status) IN ('completed','complete','success','succeeded','finished')) "
@@ -1175,7 +1159,7 @@ class TestGenClient:
                     table_filter=candidate,
                 )
             except TestGenClientError as exc:
-                logger.warning("Column profile table lookup failed; falling back to payload: %s", exc)
+                logger.warning("Column profile table lookup failed: %s", exc)
                 return None
 
             if not column_row:
@@ -1188,7 +1172,7 @@ class TestGenClient:
                     table_filter=candidate,
                 )
             except TestGenClientError as exc:
-                logger.warning("Column profile values lookup failed; falling back to payload: %s", exc)
+                logger.warning("Column profile values lookup failed: %s", exc)
                 return None
 
             return self._build_table_profile_entries(column_row, value_rows)
@@ -1391,195 +1375,6 @@ class TestGenClient:
                 )
         return top_values, histogram
 
-    def _load_profile_payload(self, raw_payload: Any) -> Any:
-        if raw_payload is None:
-            return None
-
-        text_payload = str(raw_payload).strip()
-        if not text_payload:
-            return None
-
-        if text_payload.startswith("{") or text_payload.startswith("["):
-            try:
-                return json.loads(text_payload)
-            except json.JSONDecodeError:
-                logger.warning("Profile payload is not valid JSON; ignoring content.")
-                return None
-
-        lowered = text_payload.lower()
-        if lowered.startswith("file://"):
-            path = Path(text_payload[len("file://"):])
-            try:
-                with path.open("r", encoding="utf-8") as handle:
-                    return json.load(handle)
-            except OSError as exc:  # pragma: no cover - defensive file handling
-                logger.warning("Unable to read profile payload from %s: %s", path, exc)
-            except json.JSONDecodeError as exc:  # pragma: no cover - defensive file handling
-                logger.warning("Invalid JSON payload at %s: %s", path, exc)
-            return None
-
-        if lowered.startswith("dbfs:/"):
-            return self._read_dbfs_payload(text_payload)
-
-        logger.debug("Profile payload path '%s' is not directly readable in this environment.", text_payload)
-        return None
-
-    def _read_dbfs_payload(self, path: str) -> Any:
-        host = (self._params.workspace_host or "").strip()
-        token = (self._params.access_token or "").strip()
-        if not host or not token:
-            logger.warning("Cannot fetch DBFS payload because workspace credentials are missing.")
-            return None
-
-        base_url = host if host.startswith("http") else f"https://{host}"
-        endpoint = f"{base_url.rstrip('/')}/api/2.0/dbfs/read"
-        offset = 0
-        chunks: list[bytes] = []
-
-        while True:
-            response = self._request_dbfs(endpoint, token, {"path": path, "offset": offset, "length": _DBFS_READ_CHUNK})
-            if not isinstance(response, Mapping):
-                break
-
-            encoded_chunk = response.get("data")
-            if not encoded_chunk:
-                break
-
-            try:
-                chunk = base64.b64decode(encoded_chunk)
-            except (ValueError, TypeError) as exc:
-                logger.warning("Failed to decode DBFS payload chunk for %s: %s", path, exc)
-                return None
-
-            chunks.append(chunk)
-            bytes_read = int(response.get("bytes_read") or len(chunk))
-            if bytes_read < _DBFS_READ_CHUNK:
-                break
-            offset += bytes_read
-
-        if not chunks:
-            logger.warning("No readable data returned for DBFS payload %s", path)
-            return None
-
-        try:
-            text_payload = b"".join(chunks).decode("utf-8")
-        except UnicodeDecodeError as exc:
-            logger.warning("DBFS payload %s is not UTF-8 decodable: %s", path, exc)
-            return None
-
-        try:
-            return json.loads(text_payload)
-        except json.JSONDecodeError as exc:
-            logger.warning("DBFS payload %s is not valid JSON: %s", path, exc)
-            return None
-
-    def _request_dbfs(self, url: str, token: str, payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        try:
-            import requests
-        except ModuleNotFoundError as exc:  # pragma: no cover - dependency missing
-            logger.warning("requests dependency missing; cannot load DBFS payload.")
-            return None
-
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-        except requests.RequestException as exc:  # pragma: no cover - network failure
-            logger.warning("DBFS read failed for %s: %s", payload.get("path"), exc)
-            return None
-
-        try:
-            return response.json()
-        except ValueError:  # pragma: no cover - invalid json response
-            logger.warning("DBFS read returned non-JSON payload for %s", payload.get("path"))
-            return None
-
-    def _locate_column_profile(
-        self,
-        payload: Any,
-        *,
-        table_name: str | None,
-        physical_name: str | None,
-        column_name: str,
-    ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
-        tables: list[Any]
-        if isinstance(payload, Mapping):
-            for key in ("tables", "table_profiles", "tablesProfiled"):
-                value = payload.get(key)
-                if isinstance(value, list):
-                    tables = value
-                    break
-            else:
-                tables = [payload]
-        elif isinstance(payload, list):
-            tables = payload
-        else:
-            return None, None
-
-        normalized_table_names = {
-            self._normalize_name(table_name),
-            self._normalize_name(physical_name),
-        } - {""}
-
-        table_entry: Mapping[str, Any] | None = None
-        for candidate in tables:
-            if not isinstance(candidate, Mapping):
-                continue
-            candidate_names = {
-                self._normalize_name(candidate.get("table_name")),
-                self._normalize_name(candidate.get("table")),
-                self._normalize_name(candidate.get("name")),
-                self._normalize_name(candidate.get("tableName")),
-                self._normalize_name(candidate.get("physical_name")),
-                self._normalize_name(candidate.get("physicalName")),
-            }
-            if normalized_table_names:
-                if candidate_names & normalized_table_names:
-                    table_entry = candidate
-                    break
-            else:
-                table_entry = candidate
-                break
-
-        if table_entry is None:
-            table_entry = next((entry for entry in tables if isinstance(entry, Mapping)), None)
-
-        if table_entry is None:
-            return None, None
-
-        columns: list[Any] = []
-        for key in ("columns", "column_profiles", "columnsProfiled"):
-            value = table_entry.get(key)
-            if isinstance(value, list):
-                columns = value
-                break
-            if isinstance(value, Mapping):
-                columns = [item for item in value.values() if isinstance(item, Mapping)]
-                break
-
-        normalized_column = self._normalize_name(column_name)
-        column_entry: Mapping[str, Any] | None = None
-        for candidate in columns:
-            if not isinstance(candidate, Mapping):
-                continue
-            candidate_names = {
-                self._normalize_name(candidate.get("column_name")),
-                self._normalize_name(candidate.get("column")),
-                self._normalize_name(candidate.get("name")),
-                self._normalize_name(candidate.get("columnName")),
-            }
-            if normalized_column in candidate_names:
-                column_entry = candidate
-                break
-
-        if column_entry is None:
-            column_entry = next((entry for entry in columns if isinstance(entry, Mapping)), None)
-
-        return table_entry, column_entry
 
     def _build_column_metrics(self, column_entry: Mapping[str, Any] | None) -> list[dict[str, Any]]:
         if not isinstance(column_entry, Mapping):

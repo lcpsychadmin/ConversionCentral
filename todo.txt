@@ -6,7 +6,7 @@ conversion-central-frontend
 --- git commands ---
 git add . 
 git commit -m "Profiling Notebook Update"
-git push origin main
+git push origin master
 
 Steps:
 1. After executing each task run lint and tests with the following commands:
@@ -76,6 +76,71 @@ Detailed Implementation Plan:
 9. [DONE] Add notifications/webhooks so TestGen anomalies flow into our alerting pipeline and optionally block downstream approvals when severity thresholds are met.
 10. Expand CI/CD to include the Data Quality service/container (if needed), add integration tests against a Databricks test schema, run full lint/pytest/npm suites, and update deployment docs for local/Heroku setups.
 
+Profiling payload persistence plan:
+- Persist five datasets per profiling run: summary (`dq_profiles`), table characteristics, column characteristics, anomaly/PII findings, and derived scores.
+- Create Alembic migrations for new tables (e.g., `dq_profile_results`, `dq_profile_anomaly_results`, `dq_profile_operations`) and extend existing catalog tables with TestGen-compatible fields (`dq_score_profiling`, metadata tags, `last_complete_profile_run_id`).
+- Seed lookup tables (anomaly types, score definitions) and provide compatibility views when we diverge from TestGen naming.
+- Update the Databricks notebook with Spark helpers per dataset that merge on `profile_run_id` and natural keys, log row counts/durations, and honor the payload-mode widget.
+- Support backfills by replaying stored payloads; add verification queries/tests so metadata tables stay in sync.
+
+Schema changes outline:
+- **New tables**
+	- `dq_profile_results`: row per column per run containing dataset identifiers, table/column ids, profiling metrics (record_ct, null_ct, distinct_ct, min/max/avg, percentile JSON, boolean counts, case counts, date boundary counts, data type suggestions) plus metadata columns (`created_at`, `updated_at`). Index on (`profile_run_id`, `table_id`, `column_id`).
+	- `dq_profile_anomaly_results`: row per anomaly with references to `profile_run_id`, anomaly type id, table/column ids, severity/likelihood, detail text, remediation hint, and `detected_at`. Index on (`profile_run_id`, `table_id`, `column_id`).
+	- `dq_profile_operations`: captures per-run write stats (table name, rows_written, duration_ms, status, error_payload) for observability.
+	- `dq_profile_anomaly_types` (if not already present): stores canonical anomaly categories with severity defaults and UI labels.
+- **Table extensions**
+	- `dq_profiles`: add `table_count`, `column_count`, `anomaly_count`, `dq_score_profiling`, `dq_score_testing`, `started_at`, `completed_at`, `profile_mode`, `profile_version`.
+	- `dq_data_table_chars`: add tag columns (data_source, source_system, source_process, business_domain, stakeholder_group, transform_level, data_product), `last_complete_profile_run_id`, `dq_score_profiling`, `dq_score_testing`, `latest_anomaly_ct`, `latest_run_completed_at`.
+	- `dq_data_column_chars`: mirror column-focused metadata such as `functional_data_type`, `critical_data_element`, `pii_risk`, `datasource_tags`, plus `last_complete_profile_run_id` and score columns.
+- **Constraints & relationships**
+	- Foreign keys from new profiling tables back to `dq_profiles` and catalog entities to enforce referential integrity.
+	- Unique constraints on (`profile_run_id`, `table_id`, `column_id`) to prevent duplicate column stats per run.
+- **Migration workflow**
+	1. Alembic revision creates lookup tables and seeds default anomaly types/scores.
+	2. Add nullable columns to existing tables, backfill using last known profile summary where possible.
+	3. Create indexes, set NOT NULL constraints once backfill completes.
+	4. Provide compatibility views (e.g., `profile_results_vw`) to match TestGen naming for any downstream queries we port over.
+
+Spark writer plan:
+- Split notebook persistence into composable helpers:
+	- `_persist_profile_summary(df_profiles)` → merges into `dq_profiles`, updates run-level stats, sets `completed_at` when downstream writers succeed.
+	- `_persist_table_characteristics(df_tables)` → writes to `dq_data_table_chars`, refreshes tag columns, updates `last_complete_profile_run_id`.
+	- `_persist_column_characteristics(df_columns)` → writes to `dq_data_column_chars` and `dq_profile_results` simultaneously so catalog + detailed stats stay aligned.
+	- `_persist_anomalies(df_anomalies)` → inserts into `dq_profile_anomaly_results` and increments anomaly counters on related tables/columns.
+	- `_persist_operations_log(df_logs)` → appends diagnostics for observability and run auditing.
+- Implementation details:
+	- Each helper receives a Spark DataFrame shaped to match the target table, then uses `DataFrameWriter.jdbc(..., mode="append")` with a temporary view + `MERGE` SQL executed via Databricks SQL to ensure idempotency by (`profile_run_id`, ids).
+	- Wrap writes in a context manager that records duration, rows written, and errors into `dq_profile_operations` even if the primary insert fails.
+	- Respect the notebook widget `PAYLOAD_MODE`; helpers short-circuit if persistence is disabled, but still produce logs for transparency.
+	- Provide a shared `_merge_dataframe(df, target_table, key_columns, update_columns)` utility built on Spark temporary views so subsequent writers are concise.
+	- After column/anomaly persistence, run lightweight validation queries (row counts vs. stats, non-null checks) and raise if mismatched.
+- Backfill & testing:
+	- Add a `REPLAY_PROFILE_RUN_ID` widget to load stored payloads and rerun writers for historical runs.
+	- Include a notebook cell or pytest-style job that mocks DataFrames to unit-test each writer’s merge SQL and logging behavior.
+	- Emit final `FINALIZATION_CONTEXT` entries summarizing rows written per table to aid monitoring.
+
+Databricks execution plan:
+- **Source of truth**: keep notebooks and helper modules inside this repo (under `docs/data-quality/notebooks` plus shared libs). Use Databricks Repos to sync the Git branch so engineers edit locally, push, then pull from Databricks before running jobs.
+- **Deployment flow**:
+	1. Create/assign a Databricks Repo pointing to `ConversionCentral` with PAT/SSH auth.
+	2. Configure a Job that runs `profiling.ipynb` from the repo, sets default parameters (table group, profile run id, payload mode), and pins to the repo’s `master` tip or a release tag.
+	3. Inject secrets (JDBC URLs, service principals, storage keys) via Databricks secret scopes referenced by the notebook widgets/utilities.
+- **Cluster strategy**:
+	- Prefer a job cluster governed by `DATABRICKS_PROFILE_POLICY_ID` so every run is reproducible; optionally allow an existing cluster via env var for debugging.
+	- Attach the repo to interactive clusters for ad-hoc testing, but reserve production runs for the managed job cluster.
+- **Parameters & widgets**:
+	- Standardize widgets for table group, dataset hierarchy, payload mode, replay mode, and target schema. Document defaults in `README.md` and set them in the Job configuration.
+- **Orchestration**:
+	- Trigger via Databricks Job schedules or REST API calls from our backend after ingestion completes. Pass context (system id, dataset id) as parameters.
+	- Capture run metadata (job run id, cluster log URL) and write back to our control tables so UI can link to Databricks runs.
+- **Sync & promotion**:
+	- Developers edit locally, open PRs, and once merged, Databricks Repo pulls in changes. For critical fixes, allow manual `Repo Sync` or CLI automation.
+	- Use release tags if we need to pin the Job to a stable revision while developing new features.
+- **Monitoring & rollback**:
+	- Enable job run alerts (email/webhook) for failures.
+	- Store last successful git SHA in our settings table to track what build is running and allow quick rollback by re-pointing the Job to an earlier commit/tag.
+
 dbt canvas model upgrade:
 1. [DONE] Capture baseline of current table relationship builder graph payload and document required metadata for dbt Canvas (node types, coordinates, edge semantics, join details).
 2. [DONE] Research dbt Canvas JSON schema, sample exports, and minimum viable fields; archive references in docs/ for the team.
@@ -111,6 +176,8 @@ I've created a folder that contains screenshots from the testgen system that we 
 5. Next we need to build the test suite definition page, a link to this will be on the test suite landing page for each of the test suites. This page will let us define by table/field what tests to run. the landing page screenshot is at /screenshots/data quality/test suite definition.png
 6. When adding a new test we'll be presented with a number of different test types (/screenshots/data quality/test types.txt). AFter selecting the type the modal will display the fields required for that test type (/screenshots/data quality/test suite create modal.png)
 7. when selecting a test from the test suite definition page details will show below the table at the bottom (/screenshots/data quality/test suite definition details.png). There is also an button to view the column profiling for this test (/screenshots/data quality/test suite column profiling)
+
+ORM note: Databricks metadata tables (`dq_profile_results`, `dq_data_table_chars`, etc.) are provisioned and queried through the Databricks SQL service, not our SQLAlchemy ORM. We only need ORM updates if/when we introduce relational models for warehouse catalog tables; current scope does not require changes in `app/models/entities.py`.
 
 
 --- Data Migration Implementation ---

@@ -1602,7 +1602,6 @@ class DatabricksSqlSetting(Base, TimestampMixin):
     data_quality_storage_format: Mapped[str] = mapped_column(String(20), nullable=False, default="delta")
     data_quality_auto_manage_tables: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     profiling_policy_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    profile_payload_base_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
     profiling_notebook_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
     ingestion_batch_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_name: Mapped[str | None] = mapped_column(String(180), nullable=True)

@@ -313,7 +313,6 @@ def list_profile_runs(
                 ),
                 row_count=row.get("row_count"),
                 anomaly_count=row.get("anomaly_count"),
-                payload_path=row.get("payload_path"),
                 databricks_run_id=row.get("databricks_run_id"),
                 anomalies_by_severity=severity_counts,
             )

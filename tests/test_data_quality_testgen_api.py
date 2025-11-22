@@ -171,8 +171,8 @@ class StubTestGenClient:
     def delete_alert(self, alert_id: str):
         self.calls.append(("delete_alert", alert_id))
 
-    def start_profile_run(self, table_group_id: str, *, status: str, started_at=None, payload_path=None):
-        self.calls.append(("start_profile_run", table_group_id, status, started_at, payload_path))
+    def start_profile_run(self, table_group_id: str, *, status: str, started_at=None):
+        self.calls.append(("start_profile_run", table_group_id, status, started_at))
         return self.profile_run_id
 
     def complete_profile_run(self, profile_run_id: str, *, status: str, row_count=None, anomaly_count=None, anomalies=()):
@@ -309,7 +309,6 @@ def test_recent_queries_apply_limits(client):
             "completed_at": None,
             "row_count": None,
             "anomaly_count": None,
-            "payload_path": None,
             "table_group_name": "default",
             "connection_id": CONNECTION_ID,
             "connection_name": "Primary",
@@ -453,7 +452,6 @@ def test_profile_run_flow(client):
             "/data-quality/testgen/profile-runs",
             json={
                 "table_group_id": TABLE_GROUP_ID,
-                "payload_path": "dbfs:/runs/profile.json",
             },
         )
         complete_resp = client.post(

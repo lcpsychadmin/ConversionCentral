@@ -101,7 +101,7 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
 
     ensure_data_quality_metadata(params)
 
-    assert len(executed) == 19
+    assert len(executed) == 37
     assert executed[0] == "CREATE SCHEMA IF NOT EXISTS `sandbox`.`dq`"
     assert executed[1].startswith("CREATE TABLE IF NOT EXISTS `sandbox`.`dq`.`dq_projects`")
     assert "USING DELTA" in executed[1]
@@ -109,10 +109,19 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
     assert any("`dq_test_suites`" in statement for statement in executed)
     assert any("`dq_profile_columns`" in statement for statement in executed)
     assert any("`dq_profile_column_values`" in statement for statement in executed)
+    assert any("`dq_profile_results`" in statement for statement in executed)
+    assert any("`dq_profile_anomaly_results`" in statement for statement in executed)
+    assert any("`dq_profile_operations`" in statement for statement in executed)
+    assert any("`dq_data_table_chars`" in statement for statement in executed)
+    assert any("`dq_data_column_chars`" in statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_table_groups` ADD COLUMNS (profiling_job_id STRING)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (databricks_run_id STRING)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (table_count BIGINT)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (dq_score_profiling DOUBLE)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_data_table_chars` ADD COLUMNS (last_complete_profile_run_id STRING)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_data_column_chars` ADD COLUMNS (last_complete_profile_run_id STRING)" == statement for statement in executed)
     assert "DELETE FROM `sandbox`.`dq`.`dq_settings` WHERE key = 'schema_version'" in executed
-    assert "INSERT INTO `sandbox`.`dq`.`dq_settings` (key, value, updated_at) VALUES ('schema_version', '2', current_timestamp())" in executed
+    assert "INSERT INTO `sandbox`.`dq`.`dq_settings` (key, value, updated_at) VALUES ('schema_version', '3', current_timestamp())" in executed
 
 
 @pytest.mark.parametrize("storage_format", ["iceberg", "csv"])

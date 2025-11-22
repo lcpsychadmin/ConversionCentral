@@ -49,7 +49,6 @@ class StubProfilingService:
         return PreparedProfileRun(
             target=target,
             profile_run_id=run_id,
-            payload_path=None,
             callback_url=None,
         )
 
@@ -60,7 +59,6 @@ class StubProfilingService:
             profile_run_id=prepared_run.profile_run_id,
             job_id=100 + self.sequence,
             databricks_run_id=200 + self.sequence,
-            payload_path=prepared_run.payload_path,
         )
 
     def start_profile_for_table_group(self, table_group_id: str, **kwargs) -> ProfilingLaunchResult:

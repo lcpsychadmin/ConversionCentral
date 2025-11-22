@@ -37,7 +37,6 @@ interface FormState {
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
   profilingPolicyId: string;
-  profilePayloadBasePath: string;
   profilingNotebookPath: string;
   ingestionBatchRows: string;
   ingestionMethod: 'sql' | 'spark';
@@ -57,7 +56,6 @@ const emptyForm: FormState = {
   dataQualityStorageFormat: 'delta',
   dataQualityAutoManageTables: true,
   profilingPolicyId: '',
-  profilePayloadBasePath: '',
   profilingNotebookPath: '',
   ingestionBatchRows: '',
   ingestionMethod: 'sql',
@@ -77,7 +75,6 @@ const mapSettingsToForm = (settings: DatabricksSqlSettings): FormState => ({
   dataQualityStorageFormat: settings.dataQualityStorageFormat,
   dataQualityAutoManageTables: settings.dataQualityAutoManageTables,
   profilingPolicyId: settings.profilingPolicyId ?? '',
-  profilePayloadBasePath: settings.profilePayloadBasePath ?? '',
   profilingNotebookPath: settings.profilingNotebookPath ?? '',
   ingestionBatchRows: settings.ingestionBatchRows?.toString() ?? '',
   ingestionMethod: settings.ingestionMethod,
@@ -204,7 +201,6 @@ const DataWarehouseSettingsPage = () => {
       dataQualityStorageFormat: form.dataQualityStorageFormat,
       dataQualityAutoManageTables: form.dataQualityAutoManageTables,
       profilingPolicyId: trimValue(form.profilingPolicyId) || null,
-      profilePayloadBasePath: trimValue(form.profilePayloadBasePath) || null,
       profilingNotebookPath: trimValue(form.profilingNotebookPath) || null,
       ingestionBatchRows: parseBatchRows(form.ingestionBatchRows),
       ingestionMethod: effectiveMethod,
@@ -278,11 +274,6 @@ const DataWarehouseSettingsPage = () => {
     const trimmedProfilingPolicyId = trimValue(form.profilingPolicyId);
     if (trimmedProfilingPolicyId !== (settings.profilingPolicyId ?? '')) {
       update.profilingPolicyId = trimmedProfilingPolicyId ? trimmedProfilingPolicyId : null;
-    }
-
-    const trimmedProfilePayloadPath = trimValue(form.profilePayloadBasePath);
-    if (trimmedProfilePayloadPath !== (settings.profilePayloadBasePath ?? '')) {
-      update.profilePayloadBasePath = trimmedProfilePayloadPath ? trimmedProfilePayloadPath : null;
     }
 
     const trimmedProfilingNotebookPath = trimValue(form.profilingNotebookPath);
@@ -481,16 +472,6 @@ const DataWarehouseSettingsPage = () => {
               <MenuItem value="hudi">Hudi</MenuItem>
             </TextField>
           </Stack>
-
-          <TextField
-            label="Profiling Payload Folder"
-            value={form.profilePayloadBasePath}
-            onChange={handleChange('profilePayloadBasePath')}
-            disabled={disableInputs}
-            helperText="Optional DBFS/S3 path (e.g. dbfs:/profiles) where profiling payloads are written."
-            fullWidth
-            InputLabelProps={labelPropsFor(form.profilePayloadBasePath)}
-          />
 
           <TextField
             label="Profiling Notebook Path"

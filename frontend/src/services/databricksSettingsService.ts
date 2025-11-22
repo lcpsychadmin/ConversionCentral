@@ -19,7 +19,6 @@ interface DatabricksSettingsResponse {
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
   profilingPolicyId?: string | null;
-  profilePayloadBasePath?: string | null;
   profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';
@@ -42,7 +41,6 @@ interface DatabricksSettingsTestPayload {
   data_quality_storage_format?: 'delta' | 'hudi';
   data_quality_auto_manage_tables?: boolean;
   profiling_policy_id?: string | null;
-  profile_payload_base_path?: string | null;
   profiling_notebook_path?: string | null;
   ingestion_batch_rows?: number | null;
   ingestion_method?: 'sql' | 'spark';
@@ -83,7 +81,6 @@ const mapDatabricksSettings = (
   dataQualityAutoManageTables: payload.dataQualityAutoManageTables,
   profilingPolicyId: payload.profilingPolicyId ?? null,
   profilingNotebookPath: payload.profilingNotebookPath ?? null,
-  profilePayloadBasePath: payload.profilePayloadBasePath ?? null,
   ingestionBatchRows: payload.ingestionBatchRows ?? null,
   ingestionMethod: payload.ingestionMethod ?? 'sql',
   sparkCompute: payload.sparkCompute ?? null,
@@ -130,7 +127,6 @@ export const createDatabricksSettings = async (
     data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
     profiling_policy_id: input.profilingPolicyId ?? null,
     profiling_notebook_path: input.profilingNotebookPath ?? null,
-    profile_payload_base_path: input.profilePayloadBasePath ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic',
@@ -163,9 +159,6 @@ export const updateDatabricksSettings = async (
     ...(input.profilingNotebookPath !== undefined
       ? { profiling_notebook_path: input.profilingNotebookPath }
       : {}),
-    ...(input.profilePayloadBasePath !== undefined
-      ? { profile_payload_base_path: input.profilePayloadBasePath }
-      : {}),
     ...(input.ingestionBatchRows !== undefined ? { ingestion_batch_rows: input.ingestionBatchRows } : {}),
     ...(input.ingestionMethod !== undefined ? { ingestion_method: input.ingestionMethod } : {}),
     ...(input.sparkCompute !== undefined ? { spark_compute: input.sparkCompute } : {}),
@@ -191,7 +184,6 @@ export const testDatabricksSettings = async (
     data_quality_auto_manage_tables: input.dataQualityAutoManageTables,
     profiling_policy_id: input.profilingPolicyId ?? null,
     profiling_notebook_path: input.profilingNotebookPath ?? null,
-    profile_payload_base_path: input.profilePayloadBasePath ?? null,
     ingestion_batch_rows: input.ingestionBatchRows ?? null,
     ingestion_method: input.ingestionMethod ?? 'sql',
     spark_compute: input.sparkCompute ?? 'classic'

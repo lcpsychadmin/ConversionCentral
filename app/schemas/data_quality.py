@@ -52,7 +52,6 @@ class TestGenProfileRun(BaseModel):
     completed_at: Optional[datetime] = None
     row_count: Optional[int] = None
     anomaly_count: Optional[int] = None
-    payload_path: Optional[str] = None
 
 
 class TestGenColumnMetric(BaseModel):
@@ -186,7 +185,6 @@ class ProfileRunStartRequest(BaseModel):
     table_group_id: str
     status: str = "running"
     started_at: Optional[datetime] = None
-    payload_path: Optional[str] = None
 
 
 class ProfileRunStartResponse(BaseModel):
@@ -350,7 +348,6 @@ class DataQualityProfileRunEntry(BaseModel):
     duration_ms: Optional[int] = Field(default=None, alias="durationMs")
     row_count: Optional[int] = Field(default=None, alias="rowCount")
     anomaly_count: Optional[int] = Field(default=None, alias="anomalyCount")
-    payload_path: Optional[str] = Field(default=None, alias="payloadPath")
     databricks_run_id: Optional[str] = Field(default=None, alias="databricksRunId")
     anomalies_by_severity: Dict[str, int] = Field(default_factory=dict, alias="anomaliesBySeverity")
 

@@ -637,7 +637,6 @@ def start_profile_run(request: ProfileRunStartRequest, client: TestGenClient = D
             request.table_group_id,
             status=request.status,
             started_at=request.started_at,
-            payload_path=request.payload_path,
         )
     )
     return ProfileRunStartResponse(profile_run_id=profile_run_id)

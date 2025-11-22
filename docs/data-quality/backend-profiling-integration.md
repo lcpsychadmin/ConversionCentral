@@ -1,19 +1,19 @@
 # Backend Integration Plan for Profiling Tables
 
 ## Goals
-- Read column metrics and value distributions directly from `dq_profile_columns` / `dq_profile_column_values` instead of parsing large inline payloads.
+- Read column metrics and value distributions directly from `dq_profile_results` (or the legacy `dq_profile_columns`) plus `dq_profile_column_values` instead of parsing large inline payloads.
 - Preserve backwards compatibility by falling back to the existing payload reader when the new tables are empty or unavailable.
 - Keep the FastAPI surface area unchanged so the UI can continue to call the existing column-profile endpoint.
 
 ## Current Behavior
 - The profiling notebook writes all per-table/column metrics into a JSON payload (inline or artifact). The backend fetches the latest `dq_profiles` row, loads the payload, and scrapes metrics/top values from nested dictionaries (see `app/services/data_quality_testgen.py::column_profile`).
-- `data_quality_metadata.ensure_data_quality_metadata` provisions only the legacy tables (`dq_profiles`, `dq_profile_anomalies`, etc.). There is no DDL for `dq_profile_columns` / `dq_profile_column_values` yet, so provisioning/backfill will fail until we add it.
+- `data_quality_metadata.ensure_data_quality_metadata` previously provisioned only the legacy tables (`dq_profiles`, `dq_profile_anomalies`, etc.). It now creates the new profiling tables (`dq_profile_results`, `dq_profile_anomaly_results`, `dq_data_table_chars`, etc.), but older workspaces may still lack the tables until the provisioning job runs.
 
 ## Target Flow
-1. Profiling notebook publishes detail rows into `dq_profile_columns` and `dq_profile_column_values` (already implemented).
+1. Profiling notebook publishes detail rows into `dq_profile_results` (or at minimum the fallback `dq_profile_columns`) and `dq_profile_column_values`.
 2. When the API receives `GET /table-groups/{table_group_id}/column-profile`, the service should:
    - Resolve the latest completed run for the group (unchanged SQL).
-   - Query `dq_profile_columns` for that run/table/column to obtain the canonical metric row.
+   - Query `dq_profile_results` (preferred) or `dq_profile_columns` for that run/table/column to obtain the canonical metric row.
    - Query `dq_profile_column_values` for matching rows (split into "top values" vs histogram buckets based on `bucket_label`).
    - Query `dq_profile_anomalies` as today.
    - Assemble the response from table data; only fall back to payload parsing if no column row exists or SQL fails.

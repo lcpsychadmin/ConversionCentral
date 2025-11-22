@@ -69,14 +69,12 @@ class ProfilingLaunchResult:
     profile_run_id: str
     job_id: int
     databricks_run_id: int
-    payload_path: str | None
 
 
 @dataclass(frozen=True)
 class PreparedProfileRun:
     target: ProfilingTarget
     profile_run_id: str
-    payload_path: str | None
     callback_url: str | None
 
 
@@ -124,24 +122,11 @@ class DataQualityProfilingService:
                 "Databricks profiling notebook path is not configured. Update the Databricks settings before running profiling."
             )
         profile_run_id = self._client.start_profile_run(table_group_id)
-        payload_path = self._build_payload_path(table_group_id, profile_run_id)
         callback_url = self._build_callback_url(callback_url_template, profile_run_id)
-
-        if payload_path:
-            try:
-                self._client.update_profile_run_databricks_run(
-                    profile_run_id,
-                    databricks_run_id=None,
-                    payload_path=payload_path,
-                )
-            except TestGenClientError as exc:
-                self._mark_run_failed(profile_run_id)
-                raise ProfilingJobError(str(exc)) from exc
 
         return PreparedProfileRun(
             target=target,
             profile_run_id=profile_run_id,
-            payload_path=payload_path,
             callback_url=callback_url,
         )
 
@@ -153,13 +138,11 @@ class DataQualityProfilingService:
                 prepared.target,
                 job_id,
                 prepared.profile_run_id,
-                prepared.payload_path,
                 prepared.callback_url,
             )
             self._client.update_profile_run_databricks_run(
                 prepared.profile_run_id,
                 databricks_run_id=str(run_handle.run_id),
-                payload_path=None,
             )
         except ProfilingServiceError:
             self._mark_run_failed(prepared.profile_run_id)
@@ -176,7 +159,6 @@ class DataQualityProfilingService:
             profile_run_id=prepared.profile_run_id,
             job_id=job_id,
             databricks_run_id=run_handle.run_id,
-            payload_path=prepared.payload_path,
         )
 
     def _load_target(self, table_group_id: str) -> ProfilingTarget:
@@ -226,13 +208,11 @@ class DataQualityProfilingService:
         target: ProfilingTarget,
         job_id: int,
         profile_run_id: str,
-        payload_path: str | None,
         callback_url: str | None,
     ):
         params = self._build_notebook_params(
             target,
             profile_run_id,
-            payload_path,
             callback_url_override=callback_url,
         )
         return self._get_jobs_client().run_now(
@@ -321,7 +301,6 @@ class DataQualityProfilingService:
         self,
         target: ProfilingTarget,
         profile_run_id: str,
-        payload_path: str | None,
         *,
         callback_url_override: str | None = None,
     ) -> dict[str, str]:
@@ -343,9 +322,6 @@ class DataQualityProfilingService:
             if value:
                 params[key] = str(value)
 
-        if payload_path:
-            params["payload_path"] = payload_path
-
         callback_url = (callback_url_override or self._settings.databricks_profile_callback_url or "").strip()
         if callback_url:
             params["callback_url"] = callback_url
@@ -366,26 +342,6 @@ class DataQualityProfilingService:
             return normalized
         return f"{normalized}/{profile_run_id}/complete"
 
-    def _build_payload_path(self, table_group_id: str, profile_run_id: str) -> str | None:
-        base_path = self._resolve_payload_base_path()
-        if not base_path:
-            return None
-        sanitized_group = table_group_id.replace(":", "_")
-        sanitized_run = profile_run_id.replace(":", "_")
-        base = base_path[:-1] if base_path.endswith("/") else base_path
-        return f"{base}/{sanitized_group}/{sanitized_run}.json"
-
-    def _resolve_payload_base_path(self) -> str | None:
-        configured = (self._settings.databricks_profile_payload_base_path or "").strip()
-        if configured:
-            return configured
-        params = self._get_ingestion_params()
-        if not params:
-            return None
-        candidate = getattr(params, "profile_payload_base_path", None)
-        if isinstance(candidate, str):
-            candidate = candidate.strip()
-        return candidate or None
 
     def _mark_run_failed(self, profile_run_id: str) -> None:
         try:

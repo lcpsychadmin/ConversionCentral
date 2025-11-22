@@ -28,7 +28,6 @@ class DatabricksConnectionParams:
     data_quality_storage_format: str = "delta"
     data_quality_auto_manage_tables: bool = True
     profiling_policy_id: Optional[str] = None
-    profile_payload_base_path: Optional[str] = None
     profiling_notebook_path: Optional[str] = None
     ingestion_batch_rows: Optional[int] = None
     ingestion_method: str = "sql"

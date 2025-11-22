@@ -193,7 +193,6 @@ export interface DatabricksSqlSettings {
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
   profilingPolicyId?: string | null;
-  profilePayloadBasePath?: string | null;
   profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
@@ -217,7 +216,6 @@ export interface DatabricksSqlSettingsInput {
   dataQualityStorageFormat: 'delta' | 'hudi';
   dataQualityAutoManageTables: boolean;
   profilingPolicyId?: string | null;
-  profilePayloadBasePath?: string | null;
   profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod: 'sql' | 'spark';
@@ -237,7 +235,6 @@ export interface DatabricksSqlSettingsUpdate {
   dataQualityStorageFormat?: 'delta' | 'hudi';
   dataQualityAutoManageTables?: boolean;
   profilingPolicyId?: string | null;
-  profilePayloadBasePath?: string | null;
   profilingNotebookPath?: string | null;
   ingestionBatchRows?: number | null;
   ingestionMethod?: 'sql' | 'spark';

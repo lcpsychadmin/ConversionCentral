@@ -60,7 +60,6 @@ def _build_settings(**overrides: Any) -> SimpleNamespace:
         "databricks_profile_job_name_prefix": "DQ - ",
         "databricks_profile_callback_url": "https://callback/api",
         "databricks_profile_callback_token": "token-123",
-        "databricks_profile_payload_base_path": "dbfs:/profiles",
         "databricks_host": "adb-test.cloud.databricks.com",
         "databricks_token": "dapi-test",
         "databricks_spark_compute": "classic",
@@ -81,13 +80,12 @@ class DummyTestGenClient:
     def get_table_group_details(self, table_group_id: str) -> dict[str, Any] | None:
         return self._row
 
-    def start_profile_run(self, table_group_id: str, *, status: str = "running", started_at=None, payload_path: str | None = None) -> str:  # noqa: ARG002
+    def start_profile_run(self, table_group_id: str, *, status: str = "running", started_at=None) -> str:  # noqa: ARG002
         run_id = f"profile-{len(self.start_calls) + 1}"
         self.start_calls.append(
             {
                 "table_group_id": table_group_id,
                 "status": status,
-                "payload_path": payload_path,
             }
         )
         return run_id
@@ -100,13 +98,11 @@ class DummyTestGenClient:
         profile_run_id: str,
         *,
         databricks_run_id: str | None,
-        payload_path: str | None = None,
     ) -> None:
         self.profile_updates.append(
             {
                 "profile_run_id": profile_run_id,
                 "databricks_run_id": databricks_run_id,
-                "payload_path": payload_path,
             }
         )
 
@@ -173,11 +169,7 @@ def test_service_creates_job_and_launches_run():
     assert client.job_updates == [(row["table_group_id"], str(result.job_id))]
 
     first_update = client.profile_updates[0]
-    assert first_update["databricks_run_id"] is None
-    assert first_update["payload_path"].endswith(f"{row['table_group_id'].replace(':', '_')}/{result.profile_run_id}.json")
-
-    second_update = client.profile_updates[1]
-    assert second_update["databricks_run_id"] == "901"
+    assert first_update["databricks_run_id"] == "901"
     assert jobs.run_requests[0]["notebook_params"]["callback_token"] == "token-123"
 
 
@@ -215,33 +207,6 @@ def test_callback_template_without_placeholder_appends_completion_suffix():
 
     params = jobs.run_requests[0]["notebook_params"]
     assert params["callback_url"].endswith(f"/{result.profile_run_id}/complete")
-
-
-def test_payload_path_falls_back_to_stored_setting(monkeypatch: pytest.MonkeyPatch):
-    row = _build_group_row()
-    client = DummyTestGenClient(row)
-    jobs = DummyJobsClient()
-    settings = _build_settings(databricks_profile_payload_base_path="  ")
-    fallback_path = "dbfs:/stored/profiles/"
-
-    def fake_params():
-        return SimpleNamespace(profile_payload_base_path=fallback_path)
-
-    monkeypatch.setattr(
-        "app.services.data_quality_profiling.get_ingestion_connection_params",
-        fake_params,
-    )
-
-    service = DataQualityProfilingService(client, jobs_client=jobs, settings=settings)
-
-    result = service.start_profile_for_table_group(row["table_group_id"])
-
-    payload_path = client.profile_updates[0]["payload_path"]
-    assert payload_path is not None
-    assert payload_path.startswith("dbfs:/stored/profiles/")
-    assert payload_path.endswith(f"{result.profile_run_id}.json")
-
-
 def test_service_reuses_existing_job():
     row = _build_group_row(profiling_job_id="77")
     client = DummyTestGenClient(row)

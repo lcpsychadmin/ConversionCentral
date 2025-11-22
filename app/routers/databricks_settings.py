@@ -40,7 +40,6 @@ def _serialize(
     data_quality_storage_format_fallback: str | None = None,
     data_quality_auto_manage_tables_fallback: bool | None = None,
     profiling_policy_id_fallback: str | None = None,
-    profile_payload_base_path_fallback: str | None = None,
     profiling_notebook_path_fallback: str | None = None,
 ) -> DatabricksSqlSettingRead:
     constructed_schema = setting.constructed_schema
@@ -74,14 +73,6 @@ def _serialize(
     )
     if not profiling_policy_id and profiling_policy_id_fallback:
         profiling_policy_id = profiling_policy_id_fallback.strip() or None
-
-    profile_payload_base_path = (
-        setting.profile_payload_base_path.strip()
-        if isinstance(setting.profile_payload_base_path, str) and setting.profile_payload_base_path.strip()
-        else None
-    )
-    if not profile_payload_base_path and profile_payload_base_path_fallback:
-        profile_payload_base_path = profile_payload_base_path_fallback.strip() or None
 
     ingestion_batch_rows = setting.ingestion_batch_rows
     if ingestion_batch_rows is None and ingestion_batch_rows_fallback:
@@ -121,7 +112,6 @@ def _serialize(
         data_quality_storage_format=data_quality_storage_format,
         data_quality_auto_manage_tables=data_quality_auto_manage_tables,
         profiling_policy_id=profiling_policy_id,
-        profile_payload_base_path=profile_payload_base_path,
         profiling_notebook_path=profiling_notebook_path,
     )
 
@@ -152,7 +142,6 @@ def get_databricks_setting(db: Session = Depends(get_db)) -> DatabricksSqlSettin
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
         profiling_policy_id_fallback=config.databricks_profile_policy_id,
-        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
         profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
 
@@ -184,7 +173,6 @@ def create_databricks_setting(
         data_quality_storage_format=payload.data_quality_storage_format,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
         profiling_policy_id=payload.profiling_policy_id,
-        profile_payload_base_path=payload.profile_payload_base_path,
         profiling_notebook_path=payload.profiling_notebook_path,
     )
     try:
@@ -207,9 +195,6 @@ def create_databricks_setting(
             else None,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
         profiling_policy_id=payload.profiling_policy_id.strip() if payload.profiling_policy_id else None,
-        profile_payload_base_path=payload.profile_payload_base_path.strip()
-        if payload.profile_payload_base_path
-        else None,
         profiling_notebook_path=payload.profiling_notebook_path.strip()
         if payload.profiling_notebook_path
         else None,
@@ -235,7 +220,6 @@ def create_databricks_setting(
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
         profiling_policy_id_fallback=config.databricks_profile_policy_id,
-        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
         profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
     reset_ingestion_engine()
@@ -281,10 +265,6 @@ def update_databricks_setting(
             setting.data_quality_auto_manage_tables = bool(data["data_quality_auto_manage_tables"])
         if "profiling_policy_id" in data:
             setting.profiling_policy_id = data["profiling_policy_id"].strip() if data["profiling_policy_id"] else None
-        if "profile_payload_base_path" in data:
-            setting.profile_payload_base_path = (
-                data["profile_payload_base_path"].strip() if data["profile_payload_base_path"] else None
-            )
         if "profiling_notebook_path" in data:
             setting.profiling_notebook_path = (
                 data["profiling_notebook_path"].strip() if data["profiling_notebook_path"] else None
@@ -340,7 +320,6 @@ def update_databricks_setting(
                 if setting.data_quality_auto_manage_tables is not None
                 else True,
             profiling_policy_id=setting.profiling_policy_id,
-            profile_payload_base_path=setting.profile_payload_base_path,
             profiling_notebook_path=setting.profiling_notebook_path,
         )
         try:
@@ -361,7 +340,6 @@ def update_databricks_setting(
         data_quality_storage_format_fallback=config.databricks_data_quality_storage_format,
         data_quality_auto_manage_tables_fallback=config.databricks_data_quality_auto_manage_tables,
         profiling_policy_id_fallback=config.databricks_profile_policy_id,
-        profile_payload_base_path_fallback=config.databricks_profile_payload_base_path,
         profiling_notebook_path_fallback=config.databricks_profile_notebook_path,
     )
     reset_ingestion_engine()
@@ -385,7 +363,6 @@ def test_databricks_setting(payload: DatabricksSqlSettingTestRequest) -> Databri
         data_quality_storage_format=payload.data_quality_storage_format,
         data_quality_auto_manage_tables=payload.data_quality_auto_manage_tables,
         profiling_policy_id=payload.profiling_policy_id.strip() if payload.profiling_policy_id else None,
-        profile_payload_base_path=payload.profile_payload_base_path,
         profiling_notebook_path=payload.profiling_notebook_path,
     )
     try:

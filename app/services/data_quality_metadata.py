@@ -33,7 +33,7 @@ from app.services.data_quality_keys import (
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 _SUPPORTED_STORAGE_FORMATS = {"delta"}
 _PROJECT_KEY_PREFIX = "system:"
 _CONNECTION_ID_PREFIX = "conn:"
@@ -203,9 +203,23 @@ def _run_statements(execute, statements: Iterable[str]) -> None:
 def _upgrade_schema(execute, params: DatabricksConnectionParams, schema: str) -> None:
     table_groups_table = _format_table(params.catalog, schema, "dq_table_groups")
     profiles_table = _format_table(params.catalog, schema, "dq_profiles")
+    table_chars_table = _format_table(params.catalog, schema, "dq_data_table_chars")
+    column_chars_table = _format_table(params.catalog, schema, "dq_data_column_chars")
     statements = [
         (table_groups_table, "profiling_job_id STRING"),
         (profiles_table, "databricks_run_id STRING"),
+        (profiles_table, "table_count BIGINT"),
+        (profiles_table, "column_count BIGINT"),
+        (profiles_table, "profile_mode STRING"),
+        (profiles_table, "profile_version STRING"),
+        (profiles_table, "dq_score_profiling DOUBLE"),
+        (profiles_table, "dq_score_testing DOUBLE"),
+        (table_chars_table, "last_complete_profile_run_id STRING"),
+        (table_chars_table, "dq_score_profiling DOUBLE"),
+        (table_chars_table, "dq_score_testing DOUBLE"),
+        (column_chars_table, "last_complete_profile_run_id STRING"),
+        (column_chars_table, "dq_score_profiling DOUBLE"),
+        (column_chars_table, "dq_score_testing DOUBLE"),
     ]
     for table_name, column_definition in statements:
         statement = text(f"ALTER TABLE {table_name} ADD COLUMNS ({column_definition})")
@@ -750,7 +764,6 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "completed_at TIMESTAMP",
                     "row_count BIGINT",
                     "anomaly_count INT",
-                    "payload_path STRING",
                     "databricks_run_id STRING",
                 ],
             ),
@@ -764,6 +777,79 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "severity STRING",
                     "description STRING",
                     "detected_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_anomaly_types",
+                [
+                    "anomaly_type_id STRING NOT NULL",
+                    "name STRING",
+                    "category STRING",
+                    "default_severity STRING",
+                    "default_likelihood STRING",
+                    "description STRING",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_results",
+                [
+                    "result_id STRING NOT NULL",
+                    "profile_run_id STRING",
+                    "table_id STRING",
+                    "column_id STRING",
+                    "schema_name STRING",
+                    "table_name STRING",
+                    "column_name STRING",
+                    "data_type STRING",
+                    "general_type STRING",
+                    "record_count BIGINT",
+                    "null_count BIGINT",
+                    "distinct_count BIGINT",
+                    "min_value STRING",
+                    "max_value STRING",
+                    "avg_value DOUBLE",
+                    "stddev_value DOUBLE",
+                    "percentiles_json STRING",
+                    "top_values_json STRING",
+                    "metrics_json STRING",
+                    "generated_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_anomaly_results",
+                [
+                    "anomaly_result_id STRING NOT NULL",
+                    "profile_run_id STRING",
+                    "table_id STRING",
+                    "column_id STRING",
+                    "table_name STRING",
+                    "column_name STRING",
+                    "anomaly_type_id STRING",
+                    "severity STRING",
+                    "likelihood STRING",
+                    "detail STRING",
+                    "pii_risk STRING",
+                    "dq_dimension STRING",
+                    "detected_at TIMESTAMP",
+                    "dismissed BOOLEAN",
+                    "dismissed_by STRING",
+                    "dismissed_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_profile_operations",
+                [
+                    "operation_id STRING NOT NULL",
+                    "profile_run_id STRING",
+                    "target_table STRING",
+                    "rows_written BIGINT",
+                    "duration_ms BIGINT",
+                    "status STRING",
+                    "error_payload STRING",
+                    "started_at TIMESTAMP",
+                    "completed_at TIMESTAMP",
                 ],
             ),
             (
@@ -816,6 +902,56 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "bucket_lower_bound DOUBLE",
                     "bucket_upper_bound DOUBLE",
                     "generated_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_data_table_chars",
+                [
+                    "table_id STRING NOT NULL",
+                    "table_group_id STRING",
+                    "schema_name STRING",
+                    "table_name STRING",
+                    "record_count BIGINT",
+                    "column_count INT",
+                    "data_point_count BIGINT",
+                    "critical_data_element BOOLEAN",
+                    "data_source STRING",
+                    "source_system STRING",
+                    "source_process STRING",
+                    "business_domain STRING",
+                    "stakeholder_group STRING",
+                    "transform_level STRING",
+                    "data_product STRING",
+                    "dq_score_profiling DOUBLE",
+                    "dq_score_testing DOUBLE",
+                    "last_complete_profile_run_id STRING",
+                    "latest_anomaly_ct INT",
+                    "latest_run_completed_at TIMESTAMP",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
+                ],
+            ),
+            (
+                "dq_data_column_chars",
+                [
+                    "column_id STRING NOT NULL",
+                    "table_id STRING",
+                    "schema_name STRING",
+                    "table_name STRING",
+                    "column_name STRING",
+                    "data_type STRING",
+                    "functional_data_type STRING",
+                    "critical_data_element BOOLEAN",
+                    "pii_risk STRING",
+                    "dq_dimension STRING",
+                    "tags_json STRING",
+                    "dq_score_profiling DOUBLE",
+                    "dq_score_testing DOUBLE",
+                    "last_complete_profile_run_id STRING",
+                    "latest_anomaly_ct INT",
+                    "latest_run_completed_at TIMESTAMP",
+                    "created_at TIMESTAMP",
+                    "updated_at TIMESTAMP",
                 ],
             ),
             (
