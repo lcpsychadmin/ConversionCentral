@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import uuid
+from decimal import Decimal
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -746,6 +747,43 @@ class TestGenClient:
             "anomalies": anomalies,
         }
 
+    def export_profiling_payload(
+        self,
+        table_group_id: str,
+        *,
+        profile_run_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Reconstruct a profiling payload for the latest (or requested) run."""
+
+        normalized_group = (table_group_id or "").strip()
+        if not normalized_group:
+            raise ValueError("table_group_id is required to export a profiling payload")
+
+        run_row: Mapping[str, Any] | None = None
+        if profile_run_id:
+            run_row = self._fetch_profile_run_record(profile_run_id, normalized_group)
+        if run_row is None:
+            run_row = self._latest_completed_profile_run(normalized_group)
+        if not run_row:
+            return None
+
+        resolved_run_id = (run_row.get("profile_run_id") or "").strip()
+        if not resolved_run_id:
+            return None
+
+        tables = self._build_tables_payload(normalized_group, resolved_run_id)
+        if not tables:
+            return None
+
+        summary = self._build_profile_summary_payload(run_row)
+        payload: dict[str, Any] = {
+            "table_group_id": normalized_group,
+            "profile_run_id": resolved_run_id,
+            "summary": summary,
+            "tables": tables,
+        }
+        return payload
+
     def list_profile_run_anomalies(self, profile_run_id: str) -> list[dict[str, Any]]:
         return self._fetch_profile_anomalies(profile_run_id, None)
 
@@ -1110,6 +1148,488 @@ class TestGenClient:
         )
         rows = self._fetch(statement, {"table_group_id": table_group_id})
         return rows[0] if rows else None
+
+    def _fetch_profile_run_record(
+        self,
+        profile_run_id: str,
+        table_group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
+        filters = ["profile_run_id = :profile_run_id"]
+        params: dict[str, Any] = {"profile_run_id": profile_run_id}
+        if table_group_id:
+            filters.append("table_group_id = :table_group_id")
+            params["table_group_id"] = table_group_id
+        statement = text(
+            f"SELECT profile_run_id, table_group_id, status, started_at, completed_at, row_count, anomaly_count, databricks_run_id "
+            f"FROM {profiles_table} WHERE {' AND '.join(filters)} LIMIT 1"
+        )
+        rows = self._fetch(statement, params)
+        return rows[0] if rows else None
+
+    def _build_profile_summary_payload(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "profile_run_id": row.get("profile_run_id"),
+            "table_group_id": row.get("table_group_id"),
+            "status": row.get("status"),
+            "started_at": self._isoformat(row.get("started_at")),
+            "completed_at": self._isoformat(row.get("completed_at")),
+            "databricks_run_id": row.get("databricks_run_id"),
+        }
+        row_count = self._coerce_int(row.get("row_count"))
+        if row_count is not None:
+            summary["row_count"] = row_count
+        anomaly_count = self._coerce_int(row.get("anomaly_count"))
+        if anomaly_count is not None:
+            summary["anomaly_count"] = anomaly_count
+        return summary
+
+    def _build_tables_payload(self, table_group_id: str, profile_run_id: str) -> list[dict[str, Any]]:
+        table_catalog = self._fetch_table_catalog(table_group_id)
+        result_rows = self._fetch_profile_result_rows(profile_run_id)
+        if not result_rows:
+            return []
+
+        value_rows = self._fetch_profile_value_rows(profile_run_id)
+        grouped_values = self._group_value_rows(value_rows)
+        anomaly_rows = self._fetch_profile_anomaly_rows(profile_run_id)
+        column_anomalies, table_anomalies = self._group_anomaly_rows(anomaly_rows)
+
+        tables: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in result_rows:
+            table_entry = self._ensure_table_entry(tables, row, table_catalog, table_group_id)
+            if table_entry is None:
+                continue
+            column_entry = self._build_column_entry(row, grouped_values, column_anomalies)
+            if column_entry is None:
+                continue
+            table_entry.setdefault("columns", []).append(column_entry)
+            row_count = column_entry.get("row_count")
+            if row_count is not None and table_entry.get("row_count") is None:
+                table_entry["row_count"] = row_count
+                table_entry.setdefault("metrics", {})["row_count"] = row_count
+
+        for key, anomalies in table_anomalies.items():
+            table_entry = tables.get(key)
+            if table_entry is None:
+                metadata = self._lookup_table_metadata(key, table_catalog)
+                if not metadata:
+                    continue
+                schema_name, table_name = self._split_schema_table(
+                    metadata.get("schema_name"),
+                    metadata.get("table_name"),
+                )
+                table_entry = {
+                    "table_id": metadata.get("table_id"),
+                    "table_group_id": table_group_id,
+                    "schema_name": schema_name,
+                    "table_name": table_name,
+                    "columns": [],
+                    "anomalies": [],
+                }
+                tables[key] = table_entry
+            table_entry["anomalies"] = anomalies
+
+        for table_entry in tables.values():
+            table_entry.setdefault("columns", [])
+            table_entry.setdefault("anomalies", [])
+            metrics = table_entry.setdefault("metrics", {})
+            metrics["column_count"] = len(table_entry["columns"])
+
+        return list(tables.values())
+
+    def _fetch_table_catalog(self, table_group_id: str) -> dict[str, dict[str, Any]]:
+        tables_table = _format_table(self._params.catalog, self._schema, "dq_tables")
+        statement = text(
+            f"SELECT table_id, table_group_id, schema_name, table_name FROM {tables_table} WHERE table_group_id = :table_group_id"
+        )
+        rows = self._fetch(statement, {"table_group_id": table_group_id})
+        by_id: dict[str, Mapping[str, Any]] = {}
+        by_name: dict[str, Mapping[str, Any]] = {}
+        for row in rows:
+            table_id = row.get("table_id")
+            if table_id:
+                by_id[str(table_id)] = row
+            normalized = self._normalize_table_name(row.get("schema_name"), row.get("table_name"))
+            if normalized:
+                by_name[normalized] = row
+        return {"by_id": by_id, "by_name": by_name}
+
+    def _fetch_profile_result_rows(self, profile_run_id: str) -> list[dict[str, Any]]:
+        results_table = _format_table(self._params.catalog, self._schema, "dq_profile_results")
+        statement = text(
+            f"SELECT result_id, profile_run_id, table_id, column_id, schema_name, table_name, column_name, data_type, general_type, "
+            "record_count, null_count, distinct_count, min_value, max_value, avg_value, stddev_value, percentiles_json, top_values_json, metrics_json "
+            f"FROM {results_table} WHERE profile_run_id = :profile_run_id "
+            "ORDER BY schema_name, table_name, column_name"
+        )
+        return self._fetch(statement, {"profile_run_id": profile_run_id})
+
+    def _fetch_profile_value_rows(self, profile_run_id: str) -> list[dict[str, Any]]:
+        values_table = _format_table(self._params.catalog, self._schema, "dq_profile_column_values")
+        order_clause = (
+            "ORDER BY schema_name, table_name, column_name, "
+            "CASE WHEN bucket_label IS NULL AND bucket_lower_bound IS NULL AND bucket_upper_bound IS NULL THEN 0 ELSE 1 END, "
+            "COALESCE(rank, 2147483647), bucket_label"
+        )
+        statement = text(
+            f"SELECT profile_run_id, schema_name, table_name, column_name, value, frequency, relative_freq, rank, "
+            "bucket_label, bucket_lower_bound, bucket_upper_bound FROM {values_table} "
+            "WHERE profile_run_id = :profile_run_id "
+            f"{order_clause}"
+        )
+        try:
+            return self._fetch(statement, {"profile_run_id": profile_run_id})
+        except TestGenClientError as exc:
+            logger.debug("Profile column values lookup failed: %s", exc)
+            return []
+
+    def _fetch_profile_anomaly_rows(self, profile_run_id: str) -> list[dict[str, Any]]:
+        results_table = _format_table(self._params.catalog, self._schema, "dq_profile_anomaly_results")
+        statement = text(
+            f"SELECT profile_run_id, table_id, column_id, table_name, column_name, anomaly_type_id, severity, likelihood, detail, pii_risk, dq_dimension, detected_at "
+            f"FROM {results_table} WHERE profile_run_id = :profile_run_id"
+        )
+        try:
+            rows = self._fetch(statement, {"profile_run_id": profile_run_id})
+        except TestGenClientError as exc:
+            logger.debug("Profile anomaly results lookup failed: %s", exc)
+            rows = []
+        if rows:
+            return rows
+
+        legacy_table = _format_table(self._params.catalog, self._schema, "dq_profile_anomalies")
+        legacy_statement = text(
+            f"SELECT profile_run_id, NULL AS table_id, NULL AS column_id, table_name, column_name, anomaly_type AS anomaly_type_id, severity, NULL AS likelihood, description AS detail, NULL AS pii_risk, NULL AS dq_dimension, detected_at "
+            f"FROM {legacy_table} WHERE profile_run_id = :profile_run_id"
+        )
+        try:
+            return self._fetch(legacy_statement, {"profile_run_id": profile_run_id})
+        except TestGenClientError as exc:
+            logger.debug("Legacy profile anomaly lookup failed: %s", exc)
+            return []
+
+    def _group_value_rows(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+    ) -> dict[tuple[str, str], dict[str, list[dict[str, Any]]]]:
+        grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
+        for row in rows:
+            key = self._column_lookup_key(row)
+            if key is None:
+                continue
+            bucket_label = row.get("bucket_label")
+            lower = self._coerce_float(row.get("bucket_lower_bound"))
+            upper = self._coerce_float(row.get("bucket_upper_bound"))
+            has_bucket = bucket_label is not None or lower is not None or upper is not None
+            payload = {
+                "value": row.get("value"),
+                "count": self._coerce_int(row.get("frequency")),
+                "percentage": self._coerce_float(row.get("relative_freq")),
+                "label": bucket_label,
+                "lower": lower,
+                "upper": upper,
+            }
+            entry = grouped.setdefault(key, {"top_values": [], "histogram": []})
+            target = entry["histogram" if has_bucket else "top_values"]
+            target.append({k: v for k, v in payload.items() if v is not None})
+        return grouped
+
+    def _group_anomaly_rows(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+    ) -> tuple[dict[tuple[str, str], list[dict[str, Any]]], dict[tuple[str, str], list[dict[str, Any]]]]:
+        column_anomalies: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        table_anomalies: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for row in rows:
+            entry = self._build_anomaly_entry(row)
+            if entry is None:
+                continue
+            column_key = self._column_lookup_key(row)
+            if column_key is not None:
+                column_anomalies.setdefault(column_key, []).append(entry)
+                continue
+            table_key = self._table_lookup_key(row)
+            if table_key is not None:
+                table_anomalies.setdefault(table_key, []).append(entry)
+        return column_anomalies, table_anomalies
+
+    def _build_anomaly_entry(self, row: Mapping[str, Any]) -> dict[str, Any] | None:
+        anomaly_type = row.get("anomaly_type_id") or row.get("anomaly_type")
+        severity = row.get("severity")
+        detail = row.get("detail") or row.get("description")
+        if not anomaly_type and not severity and not detail:
+            return None
+        entry: dict[str, Any] = {
+            "anomaly_type_id": anomaly_type,
+            "severity": severity,
+            "likelihood": row.get("likelihood"),
+            "detail": detail,
+            "pii_risk": row.get("pii_risk"),
+            "dq_dimension": row.get("dq_dimension"),
+        }
+        detected_at = self._isoformat(row.get("detected_at"))
+        if detected_at is not None:
+            entry["detected_at"] = detected_at
+        column_name = row.get("column_name")
+        if column_name:
+            entry["column_name"] = column_name
+        return entry
+
+    def _ensure_table_entry(
+        self,
+        tables: dict[tuple[str, str], dict[str, Any]],
+        row: Mapping[str, Any],
+        table_catalog: Mapping[str, Mapping[str, Any]],
+        table_group_id: str,
+    ) -> dict[str, Any] | None:
+        key = self._table_lookup_key(row)
+        if key is None:
+            return None
+        if key in tables:
+            return tables[key]
+
+        metadata = self._lookup_table_metadata(key, table_catalog)
+        schema_name, table_name = self._split_schema_table(row.get("schema_name"), row.get("table_name"))
+        entry: dict[str, Any] = {
+            "table_id": metadata.get("table_id") or row.get("table_id"),
+            "table_group_id": table_group_id,
+            "schema_name": schema_name or metadata.get("schema_name"),
+            "table_name": table_name or metadata.get("table_name"),
+            "columns": [],
+            "anomalies": [],
+        }
+        tables[key] = entry
+        return entry
+
+    def _lookup_table_metadata(
+        self,
+        key: tuple[str, str],
+        table_catalog: Mapping[str, Mapping[str, Any]],
+    ) -> Mapping[str, Any]:
+        kind, value = key
+        if kind == "id":
+            return table_catalog.get("by_id", {}).get(value, {})
+        return table_catalog.get("by_name", {}).get(value, {})
+
+    @staticmethod
+    def _split_schema_table(
+        schema_name: Any,
+        table_name: Any,
+    ) -> tuple[str | None, str | None]:
+        schema = schema_name if isinstance(schema_name, str) and schema_name.strip() else None
+        table = table_name if isinstance(table_name, str) and table_name.strip() else None
+        if schema is None and isinstance(table, str) and "." in table:
+            schema, _, final = table.rpartition(".")
+            table = final
+        return schema, table
+
+    @staticmethod
+    def _normalize_table_name(schema_name: Any, table_name: Any) -> str:
+        schema, table = TestGenClient._split_schema_table(schema_name, table_name)
+        normalized_table = (table or "").strip().lower()
+        if not normalized_table:
+            return ""
+        normalized_schema = (schema or "").strip().lower()
+        return f"{normalized_schema}.{normalized_table}" if normalized_schema else normalized_table
+
+    def _table_lookup_key(self, row: Mapping[str, Any]) -> tuple[str, str] | None:
+        table_id = row.get("table_id")
+        if table_id:
+            return ("id", str(table_id))
+        normalized = self._normalize_table_name(row.get("schema_name"), row.get("table_name"))
+        if not normalized:
+            return None
+        return ("name", normalized)
+
+    def _column_lookup_key(self, row: Mapping[str, Any]) -> tuple[str, str] | None:
+        column_id = row.get("column_id")
+        if column_id:
+            return ("id", str(column_id))
+        return self._column_name_key(row)
+
+    def _column_name_key(self, row: Mapping[str, Any]) -> tuple[str, str] | None:
+        normalized_table = self._normalize_table_name(row.get("schema_name"), row.get("table_name"))
+        column_name = (row.get("column_name") or "").strip().lower()
+        if not normalized_table or not column_name:
+            return None
+        return ("name", f"{normalized_table}::{column_name}")
+
+    def _build_column_entry(
+        self,
+        row: Mapping[str, Any],
+        value_rows: Mapping[tuple[str, str], dict[str, list[dict[str, Any]]]],
+        column_anomalies: Mapping[tuple[str, str], list[dict[str, Any]]],
+    ) -> dict[str, Any] | None:
+        column_name = row.get("column_name")
+        if not column_name:
+            return None
+        schema_name, table_name = self._split_schema_table(row.get("schema_name"), row.get("table_name"))
+        metrics = self._build_column_metrics_payload(row)
+        entry: dict[str, Any] = {
+            "column_id": row.get("column_id"),
+            "column_name": column_name,
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "data_type": row.get("data_type"),
+            "general_type": row.get("general_type"),
+        }
+        if metrics:
+            entry["metrics"] = metrics
+        for key in (
+            "row_count",
+            "null_count",
+            "distinct_count",
+            "non_null_count",
+            "avg_value",
+            "stddev_value",
+            "median_value",
+            "p95_value",
+        ):
+            value = metrics.get(key)
+            if value is not None:
+                entry[key] = value
+        for key in ("min_value", "max_value"):
+            value = row.get(key)
+            if value is not None:
+                entry[key] = value
+
+        lookup_key = self._column_lookup_key(row)
+        name_lookup_key = self._column_name_key(row)
+        grouped = value_rows.get(lookup_key) if lookup_key else None
+        anomalies = column_anomalies.get(lookup_key) if lookup_key else None
+        if grouped is None and name_lookup_key and name_lookup_key != lookup_key:
+            grouped = value_rows.get(name_lookup_key)
+        if not anomalies and name_lookup_key and name_lookup_key != lookup_key:
+            anomalies = column_anomalies.get(name_lookup_key)
+        if grouped:
+            if grouped["top_values"]:
+                entry["top_values"] = grouped["top_values"]
+            if grouped["histogram"]:
+                entry["histogram"] = grouped["histogram"]
+        if anomalies:
+            entry["anomalies"] = anomalies
+
+        if "top_values" not in entry and row.get("top_values_json"):
+            parsed = self._parse_json_field(row.get("top_values_json"))
+            if isinstance(parsed, Mapping):
+                top_values = parsed.get("top_values")
+                histogram = parsed.get("histogram")
+                if top_values:
+                    entry["top_values"] = top_values
+                if histogram:
+                    entry["histogram"] = histogram
+
+        return entry
+
+    def _build_column_metrics_payload(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        metrics: dict[str, Any] = {}
+        for key, source in (
+            ("row_count", row.get("record_count")),
+            ("null_count", row.get("null_count")),
+            ("distinct_count", row.get("distinct_count")),
+            ("non_null_count", row.get("non_null_count")),
+        ):
+            value = self._coerce_int(source)
+            if value is not None:
+                metrics[key] = value
+        if "non_null_count" not in metrics and metrics.get("row_count") is not None and metrics.get("null_count") is not None:
+            metrics["non_null_count"] = max(metrics["row_count"] - metrics["null_count"], 0)
+        metrics["min_value"] = row.get("min_value")
+        metrics["max_value"] = row.get("max_value")
+        for key, source in (
+            ("avg_value", row.get("avg_value")),
+            ("stddev_value", row.get("stddev_value")),
+        ):
+            value = self._coerce_float(source)
+            if value is not None:
+                metrics[key] = value
+        percentiles = self._parse_json_field(row.get("percentiles_json"))
+        if isinstance(percentiles, Mapping):
+            for key, value in percentiles.items():
+                coerced = self._coerce_float(value)
+                if coerced is not None:
+                    metrics[key] = coerced
+        metrics_json = self._parse_json_field(row.get("metrics_json"))
+        if isinstance(metrics_json, Mapping):
+            for key, value in metrics_json.items():
+                if value is not None:
+                    metrics.setdefault(key, value)
+        return {key: value for key, value in metrics.items() if value is not None}
+
+    @staticmethod
+    def _parse_json_field(value: Any) -> Any:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _coerce_number(value: Any) -> float | int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, Decimal):
+            if value == value.to_integral_value():
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return float(value)
+            return float(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                return int(value)
+            except ValueError:
+                try:
+                    return float(value)
+                except ValueError:
+                    return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        number = TestGenClient._coerce_number(value)
+        if number is None:
+            return None
+        try:
+            return int(number)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        number = TestGenClient._coerce_number(value)
+        if number is None:
+            return None
+        try:
+            return float(number)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _isoformat(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            else:
+                value = value.astimezone(timezone.utc)
+            return value.isoformat()
+        if isinstance(value, str) and value.strip():
+            return value
+        return None
 
     def _fetch_profile_anomalies(self, profile_run_id: str | None, column_name: str | None) -> list[dict[str, Any]]:
         if not profile_run_id:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import gzip
+import json
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -14,6 +17,7 @@ from app.services.data_quality_profiling import (
 )
 from app.services.databricks_jobs import DatabricksJobsError, DatabricksRunHandle
 from app.services.databricks_sql import DatabricksConnectionParams
+from app.services.data_quality_testgen import TestGenClientError
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +72,13 @@ def _build_settings(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def _decode_inline_payload(blob: str) -> Any:
+    assert blob.startswith("base64:"), "Inline payload should include base64 prefix"
+    encoded = blob.split(":", 1)[1]
+    raw = gzip.decompress(base64.b64decode(encoded)).decode("utf-8")
+    return json.loads(raw)
+
+
 class DummyTestGenClient:
     def __init__(self, row: dict[str, Any] | None):
         self.schema = "dq_metadata"
@@ -108,6 +119,20 @@ class DummyTestGenClient:
 
     def complete_profile_run(self, profile_run_id: str, *, status: str, row_count=None, anomaly_count=None, anomalies=None) -> None:  # noqa: ARG002
         self.completed.append({"profile_run_id": profile_run_id, "status": status})
+
+
+class PayloadExportingClient(DummyTestGenClient):
+    def __init__(self, row: dict[str, Any] | None, payload: Any = None, *, should_raise: bool = False):
+        super().__init__(row)
+        self._payload = payload
+        self._should_raise = should_raise
+        self.export_calls: list[tuple[str, str | None]] = []
+
+    def export_profiling_payload(self, table_group_id: str, profile_run_id: str | None = None):
+        self.export_calls.append((table_group_id, profile_run_id))
+        if self._should_raise:
+            raise TestGenClientError("payload boom")
+        return self._payload
 
 
 class DummyJobsClient:
@@ -207,6 +232,46 @@ def test_callback_template_without_placeholder_appends_completion_suffix():
 
     params = jobs.run_requests[0]["notebook_params"]
     assert params["callback_url"].endswith(f"/{result.profile_run_id}/complete")
+
+
+def test_inline_payload_included_when_exporter_available():
+    row = _build_group_row()
+    payload = {"tables": [{"table_name": "orders"}], "summary": {"status": "completed"}}
+    client = PayloadExportingClient(row, payload=payload)
+    jobs = DummyJobsClient()
+    service = DataQualityProfilingService(client, jobs_client=jobs, settings=_build_settings())
+
+    service.start_profile_for_table_group(row["table_group_id"])
+
+    params = jobs.run_requests[0]["notebook_params"]
+    assert "profiling_payload_inline" in params
+    decoded = _decode_inline_payload(params["profiling_payload_inline"])
+    assert decoded == payload
+    assert client.export_calls[0] == (row["table_group_id"], "profile-1")
+
+
+def test_inline_payload_skipped_when_exporter_missing():
+    row = _build_group_row()
+    client = DummyTestGenClient(row)
+    jobs = DummyJobsClient()
+    service = DataQualityProfilingService(client, jobs_client=jobs, settings=_build_settings())
+
+    service.start_profile_for_table_group(row["table_group_id"])
+
+    params = jobs.run_requests[0]["notebook_params"]
+    assert "profiling_payload_inline" not in params
+
+
+def test_inline_payload_export_failure_is_ignored():
+    row = _build_group_row()
+    client = PayloadExportingClient(row, payload=None, should_raise=True)
+    jobs = DummyJobsClient()
+    service = DataQualityProfilingService(client, jobs_client=jobs, settings=_build_settings())
+
+    service.start_profile_for_table_group(row["table_group_id"])
+
+    params = jobs.run_requests[0]["notebook_params"]
+    assert "profiling_payload_inline" not in params
 def test_service_reuses_existing_job():
     row = _build_group_row(profiling_job_id="77")
     client = DummyTestGenClient(row)

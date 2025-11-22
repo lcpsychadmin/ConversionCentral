@@ -432,6 +432,136 @@ def test_column_profile_prefers_detail_tables_when_available(monkeypatch, sample
     assert profile["top_values"][0]["percentage"] == 25.0
     assert profile["histogram"][0]["label"] == "0-10"
 
+def test_export_profiling_payload_builds_tables(monkeypatch, sample_params):
+    client = TestGenClient(sample_params, schema="dq")
+    summary_row = {
+        "profile_run_id": "run-1",
+        "table_group_id": TABLE_GROUP_ID,
+        "status": "completed",
+        "started_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        "completed_at": datetime(2025, 11, 16, 1, tzinfo=timezone.utc),
+        "row_count": 250,
+        "anomaly_count": 2,
+        "databricks_run_id": "db-7",
+    }
+    table_catalog = {
+        "by_id": {
+            TABLE_ID: {
+                "table_id": TABLE_ID,
+                "schema_name": "analytics",
+                "table_name": "orders",
+            }
+        },
+        "by_name": {},
+    }
+    result_rows = [
+        {
+            "table_id": TABLE_ID,
+            "column_id": "col-1",
+            "schema_name": "analytics",
+            "table_name": "orders",
+            "column_name": "total",
+            "data_type": "DECIMAL(10,2)",
+            "general_type": "numeric",
+            "record_count": 250,
+            "null_count": 5,
+            "distinct_count": 15,
+            "min_value": "1",
+            "max_value": "999",
+            "avg_value": 42.5,
+            "stddev_value": 1.5,
+            "percentiles_json": "{\"p95\": 200}",
+            "top_values_json": "",
+            "metrics_json": "{\"dq_dimension\": \"accuracy\"}",
+        }
+    ]
+    value_rows = [
+        {
+            "schema_name": "analytics",
+            "table_name": "orders",
+            "column_name": "total",
+            "value": "widget",
+            "frequency": 3,
+            "relative_freq": 0.3,
+            "rank": 1,
+        },
+        {
+            "schema_name": "analytics",
+            "table_name": "orders",
+            "column_name": "total",
+            "bucket_label": "0-10",
+            "bucket_lower_bound": 0.0,
+            "bucket_upper_bound": 10.0,
+            "frequency": 5,
+        },
+    ]
+    anomaly_rows = [
+        {
+            "table_id": TABLE_ID,
+            "column_id": "col-1",
+            "table_name": "orders",
+            "column_name": "total",
+            "anomaly_type_id": "null_density",
+            "severity": "high",
+            "detail": "Null ratio",
+            "detected_at": datetime(2025, 11, 16, tzinfo=timezone.utc),
+        },
+        {
+            "table_id": TABLE_ID,
+            "column_id": None,
+            "table_name": "orders",
+            "column_name": None,
+            "anomaly_type_id": "table_notice",
+            "severity": "low",
+            "detail": "table anomaly",
+        },
+    ]
+
+    monkeypatch.setattr(
+        TestGenClient,
+        "_fetch_profile_run_record",
+        lambda self, run_id, table_group_id=None: summary_row if run_id == "run-1" else None,
+    )
+    monkeypatch.setattr(TestGenClient, "_latest_completed_profile_run", lambda self, tg: summary_row)
+    monkeypatch.setattr(TestGenClient, "_fetch_table_catalog", lambda self, tg: table_catalog)
+    monkeypatch.setattr(TestGenClient, "_fetch_profile_result_rows", lambda self, run_id: result_rows)
+    monkeypatch.setattr(TestGenClient, "_fetch_profile_value_rows", lambda self, run_id: value_rows)
+    monkeypatch.setattr(TestGenClient, "_fetch_profile_anomaly_rows", lambda self, run_id: anomaly_rows)
+
+    payload = client.export_profiling_payload(TABLE_GROUP_ID, profile_run_id="run-1")
+
+    assert payload is not None
+    assert payload["summary"]["status"] == "completed"
+    assert payload["summary"]["row_count"] == 250
+    assert payload["tables"][0]["table_id"] == TABLE_ID
+    column_entry = payload["tables"][0]["columns"][0]
+    assert column_entry["column_name"] == "total"
+    assert column_entry["top_values"][0]["value"] == "widget"
+    assert column_entry["histogram"][0]["label"] == "0-10"
+    assert column_entry["anomalies"][0]["anomaly_type_id"] == "null_density"
+    assert payload["tables"][0]["anomalies"][0]["anomaly_type_id"] == "table_notice"
+
+
+def test_export_profiling_payload_returns_none_without_results(monkeypatch, sample_params):
+    client = TestGenClient(sample_params, schema="dq")
+    summary_row = {
+        "profile_run_id": "run-1",
+        "table_group_id": TABLE_GROUP_ID,
+        "status": "completed",
+    }
+
+    monkeypatch.setattr(
+        TestGenClient,
+        "_fetch_profile_run_record",
+        lambda self, run_id, table_group_id=None: summary_row,
+    )
+    monkeypatch.setattr(TestGenClient, "_fetch_profile_result_rows", lambda self, run_id: [])
+    monkeypatch.setattr(TestGenClient, "_fetch_table_catalog", lambda self, tg: {"by_id": {}, "by_name": {}})
+
+    payload = client.export_profiling_payload(TABLE_GROUP_ID, profile_run_id="run-1")
+
+    assert payload is None
+
 
 def test_column_profile_sql_path_can_be_disabled(monkeypatch, sample_params):
     executed: list[tuple[str, dict[str, Any]]] = []

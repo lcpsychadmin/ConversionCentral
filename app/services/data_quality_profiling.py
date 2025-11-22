@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import gzip
+import json
 import logging
 from contextlib import suppress
 from dataclasses import dataclass
@@ -26,6 +29,7 @@ NOTEBOOK_CANDIDATE_BASENAMES: tuple[str, ...] = (
 )
 
 CALLBACK_URL_PLACEHOLDER = "__PROFILE_RUN_ID__"
+INLINE_PAYLOAD_MAX_BYTES = 512 * 1024  # 512 KiB safety guard for widget payloads
 
 
 class ProfilingServiceError(RuntimeError):
@@ -329,7 +333,67 @@ class DataQualityProfilingService:
         if callback_token:
             params["callback_token"] = callback_token
 
+        inline_payload = self._build_inline_payload_blob(target, profile_run_id)
+        if inline_payload:
+            params["profiling_payload_inline"] = inline_payload
+
         return params
+
+    def _build_inline_payload_blob(self, target: ProfilingTarget, profile_run_id: str) -> str | None:
+        payload = self._export_inline_payload(target, profile_run_id)
+        if payload is None:
+            return None
+        try:
+            serialized = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Profiling payload for table group %s could not be serialized: %s",
+                target.table_group_id,
+                exc,
+            )
+            return None
+
+        try:
+            compressed = gzip.compress(serialized)
+        except OSError as exc:  # pragma: no cover - gzip failures are rare
+            logger.warning("Unable to compress profiling payload for %s: %s", target.table_group_id, exc)
+            return None
+
+        encoded = base64.b64encode(compressed).decode("ascii")
+        blob = f"base64:{encoded}"
+        if len(blob) > INLINE_PAYLOAD_MAX_BYTES:
+            logger.warning(
+                "Profiling payload for %s exceeds inline limit (%s bytes); omitting inline payload.",
+                target.table_group_id,
+                INLINE_PAYLOAD_MAX_BYTES,
+            )
+            return None
+        return blob
+
+    def _export_inline_payload(self, target: ProfilingTarget, profile_run_id: str) -> Any:
+        exporter = getattr(self._client, "export_profiling_payload", None)
+        if not callable(exporter):
+            return None
+
+        try:
+            try:
+                return exporter(target.table_group_id, profile_run_id=profile_run_id)
+            except TypeError:
+                return exporter(target.table_group_id)
+        except TestGenClientError as exc:
+            logger.warning(
+                "Profiling payload export failed for table group %s: %s",
+                target.table_group_id,
+                exc,
+            )
+            return None
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.warning(
+                "Unexpected error while exporting profiling payload for %s: %s",
+                target.table_group_id,
+                exc,
+            )
+            return None
 
     def _build_callback_url(self, template: str | None, profile_run_id: str) -> str | None:
         candidate = (template or "").strip()
