@@ -3,6 +3,11 @@ heroku apps:
 conversion-central-backend
 conversion-central-frontend
 
+--- git commands ---
+git add . 
+git commit -m "Profiling Notebook Update"
+git push origin main
+
 Steps:
 1. After executing each task run lint and tests with the following commands:
 cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral\frontend"; npm.cmd run lint
