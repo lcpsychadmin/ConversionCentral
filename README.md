@@ -178,6 +178,16 @@ pytest
 
 The suite exercises every CRUD router, including metadata, mapping, field load, validation, approval, ingestion, and sequencing endpoints to ensure regression safety and covers DAG ordering logic.
 
+### Sync Databricks SQL Settings
+
+Profiling and TestGen features expect the `databricks_sql_settings` table to hold the active warehouse credentials. Instead of manually seeding the record via the UI, you can mirror the current environment variables into the table with the helper script:
+
+```powershell
+python scripts/sync_databricks_settings.py --display-name "Local Warehouse"
+```
+
+The script reads `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN` (plus related optional settings) and will create or update the lone active Databricks SQL setting. Pass `--dry-run` to preview the payload without committing changes. Once this row exists, services such as the profiling payload exporter can reuse the same credentials that power ingestion.
+
 ## Entity Overview
 
 | Entity             | Description                                      | Key Relationships                           |
