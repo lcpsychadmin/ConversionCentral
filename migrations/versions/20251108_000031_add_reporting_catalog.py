@@ -29,6 +29,9 @@ def upgrade() -> None:
 
     status_enum_no_create = postgresql.ENUM("draft", "published", name=REPORT_STATUS_ENUM, create_type=False)
 
+    # Drop any legacy "reports" table so the canonical schema can be created idempotently.
+    op.execute("DROP TABLE IF EXISTS reports CASCADE")
+
     op.create_table(
         "reports",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),

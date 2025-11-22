@@ -1,6 +1,6 @@
 """Remove profile payload folder setting.
 
-Revision ID: 20251123_000041_remove_profile_payload_folder
+Revision ID: 20251123_000041
 Revises: 20251122_000040_seed_dq_profile_anomaly_types
 Create Date: 2025-11-23 00:00:41.000000
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "20251123_000041_remove_profile_payload_folder"
-down_revision = "20251122_000040_seed_dq_profile_anomaly_types"
+revision = "20251123_000041"
+down_revision = "20251122_000040"
 branch_labels = None
 depends_on = None
 

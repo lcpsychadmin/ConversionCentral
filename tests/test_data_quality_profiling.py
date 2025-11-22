@@ -483,7 +483,7 @@ def test_run_submission_failure_marks_profile_as_failed():
         service.start_profile_for_table_group(row["table_group_id"])
 
     assert client.completed and client.completed[0]["status"] == "failed"
-    assert len(client.profile_updates) == 1  # payload path stored but run id never recorded
+    assert len(client.profile_updates) == 0
 
 
 def test_jobs_client_uses_ingestion_params_when_settings_missing(monkeypatch: pytest.MonkeyPatch):

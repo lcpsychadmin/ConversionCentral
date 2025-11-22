@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.services.data_quality_keys import (
     build_connection_id,
@@ -20,6 +21,12 @@ from app.services.data_quality_testgen import (
 )
 from app.services import data_quality_testgen
 from app.services.databricks_sql import DatabricksConnectionParams
+
+
+PROJECT_KEY = build_project_key("system-alpha", "object-beta")
+CONNECTION_ID = build_connection_id("conn-alpha", "object-beta")
+TABLE_GROUP_ID = build_table_group_id("conn-alpha", "object-beta")
+TABLE_ID = build_table_id("tbl-alpha", "object-beta")
 
 
 class DummyResult:
@@ -74,7 +81,47 @@ class DummyEngine:
     ) -> None:
         self._executed = executed
         self._should_fail = should_fail
-        self._results_sequence = results_sequence or []
+        self._results_sequence = list(results_sequence or [])
+
+    def connect(self) -> DummyConnection:
+        if self._should_fail:
+            raise SQLAlchemyError("simulated failure")
+        return DummyConnection(self._executed, self._results_sequence)
+
+    def begin(self) -> DummyTransaction:
+        if self._should_fail:
+            raise SQLAlchemyError("simulated failure")
+        return DummyTransaction(self._executed, self._results_sequence)
+
+    def dispose(self) -> None:
+        return None
+
+
+def _install_dummy_engine(
+    monkeypatch,
+    executed: list[tuple[str, dict[str, Any]]],
+    *,
+    results_sequence: list[list[dict[str, Any]]] | None = None,
+    should_fail: bool = False,
+):
+    engine = DummyEngine(executed, should_fail=should_fail, results_sequence=results_sequence or [])
+
+    def fake_create_engine(*_, **__):
+        return engine
+
+    monkeypatch.setattr(data_quality_testgen, "create_engine", fake_create_engine)
+    return engine
+
+
+@pytest.fixture(name="sample_params")
+def fixture_sample_params():
+    return DatabricksConnectionParams(
+        workspace_host="adb-unit-test",
+        http_path="/sql/1.0/warehouses/test",
+        access_token="token",
+        catalog="sandbox",
+        schema_name="default",
+    )
 
 
 
