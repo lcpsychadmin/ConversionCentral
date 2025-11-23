@@ -112,6 +112,12 @@ To keep profiling logic fully under application control, sync this repository in
 - Produce structured metrics + anomalies JSON (matching `ProfileRunCompleteRequest`).
 - Handle retries idempotently (if job reruns with same profile_run_id, POST completion again).
 
+## Catalog-Driven Profiling ("Option 3")
+- The FastAPI backend no longer embeds profiling payloads into the Databricks widgets. Instead, the notebook queries the `dq_tables`/`dq_table_groups` metadata to identify which Spark tables to scan.
+- The legacy `profiling_payload_inline` widget has been removed; manual replays must now rely on persisted payloads or DBFS artifacts, keeping widget submissions lightweight and deterministic.
+- Result DataFrames are constructed directly inside the notebook (see `docs/data-quality/notebooks/profiling.ipynb`) and persisted via `app.databricks_profiling` helpers, which means the backend only needs to track `profile_run_id`, callbacks, and Databricks job IDs.
+- Any tooling that previously depended on inline payloads should now read from `dq_profile_results`, `dq_profile_columns`, and `dq_profile_column_values`, falling back to payload parsing only when no SQL rows exist.
+
 ## API & Schema Touchpoints
 - `app/config.py`: add Databricks credentials + defaults.
 - `app/services/data_quality_testgen.py`: extend `start_profile_run` to allow injecting `databricks_run_id` update; optionally add helper to set payload path after job submission.
