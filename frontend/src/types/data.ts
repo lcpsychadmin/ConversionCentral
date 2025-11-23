@@ -518,6 +518,137 @@ export interface DataQualityProfileAnomaly {
   detectedAt?: string | null;
 }
 
+export type DataQualityColumnProfileType = 'numeric' | 'text' | 'other';
+
+export interface DataQualityColumnCharacteristics {
+  semanticType?: string | null;
+  suggestedType?: string | null;
+  firstDetectedAt?: string | null;
+  semanticConfidence?: number | null;
+}
+
+export interface DataQualityColumnTags {
+  stakeholderGroup?: string | null;
+  dataSource?: string | null;
+  sourceSystem?: string | null;
+  sourceProcess?: string | null;
+  businessDomain?: string | null;
+  transformLevel?: string | null;
+  dataProduct?: string | null;
+  criticalDataElement?: boolean | null;
+  piiRisk?: string | null;
+}
+
+export interface DataQualityColumnIssueSummary {
+  total?: number | null;
+  severityCounts?: Record<string, number> | null;
+  items?: DataQualityProfileAnomaly[];
+}
+
+export interface DataQualityColumnRelatedSuite {
+  testSuiteKey: string;
+  name: string;
+  severity?: DataQualityTestSuiteSeverity | null;
+}
+
+export interface DataQualityNumericDistributionBar {
+  key: 'nonZero' | 'zero' | 'null';
+  label: string;
+  count: number;
+  percentage?: number | null;
+}
+
+export interface DataQualityNumericBoxPlot {
+  min?: number | null;
+  p25?: number | null;
+  median?: number | null;
+  p75?: number | null;
+  max?: number | null;
+  mean?: number | null;
+  stdDev?: number | null;
+}
+
+export interface DataQualityNumericProfileStats {
+  recordCount?: number | null;
+  valueCount?: number | null;
+  distinctCount?: number | null;
+  average?: number | null;
+  stddev?: number | null;
+  minimum?: number | null;
+  minimumPositive?: number | null;
+  maximum?: number | null;
+  percentile25?: number | null;
+  median?: number | null;
+  percentile75?: number | null;
+  zeroCount?: number | null;
+  nullCount?: number | null;
+}
+
+export interface DataQualityNumericColumnProfile {
+  stats?: DataQualityNumericProfileStats | null;
+  distributionBars?: DataQualityNumericDistributionBar[];
+  boxPlot?: DataQualityNumericBoxPlot | null;
+  histogram?: DataQualityColumnHistogramBin[];
+  topValues?: DataQualityColumnValueFrequency[];
+}
+
+export interface DataQualityTextPatternStat {
+  label: string;
+  count?: number | null;
+  percentage?: number | null;
+}
+
+export interface DataQualityTextCaseBucket {
+  label: string;
+  count?: number | null;
+  percentage?: number | null;
+}
+
+export interface DataQualityTextProfileStats {
+  recordCount?: number | null;
+  valueCount?: number | null;
+  missingCount?: number | null;
+  missingPercentage?: number | null;
+  duplicateCount?: number | null;
+  duplicatePercentage?: number | null;
+  zeroCount?: number | null;
+  numericOnlyCount?: number | null;
+  quotedCount?: number | null;
+  leadingSpaceCount?: number | null;
+  embeddedSpaceCount?: number | null;
+  averageEmbeddedSpaces?: number | null;
+  minLength?: number | null;
+  maxLength?: number | null;
+  avgLength?: number | null;
+  minText?: string | null;
+  maxText?: string | null;
+  distinctPatterns?: number | null;
+  standardPatternMatches?: number | null;
+}
+
+export interface DataQualityTextColumnProfile {
+  stats?: DataQualityTextProfileStats | null;
+  missingBreakdown?: DataQualityTextPatternStat[];
+  duplicateBreakdown?: DataQualityTextPatternStat[];
+  caseBreakdown?: DataQualityTextCaseBucket[];
+  frequentPatterns?: DataQualityTextPatternStat[];
+  topValues?: DataQualityColumnValueFrequency[];
+  lengthHistogram?: DataQualityColumnHistogramBin[];
+}
+
+export interface DataQualityColumnProfileLayout {
+  columnType: DataQualityColumnProfileType;
+  characteristics?: DataQualityColumnCharacteristics | null;
+  tags?: DataQualityColumnTags | null;
+  piiSignals?: DataQualityColumnIssueSummary | null;
+  hygieneIssues?: DataQualityColumnIssueSummary | null;
+  testIssues?: DataQualityColumnIssueSummary | null;
+  relatedTestSuites?: DataQualityColumnRelatedSuite[];
+  badges?: string[];
+  numericProfile?: DataQualityNumericColumnProfile | null;
+  textProfile?: DataQualityTextColumnProfile | null;
+}
+
 export interface DataQualityColumnMetric {
   key: string;
   label: string;
@@ -553,6 +684,7 @@ export interface DataQualityColumnProfile {
   topValues: DataQualityColumnValueFrequency[];
   histogram: DataQualityColumnHistogramBin[];
   anomalies: DataQualityProfileAnomaly[];
+  profileLayout?: DataQualityColumnProfileLayout | null;
 }
 
 export interface DataQualityTestRun {
@@ -677,6 +809,22 @@ export interface DataQualityTestRunStartResponse {
   testRunId: string;
 }
 
+export interface DataQualityDatasetField {
+  dataDefinitionFieldId: string;
+  fieldId: string;
+  name: string;
+  description?: string | null;
+  fieldType?: string | null;
+  fieldLength?: number | null;
+  decimalPlaces?: number | null;
+  applicationUsage?: string | null;
+  businessDefinition?: string | null;
+  notes?: string | null;
+  displayOrder?: number | null;
+  isUnique?: boolean | null;
+  referenceTable?: string | null;
+}
+
 export interface DataQualityDatasetTable {
   dataDefinitionTableId: string;
   tableId: string;
@@ -688,6 +836,20 @@ export interface DataQualityDatasetTable {
   loadOrder?: number | null;
   isConstructed: boolean;
   tableType?: string | null;
+  fields: DataQualityDatasetField[];
+}
+
+export interface DataQualityDatasetTableContext {
+  dataDefinitionTableId: string;
+  dataDefinitionId: string;
+  dataObjectId: string;
+  applicationId: string;
+  productTeamId?: string | null;
+  tableGroupId: string;
+  tableId?: string | null;
+  schemaName?: string | null;
+  tableName?: string | null;
+  physicalName?: string | null;
 }
 
 export interface DataQualityDatasetDefinition {

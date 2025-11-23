@@ -1,37 +1,31 @@
-import { MouseEvent, useCallback, useMemo, useState } from 'react';
-import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  List,
-  ListItem,
-  ListItemText,
-  Paper,
-  Stack,
-  Typography
-} from '@mui/material';
+import { MouseEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import { useMutation, useQueries, UseQueryResult, useQuery } from 'react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import {
+  fetchDataQualityColumnProfile,
   fetchDataQualityProfileRuns,
+  fetchDataQualityTableContext,
   fetchDatasetHierarchy,
   startDataObjectProfileRuns
 } from '@services/dataQualityService';
 import {
+  DataQualityColumnProfile,
   DataQualityDatasetApplication,
   DataQualityDatasetDefinition,
+  DataQualityDatasetField,
   DataQualityDatasetObject,
   DataQualityDatasetProductTeam,
   DataQualityDatasetTable,
+  DataQualityDatasetTableContext,
   DataQualityProfileRunListResponse
 } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import ColumnProfilePanel from '@components/data-quality/ColumnProfilePanel';
 import PageHeader from '../components/common/PageHeader';
 
 const resolveErrorMessage = (error: unknown) =>
@@ -121,180 +115,158 @@ const formatTableSecondary = (table: DataQualityDatasetTable) => {
   return details.join(' • ');
 };
 
-const TablesList = ({ tables }: { tables: DataQualityDatasetTable[] }) => {
-  if (!tables.length) {
-    return <Typography color="text.secondary">No tables registered yet.</Typography>;
-  }
-
-  return (
-    <List dense disablePadding>
-      {tables.map((table) => (
-        <ListItem key={table.dataDefinitionTableId} divider>
-          <ListItemText
-            primary={formatTablePrimary(table)}
-            secondary={formatTableSecondary(table) || undefined}
-          />
-        </ListItem>
-      ))}
-    </List>
+const getDataObjectTables = (
+  dataObject: DataQualityDatasetObject
+): { table: DataQualityDatasetTable; definition: DataQualityDatasetDefinition }[] => {
+  return dataObject.dataDefinitions.flatMap((definition) =>
+    definition.tables.map((table) => ({ table, definition }))
   );
 };
 
-const DataDefinitionSection = ({ definition }: { definition: DataQualityDatasetDefinition }) => (
-  <Paper variant="outlined" sx={{ p: 2 }}>
-    <Stack spacing={1.5}>
-      <Stack spacing={0.5}>
-        <Typography variant="subtitle1" fontWeight={600}>
-          Data Definition
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {formatDescription(definition.description)}
-        </Typography>
-      </Stack>
-      <TablesList tables={definition.tables} />
-    </Stack>
-  </Paper>
-);
+const summarizeTableFields = (table: DataQualityDatasetTable) => ({
+  fieldCount: table.fields.length
+});
 
-interface DataObjectAccordionProps {
-  dataObject: DataQualityDatasetObject;
-  onRunProfiling?: (dataObjectId: string) => void;
-  isProfiling?: boolean;
+const summarizeDataObject = (dataObject: DataQualityDatasetObject) => {
+  const tables = getDataObjectTables(dataObject);
+  const fieldCount = tables.reduce((total, entry) => total + entry.table.fields.length, 0);
+  return {
+    definitionCount: dataObject.dataDefinitions.length,
+    tableCount: tables.length,
+    fieldCount
+  };
+};
+
+const summarizeApplication = (application: DataQualityDatasetApplication) => {
+  const dataObjects = application.dataObjects;
+  const tables = dataObjects.flatMap((dataObject) => getDataObjectTables(dataObject));
+  const fieldCount = tables.reduce((total, entry) => total + entry.table.fields.length, 0);
+  return {
+    dataObjectCount: dataObjects.length,
+    tableCount: tables.length,
+    fieldCount
+  };
+};
+
+const summarizeProductTeam = (productTeam: DataQualityDatasetProductTeam) => {
+  const applications = productTeam.applications;
+  const dataObjects = applications.flatMap((application) => application.dataObjects);
+  const tables = dataObjects.flatMap((dataObject) => getDataObjectTables(dataObject));
+  const fieldCount = tables.reduce((total, entry) => total + entry.table.fields.length, 0);
+  return {
+    applicationCount: applications.length,
+    dataObjectCount: dataObjects.length,
+    tableCount: tables.length,
+    fieldCount
+  };
+};
+
+const formatFieldSubtitle = (field: DataQualityDatasetField) => {
+  const parts: string[] = [];
+  if (field.fieldType) {
+    parts.push(field.fieldLength ? `${field.fieldType}(${field.fieldLength})` : field.fieldType);
+  }
+  if (field.isUnique) {
+    parts.push('Unique');
+  }
+  if (field.referenceTable) {
+    parts.push(`Ref: ${field.referenceTable}`);
+  }
+  return parts.join(' • ');
+};
+
+type DatasetNodeType = 'root' | 'productTeam' | 'application' | 'dataObject' | 'table' | 'field';
+
+interface DatasetNodeContext {
+  id: string;
+  type: DatasetNodeType;
+  productTeam?: DataQualityDatasetProductTeam;
+  application?: DataQualityDatasetApplication;
+  dataObject?: DataQualityDatasetObject;
+  dataDefinition?: DataQualityDatasetDefinition;
+  table?: DataQualityDatasetTable;
+  field?: DataQualityDatasetField;
 }
 
-const DataObjectAccordion = ({ dataObject, onRunProfiling, isProfiling }: DataObjectAccordionProps) => {
-  const hasTables = dataObject.dataDefinitions.some((definition) => definition.tables.length > 0);
+const ROOT_NODE_ID = 'root';
+const buildProductTeamNodeId = (productTeamId: string) => `pt:${productTeamId}`;
+const buildApplicationNodeId = (productTeamId: string, applicationId: string) =>
+  `pt:${productTeamId}::app:${applicationId}`;
+const buildDataObjectNodeId = (
+  productTeamId: string,
+  applicationId: string,
+  dataObjectId: string
+) => `pt:${productTeamId}::app:${applicationId}::obj:${dataObjectId}`;
+const buildTableNodeId = (tableId: string) => `table:${tableId}`;
+const buildFieldNodeId = (fieldId: string) => `field:${fieldId}`;
 
-  const handleRunProfiling = (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!hasTables || !onRunProfiling) {
-      return;
-    }
-    onRunProfiling(dataObject.dataObjectId);
+interface HierarchySummary {
+  productTeamCount: number;
+  applicationCount: number;
+  dataObjectCount: number;
+  tableCount: number;
+  fieldCount: number;
+}
+
+const summarizeHierarchy = (productTeams: DataQualityDatasetProductTeam[]): HierarchySummary => {
+  const summary: HierarchySummary = {
+    productTeamCount: productTeams.length,
+    applicationCount: 0,
+    dataObjectCount: 0,
+    tableCount: 0,
+    fieldCount: 0
   };
 
-  return (
-    <Accordion>
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" width="100%">
-          <Stack spacing={0.5} pr={2}>
-            <Typography fontWeight={600}>{dataObject.name}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {formatDescription(dataObject.description)}
-            </Typography>
-          </Stack>
-          {onRunProfiling ? (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={handleRunProfiling}
-              disabled={!hasTables || isProfiling}
-              startIcon={isProfiling ? <CircularProgress size={14} color="inherit" /> : undefined}
-            >
-              {isProfiling ? 'Running…' : 'Run Profiling'}
-            </Button>
-          ) : null}
-        </Stack>
-      </AccordionSummary>
-      <AccordionDetails>
-        <Stack spacing={2}>
-          {dataObject.dataDefinitions.length > 0 ? (
-            dataObject.dataDefinitions.map((definition) => (
-              <DataDefinitionSection key={definition.dataDefinitionId} definition={definition} />
-            ))
-          ) : (
-            <Typography color="text.secondary">No data definitions registered.</Typography>
-          )}
-        </Stack>
-      </AccordionDetails>
-    </Accordion>
-  );
+  productTeams.forEach((productTeam) => {
+    summary.applicationCount += productTeam.applications.length;
+    productTeam.applications.forEach((application) => {
+      summary.dataObjectCount += application.dataObjects.length;
+      application.dataObjects.forEach((dataObject) => {
+        const tables = getDataObjectTables(dataObject);
+        summary.tableCount += tables.length;
+        summary.fieldCount += tables.reduce((total, entry) => total + entry.table.fields.length, 0);
+      });
+    });
+  });
+
+  return summary;
 };
 
-interface ApplicationAccordionProps {
-  application: DataQualityDatasetApplication;
-  onRunProfiling?: (dataObjectId: string) => void;
-  profilingState?: { activeId: string | null; isLoading: boolean };
-}
-
-const ApplicationAccordion = ({ application, onRunProfiling, profilingState }: ApplicationAccordionProps) => (
-  <Accordion>
-    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-      <Stack spacing={0.5}>
-        <Typography fontWeight={600}>{application.name}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {`Physical name: ${application.physicalName}`} ·{' '}
-          {`${application.dataObjects.length} data object${application.dataObjects.length === 1 ? '' : 's'}`}
-        </Typography>
-        {application.description ? (
-          <Typography variant="body2" color="text.secondary">
-            {application.description}
-          </Typography>
-        ) : null}
-      </Stack>
-    </AccordionSummary>
-    <AccordionDetails>
-      <Stack spacing={1.5}>
-        {application.dataObjects.length > 0 ? (
-          application.dataObjects.map((dataObject) => (
-            <DataObjectAccordion
-              key={dataObject.dataObjectId}
-              dataObject={dataObject}
-              onRunProfiling={onRunProfiling}
-              isProfiling={
-                Boolean(profilingState?.isLoading && profilingState?.activeId === dataObject.dataObjectId)
-              }
-            />
-          ))
-        ) : (
-          <Typography color="text.secondary">No data objects mapped yet.</Typography>
-        )}
-      </Stack>
-    </AccordionDetails>
-  </Accordion>
+const renderCountChip = (value: number, label: string) => (
+  <Chip
+    size="small"
+    variant="outlined"
+    label={`${value.toLocaleString()} ${label}${value === 1 ? '' : 's'}`}
+  />
 );
 
-interface ProductTeamAccordionProps {
-  productTeam: DataQualityDatasetProductTeam;
-  onRunProfiling?: (dataObjectId: string) => void;
-  profilingState?: { activeId: string | null; isLoading: boolean };
-}
+const StatTile = ({ label, value }: { label: string; value: ReactNode }) => (
+  <Stack
+    spacing={0.25}
+    sx={{
+      border: '1px solid',
+      borderColor: 'divider',
+      borderRadius: 1,
+      p: 1,
+      minWidth: 120
+    }}
+  >
+    <Typography variant="subtitle1" fontWeight={600}>
+      {value}
+    </Typography>
+    <Typography variant="caption" color="text.secondary">
+      {label}
+    </Typography>
+  </Stack>
+);
 
-const ProductTeamAccordion = ({
-  productTeam,
-  onRunProfiling,
-  profilingState
-}: ProductTeamAccordionProps) => (
-  <Accordion defaultExpanded>
-    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-      <Stack spacing={0.5}>
-        <Typography fontWeight={600}>{productTeam.name}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {formatDescription(productTeam.description)}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {`${productTeam.applications.length} application${productTeam.applications.length === 1 ? '' : 's'}`}
-        </Typography>
-      </Stack>
-    </AccordionSummary>
-    <AccordionDetails>
-      <Stack spacing={1.5}>
-        {productTeam.applications.length > 0 ? (
-          productTeam.applications.map((application) => (
-            <ApplicationAccordion
-              key={application.applicationId}
-              application={application}
-              onRunProfiling={onRunProfiling}
-              profilingState={profilingState}
-            />
-          ))
-        ) : (
-          <Typography color="text.secondary">No applications configured yet.</Typography>
-        )}
-      </Stack>
-    </AccordionDetails>
-  </Accordion>
+const DetailRow = ({ label, value }: { label: string; value?: ReactNode }) => (
+  <Stack spacing={0.25}>
+    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.2 }}>
+      {label}
+    </Typography>
+    <Typography variant="body2">{value ?? '—'}</Typography>
+  </Stack>
 );
 
 const DataQualityDatasetsPage = () => {
@@ -391,6 +363,9 @@ const DataQualityDatasetsPage = () => {
     isLoading: runProfilingMutation.isLoading
   };
 
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<string[]>([ROOT_NODE_ID]);
+
   const hierarchyQuery = useQuery<DataQualityDatasetProductTeam[]>(
     ['data-quality', 'dataset-hierarchy'],
     fetchDatasetHierarchy,
@@ -401,6 +376,662 @@ const DataQualityDatasetsPage = () => {
       }
     }
   );
+
+  const hierarchyData = useMemo(() => hierarchyQuery.data ?? [], [hierarchyQuery.data]);
+
+  const { nodeLookup, hierarchySummary, defaultSelection } = useMemo(() => {
+    const lookup = new Map<string, DatasetNodeContext>();
+    lookup.set(ROOT_NODE_ID, { id: ROOT_NODE_ID, type: 'root' });
+    let firstSelectable: string | null = null;
+
+    hierarchyData.forEach((productTeam) => {
+      const productTeamId = buildProductTeamNodeId(productTeam.productTeamId);
+      lookup.set(productTeamId, { id: productTeamId, type: 'productTeam', productTeam });
+      if (!firstSelectable) {
+        firstSelectable = productTeamId;
+      }
+
+      productTeam.applications.forEach((application) => {
+        const applicationId = buildApplicationNodeId(productTeam.productTeamId, application.applicationId);
+        lookup.set(applicationId, {
+          id: applicationId,
+          type: 'application',
+          productTeam,
+          application
+        });
+        if (!firstSelectable) {
+          firstSelectable = applicationId;
+        }
+
+        application.dataObjects.forEach((dataObject) => {
+          const dataObjectId = buildDataObjectNodeId(
+            productTeam.productTeamId,
+            application.applicationId,
+            dataObject.dataObjectId
+          );
+          lookup.set(dataObjectId, {
+            id: dataObjectId,
+            type: 'dataObject',
+            productTeam,
+            application,
+            dataObject
+          });
+          if (!firstSelectable) {
+            firstSelectable = dataObjectId;
+          }
+
+          dataObject.dataDefinitions.forEach((definition) => {
+            definition.tables.forEach((table) => {
+              const tableId = buildTableNodeId(table.dataDefinitionTableId);
+              lookup.set(tableId, {
+                id: tableId,
+                type: 'table',
+                productTeam,
+                application,
+                dataObject,
+                dataDefinition: definition,
+                table
+              });
+              if (!firstSelectable) {
+                firstSelectable = tableId;
+              }
+
+              table.fields.forEach((field) => {
+                const fieldId = buildFieldNodeId(field.dataDefinitionFieldId);
+                lookup.set(fieldId, {
+                  id: fieldId,
+                  type: 'field',
+                  productTeam,
+                  application,
+                  dataObject,
+                  dataDefinition: definition,
+                  table,
+                  field
+                });
+                if (!firstSelectable) {
+                  firstSelectable = fieldId;
+                }
+              });
+            });
+          });
+        });
+      });
+    });
+
+    return {
+      nodeLookup: lookup,
+      hierarchySummary: summarizeHierarchy(hierarchyData),
+      defaultSelection: firstSelectable ?? ROOT_NODE_ID
+    };
+  }, [hierarchyData]);
+
+  useEffect(() => {
+    if (!hierarchyData.length) {
+      setSelectedNodeId(null);
+      setExpandedItems([]);
+      return;
+    }
+
+    setSelectedNodeId((prev) => {
+      if (prev && nodeLookup.has(prev)) {
+        return prev;
+      }
+      return defaultSelection;
+    });
+
+    setExpandedItems((prev) => {
+      if (prev.length > 0) {
+        return prev;
+      }
+      const defaults = [ROOT_NODE_ID, ...hierarchyData.map((team) => buildProductTeamNodeId(team.productTeamId))];
+      return defaults;
+    });
+  }, [hierarchyData, nodeLookup, defaultSelection]);
+
+  const selectedContext = selectedNodeId ? nodeLookup.get(selectedNodeId) : nodeLookup.get(ROOT_NODE_ID);
+  const autoExpandedItems = useMemo(() => {
+    if (!hierarchyData.length) {
+      return [];
+    }
+    const ids: string[] = [ROOT_NODE_ID];
+    hierarchyData.forEach((productTeam) => {
+      ids.push(buildProductTeamNodeId(productTeam.productTeamId));
+      productTeam.applications.forEach((application) => {
+        ids.push(buildApplicationNodeId(productTeam.productTeamId, application.applicationId));
+      });
+    });
+    return ids;
+  }, [hierarchyData]);
+
+  const hasHierarchyData = hierarchyData.length > 0;
+
+  const selectedTableId = selectedContext?.table?.dataDefinitionTableId ?? null;
+  const shouldLoadTableContext = Boolean(
+    selectedTableId && (selectedContext?.type === 'table' || selectedContext?.type === 'field')
+  );
+
+  const tableContextQuery = useQuery(
+    ['data-quality', 'table-context', selectedTableId],
+    () => fetchDataQualityTableContext(selectedTableId!),
+    {
+      enabled: shouldLoadTableContext,
+      staleTime: 5 * 60 * 1000
+    }
+  );
+
+  const shouldLoadColumnProfile =
+    selectedContext?.type === 'field' &&
+    Boolean(tableContextQuery.data?.tableGroupId && selectedContext.field?.name);
+
+  const columnProfileQuery = useQuery(
+    [
+      'data-quality',
+      'column-profile',
+      tableContextQuery.data?.tableGroupId,
+      selectedContext?.field?.name
+    ],
+    () =>
+      fetchDataQualityColumnProfile(
+        tableContextQuery.data!.tableGroupId,
+        selectedContext!.field!.name,
+        tableContextQuery.data!.tableName,
+        tableContextQuery.data!.physicalName
+      ),
+    {
+      enabled: Boolean(shouldLoadColumnProfile),
+      staleTime: 60 * 1000
+    }
+  );
+
+  const tableContextError = tableContextQuery.isError ? resolveErrorMessage(tableContextQuery.error) : null;
+  const fieldProfileError = columnProfileQuery.isError ? resolveErrorMessage(columnProfileQuery.error) : null;
+
+  const tableContextDetail = shouldLoadTableContext ? tableContextQuery.data ?? null : null;
+  const tableContextMeta = shouldLoadTableContext
+    ? {
+        isLoading: tableContextQuery.isLoading,
+        error: tableContextError
+      }
+    : undefined;
+
+  const columnProfileState = shouldLoadColumnProfile
+    ? {
+        profile: columnProfileQuery.data ?? null,
+        isLoading: columnProfileQuery.isLoading,
+        error: fieldProfileError
+      }
+    : undefined;
+
+  const handleTreeNodeSelect = useCallback(
+    (event: MouseEvent<HTMLElement>, nodeId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedNodeId(nodeId);
+    },
+    []
+  );
+
+  interface NodeLabelProps {
+    nodeId: string;
+    title: string;
+    subtitle?: string | null;
+    meta?: ReactNode;
+  }
+
+  const renderNodeLabel = ({ nodeId, title, subtitle, meta }: NodeLabelProps) => {
+    const isSelected = selectedNodeId === nodeId;
+    return (
+      <Box
+        onClick={(event) => handleTreeNodeSelect(event, nodeId)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 0.75,
+          py: 0.75,
+          borderRadius: 1,
+          cursor: 'pointer',
+          bgcolor: isSelected ? 'action.selected' : 'transparent'
+        }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography
+            variant="body2"
+            sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {title}
+          </Typography>
+          {subtitle ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {subtitle}
+            </Typography>
+          ) : null}
+        </Box>
+        {meta}
+      </Box>
+    );
+  };
+
+  const renderFieldItem = (field: DataQualityDatasetField) => {
+    const nodeId = buildFieldNodeId(field.dataDefinitionFieldId);
+    const subtitle = field.description?.trim() || formatFieldSubtitle(field);
+    const fieldChipLabel = field.fieldType
+      ? field.fieldLength
+        ? `${field.fieldType} (${field.fieldLength})`
+        : field.fieldType
+      : null;
+    return (
+      <TreeItem
+        key={nodeId}
+        itemId={nodeId}
+        label={renderNodeLabel({
+          nodeId,
+          title: field.name,
+          subtitle: subtitle || undefined,
+          meta: fieldChipLabel ? <Chip size="small" label={fieldChipLabel} /> : undefined
+        })}
+      />
+    );
+  };
+
+  const renderTableItem = (definition: DataQualityDatasetDefinition, table: DataQualityDatasetTable) => {
+    const nodeId = buildTableNodeId(table.dataDefinitionTableId);
+    const subtitle = formatTableSecondary(table) || formatDescription(definition.description);
+    const { fieldCount } = summarizeTableFields(table);
+    return (
+      <TreeItem
+        key={nodeId}
+        itemId={nodeId}
+        label={renderNodeLabel({
+          nodeId,
+          title: formatTablePrimary(table),
+          subtitle,
+          meta: renderCountChip(fieldCount, 'field')
+        })}
+      >
+        {table.fields.length > 0 ? (
+          table.fields.map((field) => renderFieldItem(field))
+        ) : (
+          <TreeItem
+            key={`${nodeId}::no-fields`}
+            itemId={`${nodeId}::no-fields`}
+            label={<Typography variant="caption" color="text.secondary">No fields registered.</Typography>}
+            disabled
+          />
+        )}
+      </TreeItem>
+    );
+  };
+
+  const renderDataObjectItem = (
+    productTeam: DataQualityDatasetProductTeam,
+    application: DataQualityDatasetApplication,
+    dataObject: DataQualityDatasetObject
+  ) => {
+    const nodeId = buildDataObjectNodeId(
+      productTeam.productTeamId,
+      application.applicationId,
+      dataObject.dataObjectId
+    );
+    const summary = summarizeDataObject(dataObject);
+    const tables = getDataObjectTables(dataObject);
+    return (
+      <TreeItem
+        key={nodeId}
+        itemId={nodeId}
+        label={renderNodeLabel({
+          nodeId,
+          title: dataObject.name,
+          subtitle: formatDescription(dataObject.description),
+          meta: renderCountChip(summary.tableCount, 'table')
+        })}
+      >
+        {tables.length ? (
+          tables.map(({ definition, table }) => renderTableItem(definition, table))
+        ) : (
+          <TreeItem
+            key={`${nodeId}::no-tables`}
+            itemId={`${nodeId}::no-tables`}
+            label={<Typography variant="caption" color="text.secondary">No tables mapped.</Typography>}
+            disabled
+          />
+        )}
+      </TreeItem>
+    );
+  };
+
+  const renderApplicationItem = (
+    productTeam: DataQualityDatasetProductTeam,
+    application: DataQualityDatasetApplication
+  ) => {
+    const nodeId = buildApplicationNodeId(productTeam.productTeamId, application.applicationId);
+    const summary = summarizeApplication(application);
+    const subtitleParts = [application.description?.trim(), `Physical: ${application.physicalName}`].filter(Boolean);
+    return (
+      <TreeItem
+        key={nodeId}
+        itemId={nodeId}
+        label={renderNodeLabel({
+          nodeId,
+          title: application.name,
+          subtitle: subtitleParts.join(' • '),
+          meta: renderCountChip(summary.dataObjectCount, 'data object')
+        })}
+      >
+        {application.dataObjects.length ? (
+          application.dataObjects.map((dataObject) => renderDataObjectItem(productTeam, application, dataObject))
+        ) : (
+          <TreeItem
+            key={`${nodeId}::no-data-objects`}
+            itemId={`${nodeId}::no-data-objects`}
+            label={<Typography variant="caption" color="text.secondary">No data objects configured.</Typography>}
+            disabled
+          />
+        )}
+      </TreeItem>
+    );
+  };
+
+  const renderProductTeamItem = (productTeam: DataQualityDatasetProductTeam) => {
+    const nodeId = buildProductTeamNodeId(productTeam.productTeamId);
+    const summary = summarizeProductTeam(productTeam);
+    return (
+      <TreeItem
+        key={nodeId}
+        itemId={nodeId}
+        label={renderNodeLabel({
+          nodeId,
+          title: productTeam.name,
+          subtitle: formatDescription(productTeam.description),
+          meta: renderCountChip(summary.applicationCount, 'application')
+        })}
+      >
+        {productTeam.applications.length ? (
+          productTeam.applications.map((application) => renderApplicationItem(productTeam, application))
+        ) : (
+          <TreeItem
+            key={`${nodeId}::no-applications`}
+            itemId={`${nodeId}::no-applications`}
+            label={<Typography variant="caption" color="text.secondary">No applications configured.</Typography>}
+            disabled
+          />
+        )}
+      </TreeItem>
+    );
+  };
+
+  const renderRootNode = () => (
+    <TreeItem
+      key={ROOT_NODE_ID}
+      itemId={ROOT_NODE_ID}
+      label={renderNodeLabel({
+        nodeId: ROOT_NODE_ID,
+        title: 'All Product Teams',
+        subtitle: `${hierarchySummary.productTeamCount.toLocaleString()} team${
+          hierarchySummary.productTeamCount === 1 ? '' : 's'
+        }`,
+        meta: (
+          <Stack direction="row" spacing={0.5}>
+            {renderCountChip(hierarchySummary.tableCount, 'table')}
+            {renderCountChip(hierarchySummary.fieldCount, 'field')}
+          </Stack>
+        )
+      })}
+    >
+      {hierarchyData.map((productTeam) => renderProductTeamItem(productTeam))}
+    </TreeItem>
+  );
+
+  const renderRootDetail = () => (
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="h6" fontWeight={600}>
+          Data Quality Catalog
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Select a product team, application, data object, table, or field from the tree to see metadata and profiling
+          options.
+        </Typography>
+      </Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
+        <StatTile label="Product Teams" value={hierarchySummary.productTeamCount.toLocaleString()} />
+        <StatTile label="Applications" value={hierarchySummary.applicationCount.toLocaleString()} />
+        <StatTile label="Data Objects" value={hierarchySummary.dataObjectCount.toLocaleString()} />
+        <StatTile label="Tables" value={hierarchySummary.tableCount.toLocaleString()} />
+        <StatTile label="Fields" value={hierarchySummary.fieldCount.toLocaleString()} />
+      </Stack>
+    </Stack>
+  );
+
+  const renderProductTeamDetail = (productTeam: DataQualityDatasetProductTeam) => {
+    const summary = summarizeProductTeam(productTeam);
+    return (
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="h6" fontWeight={600}>
+            {productTeam.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {formatDescription(productTeam.description)}
+          </Typography>
+        </Box>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
+          <StatTile label="Applications" value={summary.applicationCount.toLocaleString()} />
+          <StatTile label="Data Objects" value={summary.dataObjectCount.toLocaleString()} />
+          <StatTile label="Tables" value={summary.tableCount.toLocaleString()} />
+          <StatTile label="Fields" value={summary.fieldCount.toLocaleString()} />
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderApplicationDetail = (application: DataQualityDatasetApplication) => {
+    const summary = summarizeApplication(application);
+    return (
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="h6" fontWeight={600}>
+            {application.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {application.description ? application.description : `Physical name: ${application.physicalName}`}
+          </Typography>
+        </Box>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
+          <StatTile label="Data Objects" value={summary.dataObjectCount.toLocaleString()} />
+          <StatTile label="Tables" value={summary.tableCount.toLocaleString()} />
+          <StatTile label="Fields" value={summary.fieldCount.toLocaleString()} />
+        </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <DetailRow label="Physical Name" value={application.physicalName} />
+          <DetailRow label="Description" value={formatDescription(application.description)} />
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderDataObjectDetail = (dataObject: DataQualityDatasetObject) => {
+    const summary = summarizeDataObject(dataObject);
+    const isProfilingTarget = Boolean(
+      profilingState.isLoading && profilingState.activeId === dataObject.dataObjectId
+    );
+    return (
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="h6" fontWeight={600}>
+            {dataObject.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {formatDescription(dataObject.description)}
+          </Typography>
+        </Box>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
+          <StatTile label="Data Definitions" value={summary.definitionCount.toLocaleString()} />
+          <StatTile label="Tables" value={summary.tableCount.toLocaleString()} />
+          <StatTile label="Fields" value={summary.fieldCount.toLocaleString()} />
+        </Stack>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            variant="contained"
+            onClick={() => handleRunProfiling(dataObject.dataObjectId)}
+            disabled={summary.tableCount === 0 || profilingState.isLoading}
+            startIcon={isProfilingTarget ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {isProfilingTarget ? 'Running…' : 'Run Profiling'}
+          </Button>
+          <Button component={RouterLink} to="/data-quality/profiling-runs" variant="outlined">
+            View Profiling Runs
+          </Button>
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderTableDetail = (
+    table: DataQualityDatasetTable,
+    definition?: DataQualityDatasetDefinition,
+    context?: DataQualityDatasetTableContext | null,
+    contextState?: { isLoading: boolean; error?: string | null }
+  ) => (
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="h6" fontWeight={600}>
+          {formatTablePrimary(table)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {formatTableSecondary(table) || formatDescription(definition?.description)}
+        </Typography>
+      </Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <DetailRow label="Schema" value={table.schemaName ?? '—'} />
+        <DetailRow label="Alias" value={table.alias ?? '—'} />
+        <DetailRow label="Load Order" value={table.loadOrder ?? '—'} />
+      </Stack>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <DetailRow label="Table Type" value={table.tableType ?? (table.isConstructed ? 'Constructed' : 'Source')} />
+        <DetailRow label="Physical Name" value={table.physicalName} />
+      </Stack>
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle2">Field overview</Typography>
+        {table.fields.length ? (
+          table.fields.slice(0, 6).map((field) => (
+            <Typography key={field.dataDefinitionFieldId} variant="body2">
+              {field.name}
+            </Typography>
+          ))
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No fields registered yet.
+          </Typography>
+        )}
+        {table.fields.length > 6 ? (
+          <Typography variant="caption" color="text.secondary">
+            {`+${table.fields.length - 6} more fields available in the tree.`}
+          </Typography>
+        ) : null}
+      </Stack>
+      {contextState ? (
+        contextState.isLoading ? (
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CircularProgress size={16} />
+            <Typography variant="body2" color="text.secondary">
+              Loading table context…
+            </Typography>
+          </Stack>
+        ) : contextState.error ? (
+          <Alert severity="warning">{contextState.error}</Alert>
+        ) : context ? (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <DetailRow label="Table Group ID" value={context.tableGroupId} />
+            <DetailRow label="Table ID" value={context.tableId ?? '—'} />
+          </Stack>
+        ) : null
+      ) : null}
+    </Stack>
+  );
+
+  const renderFieldDetail = (
+    field: DataQualityDatasetField,
+    table?: DataQualityDatasetTable,
+    profileState?: {
+      profile?: DataQualityColumnProfile | null;
+      isLoading?: boolean;
+      error?: string | null;
+    }
+  ) => (
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="h6" fontWeight={600}>
+          {field.name}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {formatDescription(field.description)}
+        </Typography>
+      </Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
+        <StatTile label="Data Type" value={field.fieldType ? (field.fieldLength ? `${field.fieldType} (${field.fieldLength})` : field.fieldType) : 'Unknown'} />
+        <StatTile label="Uniqueness" value={field.isUnique ? 'Enforced' : 'Not enforced'} />
+        {table ? <StatTile label="Parent Table" value={formatTablePrimary(table)} /> : null}
+      </Stack>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <DetailRow label="Application Usage" value={field.applicationUsage ?? '—'} />
+        <DetailRow label="Business Definition" value={field.businessDefinition ?? '—'} />
+      </Stack>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <DetailRow label="Reference Table" value={field.referenceTable ?? '—'} />
+        <DetailRow label="Notes" value={field.notes ?? '—'} />
+      </Stack>
+      <Divider />
+      <Stack spacing={1}>
+        <Typography variant="subtitle2">Latest profiling results</Typography>
+        <ColumnProfilePanel
+          profile={profileState?.profile ?? null}
+          isLoading={profileState?.isLoading}
+          error={profileState?.error ?? null}
+          variant="inline"
+          emptyHint="No profiling runs have produced column statistics yet."
+        />
+      </Stack>
+    </Stack>
+  );
+
+  const renderDetailContent = () => {
+    if (!selectedContext) {
+      return renderRootDetail();
+    }
+    switch (selectedContext.type) {
+      case 'productTeam':
+        return selectedContext.productTeam ? renderProductTeamDetail(selectedContext.productTeam) : renderRootDetail();
+      case 'application':
+        return selectedContext.application ? renderApplicationDetail(selectedContext.application) : renderRootDetail();
+      case 'dataObject':
+        return selectedContext.dataObject ? renderDataObjectDetail(selectedContext.dataObject) : renderRootDetail();
+      case 'table':
+        return selectedContext.table
+          ? renderTableDetail(selectedContext.table, selectedContext.dataDefinition, tableContextDetail, tableContextMeta)
+          : renderRootDetail();
+      case 'field':
+        return selectedContext.field
+          ? renderFieldDetail(selectedContext.field, selectedContext.table, columnProfileState)
+          : renderRootDetail();
+      default:
+        return renderRootDetail();
+    }
+  };
+
+  const handleExpandAll = () => {
+    if (autoExpandedItems.length) {
+      setExpandedItems(autoExpandedItems);
+    }
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedItems([ROOT_NODE_ID]);
+  };
 
   return (
     <Stack spacing={3}>
@@ -490,16 +1121,44 @@ const DataQualityDatasetsPage = () => {
         </Box>
       ) : hierarchyQuery.isError ? (
         <Alert severity="error">Unable to load the dataset hierarchy.</Alert>
-      ) : hierarchyQuery.data && hierarchyQuery.data.length > 0 ? (
-        <Stack spacing={2}>
-          {hierarchyQuery.data.map((productTeam) => (
-            <ProductTeamAccordion
-              key={productTeam.productTeamId}
-              productTeam={productTeam}
-              onRunProfiling={handleRunProfiling}
-              profilingState={profilingState}
-            />
-          ))}
+      ) : hasHierarchyData ? (
+        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="stretch">
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              width: { xs: '100%', lg: 360 },
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: { xs: '100%', lg: 640 }
+            }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+              <Typography fontWeight={600}>Dataset Hierarchy</Typography>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" onClick={handleExpandAll} disabled={!hasHierarchyData}>
+                  Expand all
+                </Button>
+                <Button size="small" onClick={handleCollapseAll} disabled={!hasHierarchyData}>
+                  Collapse
+                </Button>
+              </Stack>
+            </Stack>
+            <Divider sx={{ mb: 1 }} />
+            <SimpleTreeView
+              aria-label="Dataset hierarchy"
+              expandedItems={expandedItems}
+              onExpandedItemsChange={(_, itemIds) => setExpandedItems(itemIds as string[])}
+              slots={{ collapseIcon: ExpandMoreIcon, expandIcon: ChevronRightIcon }}
+              sx={{ flex: 1, minHeight: 320, overflowY: 'auto', pr: 0.5 }}
+            >
+              {renderRootNode()}
+            </SimpleTreeView>
+          </Paper>
+          <Paper elevation={1} sx={{ flex: 1, minWidth: 0, p: 3 }}>
+            {renderDetailContent()}
+          </Paper>
         </Stack>
       ) : (
         <Paper elevation={0} sx={{ p: 3 }}>

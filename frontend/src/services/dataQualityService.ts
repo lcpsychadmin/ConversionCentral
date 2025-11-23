@@ -3,12 +3,22 @@ import client from './api/client';
 import {
   DataQualityAlert,
   DataQualityBulkProfileRunResponse,
+  DataQualityColumnCharacteristics,
   DataQualityColumnHistogramBin,
-  DataQualityColumnProfile,
-  DataQualityColumnValueFrequency,
   DataQualityColumnMetric,
+  DataQualityColumnProfile,
+  DataQualityColumnProfileLayout,
+  DataQualityColumnProfileType,
+  DataQualityColumnTags,
+  DataQualityColumnValueFrequency,
+  DataQualityColumnIssueSummary,
+  DataQualityColumnRelatedSuite,
   DataQualityConnection,
   DataQualityDatasetProductTeam,
+  DataQualityDatasetTableContext,
+  DataQualityNumericBoxPlot,
+  DataQualityNumericColumnProfile,
+  DataQualityNumericProfileStats,
   DataQualityProfileAnomaly,
   DataQualityProfileRun,
   DataQualityProfileRunEntry,
@@ -28,7 +38,11 @@ import {
   DataQualityTestSuiteSeverity,
   DataQualityTestSuiteUpdate,
   DataQualityTestType,
-  DataQualityTestTypeParameter
+  DataQualityTestTypeParameter,
+  DataQualityTextCaseBucket,
+  DataQualityTextColumnProfile,
+  DataQualityTextPatternStat,
+  DataQualityTextProfileStats
 } from '@cc-types/data';
 
 interface TestGenProjectResponse {
@@ -97,6 +111,158 @@ interface TestGenProfileAnomalyResponse {
   detected_at?: string | null;
 }
 
+interface TestGenColumnIssueSummaryResponse {
+  total?: number | null;
+  severity_counts?: Record<string, number> | null;
+  severityCounts?: Record<string, number> | null;
+  items?: TestGenProfileAnomalyResponse[] | null;
+}
+
+interface TestGenColumnRelatedSuiteResponse {
+  test_suite_key: string;
+  name: string;
+  severity?: string | null;
+}
+
+interface TestGenNumericDistributionBarResponse {
+  key?: string | null;
+  label?: string | null;
+  count?: number | null;
+  percentage?: number | null;
+}
+
+interface TestGenNumericBoxPlotResponse {
+  min?: number | null;
+  p25?: number | null;
+  median?: number | null;
+  p75?: number | null;
+  max?: number | null;
+  mean?: number | null;
+  std_dev?: number | null;
+  stdDev?: number | null;
+}
+
+interface TestGenNumericProfileStatsResponse {
+  record_count?: number | null;
+  recordCount?: number | null;
+  value_count?: number | null;
+  valueCount?: number | null;
+  distinct_count?: number | null;
+  distinctCount?: number | null;
+  average?: number | null;
+  stddev?: number | null;
+  minimum?: number | null;
+  minimum_positive?: number | null;
+  minimumPositive?: number | null;
+  maximum?: number | null;
+  percentile_25?: number | null;
+  percentile25?: number | null;
+  median?: number | null;
+  percentile_75?: number | null;
+  percentile75?: number | null;
+  zero_count?: number | null;
+  zeroCount?: number | null;
+  null_count?: number | null;
+  nullCount?: number | null;
+}
+
+interface TestGenNumericColumnProfileResponse {
+  stats?: TestGenNumericProfileStatsResponse | null;
+  distribution_bars?: TestGenNumericDistributionBarResponse[] | null;
+  distributionBars?: TestGenNumericDistributionBarResponse[] | null;
+  box_plot?: TestGenNumericBoxPlotResponse | null;
+  boxPlot?: TestGenNumericBoxPlotResponse | null;
+  histogram?: TestGenColumnHistogramResponse[] | null;
+  bins?: TestGenColumnHistogramResponse[] | null;
+  top_values?: TestGenColumnValueFrequencyResponse[] | null;
+  topValues?: TestGenColumnValueFrequencyResponse[] | null;
+}
+
+interface TestGenTextPatternStatResponse {
+  label?: string | null;
+  count?: number | null;
+  percentage?: number | null;
+}
+
+interface TestGenTextCaseBucketResponse extends TestGenTextPatternStatResponse {}
+
+interface TestGenTextProfileStatsResponse {
+  record_count?: number | null;
+  recordCount?: number | null;
+  value_count?: number | null;
+  valueCount?: number | null;
+  missing_count?: number | null;
+  missingCount?: number | null;
+  missing_percentage?: number | null;
+  missingPercentage?: number | null;
+  duplicate_count?: number | null;
+  duplicateCount?: number | null;
+  duplicate_percentage?: number | null;
+  duplicatePercentage?: number | null;
+  zero_count?: number | null;
+  zeroCount?: number | null;
+  numeric_only_count?: number | null;
+  numericOnlyCount?: number | null;
+  quoted_count?: number | null;
+  quotedCount?: number | null;
+  leading_space_count?: number | null;
+  leadingSpaceCount?: number | null;
+  embedded_space_count?: number | null;
+  embeddedSpaceCount?: number | null;
+  average_embedded_spaces?: number | null;
+  averageEmbeddedSpaces?: number | null;
+  min_length?: number | null;
+  minLength?: number | null;
+  max_length?: number | null;
+  maxLength?: number | null;
+  avg_length?: number | null;
+  avgLength?: number | null;
+  min_text?: string | null;
+  minText?: string | null;
+  max_text?: string | null;
+  maxText?: string | null;
+  distinct_patterns?: number | null;
+  distinctPatterns?: number | null;
+  standard_pattern_matches?: number | null;
+  standardPatternMatches?: number | null;
+}
+
+interface TestGenTextColumnProfileResponse {
+  stats?: TestGenTextProfileStatsResponse | null;
+  missing_breakdown?: TestGenTextPatternStatResponse[] | null;
+  missingBreakdown?: TestGenTextPatternStatResponse[] | null;
+  duplicate_breakdown?: TestGenTextPatternStatResponse[] | null;
+  duplicateBreakdown?: TestGenTextPatternStatResponse[] | null;
+  case_breakdown?: TestGenTextCaseBucketResponse[] | null;
+  caseBreakdown?: TestGenTextCaseBucketResponse[] | null;
+  frequent_patterns?: TestGenTextPatternStatResponse[] | null;
+  frequentPatterns?: TestGenTextPatternStatResponse[] | null;
+  top_values?: TestGenColumnValueFrequencyResponse[] | null;
+  topValues?: TestGenColumnValueFrequencyResponse[] | null;
+  length_histogram?: TestGenColumnHistogramResponse[] | null;
+  lengthHistogram?: TestGenColumnHistogramResponse[] | null;
+}
+
+interface TestGenColumnProfileLayoutResponse {
+  column_type?: string | null;
+  columnType?: string | null;
+  characteristics?: Record<string, unknown> | null;
+  tags?: Record<string, unknown> | null;
+  pii_signals?: TestGenColumnIssueSummaryResponse | null;
+  piiSignals?: TestGenColumnIssueSummaryResponse | null;
+  hygiene_issues?: TestGenColumnIssueSummaryResponse | null;
+  hygieneIssues?: TestGenColumnIssueSummaryResponse | null;
+  test_issues?: TestGenColumnIssueSummaryResponse | null;
+  testIssues?: TestGenColumnIssueSummaryResponse | null;
+  related_test_suites?: TestGenColumnRelatedSuiteResponse[] | null;
+  relatedTestSuites?: TestGenColumnRelatedSuiteResponse[] | null;
+  badges?: string[] | null;
+  numeric_profile?: TestGenNumericColumnProfileResponse | null;
+  numericProfile?: TestGenNumericColumnProfileResponse | null;
+  text_profile?: TestGenTextColumnProfileResponse | null;
+  textProfile?: TestGenTextColumnProfileResponse | null;
+}
+
 interface TestGenColumnProfileResponse {
   table_group_id: string;
   profile_run_id?: string | null;
@@ -111,6 +277,8 @@ interface TestGenColumnProfileResponse {
   top_values?: TestGenColumnValueFrequencyResponse[] | null;
   histogram?: TestGenColumnHistogramResponse[] | null;
   anomalies?: TestGenProfileAnomalyResponse[] | null;
+  profile_layout?: TestGenColumnProfileLayoutResponse | null;
+  profileLayout?: TestGenColumnProfileLayoutResponse | null;
 }
 
 interface TestGenTestRunResponse {
@@ -275,6 +443,356 @@ const mapColumnHistogramBin = (
   upper: payload.upper ?? null
 });
 
+const pickValue = <T>(
+  source: Record<string, unknown> | undefined | null,
+  ...keys: string[]
+): T | null => {
+  if (!source) {
+    return null;
+  }
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value !== undefined && value !== null) {
+        return value as T;
+      }
+    }
+  }
+  return null;
+};
+
+const pickString = (
+  source: Record<string, unknown> | undefined | null,
+  ...keys: string[]
+): string | null => {
+  const value = pickValue<unknown>(source, ...keys);
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return String(value);
+};
+
+const pickNumber = (
+  source: Record<string, unknown> | undefined | null,
+  ...keys: string[]
+): number | null => {
+  const value = pickValue<unknown>(source, ...keys);
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const pickBoolean = (
+  source: Record<string, unknown> | undefined | null,
+  ...keys: string[]
+): boolean | null => {
+  const value = pickValue<unknown>(source, ...keys);
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const lowered = value.toLowerCase();
+    if (lowered === 'true' || lowered === 'yes' || lowered === '1') {
+      return true;
+    }
+    if (lowered === 'false' || lowered === 'no' || lowered === '0') {
+      return false;
+    }
+  }
+  return null;
+};
+
+const mapColumnCharacteristics = (
+  payload?: Record<string, unknown> | null
+): DataQualityColumnCharacteristics | null => {
+  if (!payload) {
+    return null;
+  }
+  const characteristics: DataQualityColumnCharacteristics = {
+    semanticType: pickString(payload, 'semantic_type', 'semanticType'),
+    suggestedType: pickString(payload, 'suggested_type', 'suggestedType'),
+    firstDetectedAt: pickString(payload, 'first_detected_at', 'firstDetectedAt'),
+    semanticConfidence: pickNumber(payload, 'semantic_confidence', 'semanticConfidence')
+  };
+  if (
+    !characteristics.semanticType &&
+    !characteristics.suggestedType &&
+    !characteristics.firstDetectedAt &&
+    characteristics.semanticConfidence === null
+  ) {
+    return null;
+  }
+  return characteristics;
+};
+
+const mapColumnTags = (
+  payload?: Record<string, unknown> | null
+): DataQualityColumnTags | null => {
+  if (!payload) {
+    return null;
+  }
+  const tags: DataQualityColumnTags = {
+    stakeholderGroup: pickString(payload, 'stakeholder_group', 'stakeholderGroup'),
+    dataSource: pickString(payload, 'data_source', 'dataSource'),
+    sourceSystem: pickString(payload, 'source_system', 'sourceSystem'),
+    sourceProcess: pickString(payload, 'source_process', 'sourceProcess'),
+    businessDomain: pickString(payload, 'business_domain', 'businessDomain'),
+    transformLevel: pickString(payload, 'transform_level', 'transformLevel'),
+    dataProduct: pickString(payload, 'data_product', 'dataProduct'),
+    criticalDataElement: pickBoolean(payload, 'critical_data_element', 'criticalDataElement'),
+    piiRisk: pickString(payload, 'pii_risk', 'piiRisk')
+  };
+  if (Object.values(tags).every((value) => value === null || value === undefined)) {
+    return null;
+  }
+  return tags;
+};
+
+const mapIssueSummary = (
+  payload?: TestGenColumnIssueSummaryResponse | null
+): DataQualityColumnIssueSummary | null => {
+  if (!payload) {
+    return null;
+  }
+  const severityCounts = payload.severity_counts ?? payload.severityCounts ?? null;
+  const items = (payload.items ?? []) as TestGenProfileAnomalyResponse[];
+  const mappedItems = items.map(mapProfileAnomaly);
+  if (
+    payload.total === undefined &&
+    !severityCounts &&
+    !mappedItems.length
+  ) {
+    return null;
+  }
+  return {
+    total: payload.total ?? mappedItems.length,
+    severityCounts,
+    items: mappedItems
+  };
+};
+
+const mapRelatedSuite = (
+  payload: TestGenColumnRelatedSuiteResponse
+): DataQualityColumnRelatedSuite => ({
+  testSuiteKey: payload.test_suite_key,
+  name: payload.name,
+  severity: mapSeverity(payload.severity)
+});
+
+const mapNumericProfileStats = (
+  payload?: TestGenNumericProfileStatsResponse | null
+): DataQualityNumericProfileStats | null => {
+  if (!payload) {
+    return null;
+  }
+  const stats: DataQualityNumericProfileStats = {
+    recordCount: payload.record_count ?? payload.recordCount ?? null,
+    valueCount: payload.value_count ?? payload.valueCount ?? null,
+    distinctCount: payload.distinct_count ?? payload.distinctCount ?? null,
+    average: payload.average ?? null,
+    stddev: payload.stddev ?? null,
+    minimum: payload.minimum ?? null,
+    minimumPositive: payload.minimum_positive ?? payload.minimumPositive ?? null,
+    maximum: payload.maximum ?? null,
+    percentile25: payload.percentile_25 ?? payload.percentile25 ?? null,
+    median: payload.median ?? null,
+    percentile75: payload.percentile_75 ?? payload.percentile75 ?? null,
+    zeroCount: payload.zero_count ?? payload.zeroCount ?? null,
+    nullCount: payload.null_count ?? payload.nullCount ?? null
+  };
+  if (Object.values(stats).every((value) => value === null || value === undefined)) {
+    return null;
+  }
+  return stats;
+};
+
+const normalizeDistributionKey = (value?: string | null): 'nonZero' | 'zero' | 'null' => {
+  const normalized = (value ?? '').toLowerCase();
+  if (normalized.includes('zero')) {
+    return 'zero';
+  }
+  if (normalized.includes('null')) {
+    return 'null';
+  }
+  return 'nonZero';
+};
+
+const mapNumericProfile = (
+  payload?: TestGenNumericColumnProfileResponse | null
+): DataQualityNumericColumnProfile | null => {
+  if (!payload) {
+    return null;
+  }
+  const stats = mapNumericProfileStats(payload.stats);
+  const distributionSource = payload.distribution_bars ?? payload.distributionBars ?? [];
+  const distributionBars = distributionSource
+    .filter(Boolean)
+    .map((entry) => ({
+      key: normalizeDistributionKey(entry.key) as 'nonZero' | 'zero' | 'null',
+      label: entry.label ?? '',
+      count: entry.count ?? 0,
+      percentage: entry.percentage ?? null
+    }));
+  const boxPlotSource = payload.box_plot ?? payload.boxPlot ?? null;
+  const boxPlot: DataQualityNumericBoxPlot | null = boxPlotSource
+    ? {
+        min: boxPlotSource.min ?? null,
+        p25: boxPlotSource.p25 ?? null,
+        median: boxPlotSource.median ?? null,
+        p75: boxPlotSource.p75 ?? null,
+        max: boxPlotSource.max ?? null,
+        mean: boxPlotSource.mean ?? null,
+        stdDev: boxPlotSource.std_dev ?? boxPlotSource.stdDev ?? null
+      }
+    : null;
+  const histogramSource = payload.histogram ?? payload.bins ?? [];
+  const histogram = histogramSource.map(mapColumnHistogramBin);
+  const topValuesSource = payload.top_values ?? payload.topValues ?? [];
+  const topValues = topValuesSource.map(mapColumnValueFrequency);
+
+  if (
+    !stats &&
+    !distributionBars.length &&
+    !boxPlot &&
+    !histogram.length &&
+    !topValues.length
+  ) {
+    return null;
+  }
+
+  return {
+    stats,
+    distributionBars,
+    boxPlot,
+    histogram,
+    topValues
+  };
+};
+
+const mapTextProfileStats = (
+  payload?: TestGenTextProfileStatsResponse | null
+): DataQualityTextProfileStats | null => {
+  if (!payload) {
+    return null;
+  }
+  const stats: DataQualityTextProfileStats = {
+    recordCount: payload.record_count ?? payload.recordCount ?? null,
+    valueCount: payload.value_count ?? payload.valueCount ?? null,
+    missingCount: payload.missing_count ?? payload.missingCount ?? null,
+    missingPercentage: payload.missing_percentage ?? payload.missingPercentage ?? null,
+    duplicateCount: payload.duplicate_count ?? payload.duplicateCount ?? null,
+    duplicatePercentage: payload.duplicate_percentage ?? payload.duplicatePercentage ?? null,
+    zeroCount: payload.zero_count ?? payload.zeroCount ?? null,
+    numericOnlyCount: payload.numeric_only_count ?? payload.numericOnlyCount ?? null,
+    quotedCount: payload.quoted_count ?? payload.quotedCount ?? null,
+    leadingSpaceCount: payload.leading_space_count ?? payload.leadingSpaceCount ?? null,
+    embeddedSpaceCount: payload.embedded_space_count ?? payload.embeddedSpaceCount ?? null,
+    averageEmbeddedSpaces: payload.average_embedded_spaces ?? payload.averageEmbeddedSpaces ?? null,
+    minLength: payload.min_length ?? payload.minLength ?? null,
+    maxLength: payload.max_length ?? payload.maxLength ?? null,
+    avgLength: payload.avg_length ?? payload.avgLength ?? null,
+    minText: payload.min_text ?? payload.minText ?? null,
+    maxText: payload.max_text ?? payload.maxText ?? null,
+    distinctPatterns: payload.distinct_patterns ?? payload.distinctPatterns ?? null,
+    standardPatternMatches: payload.standard_pattern_matches ?? payload.standardPatternMatches ?? null
+  };
+  if (Object.values(stats).every((value) => value === null || value === undefined)) {
+    return null;
+  }
+  return stats;
+};
+
+const mapPatternStats = (
+  payload?: (TestGenTextPatternStatResponse | null | undefined)[] | null
+): DataQualityTextPatternStat[] => {
+  if (!payload) {
+    return [];
+  }
+  return payload
+    .filter(Boolean)
+    .map((entry) => ({
+      label: entry?.label ?? '',
+      count: entry?.count ?? null,
+      percentage: entry?.percentage ?? null
+    }));
+};
+
+const mapTextProfile = (
+  payload?: TestGenTextColumnProfileResponse | null
+): DataQualityTextColumnProfile | null => {
+  if (!payload) {
+    return null;
+  }
+  const stats = mapTextProfileStats(payload.stats);
+  const missingBreakdown = mapPatternStats(payload.missing_breakdown ?? payload.missingBreakdown);
+  const duplicateBreakdown = mapPatternStats(payload.duplicate_breakdown ?? payload.duplicateBreakdown);
+  const caseBreakdown = mapPatternStats(payload.case_breakdown ?? payload.caseBreakdown) as DataQualityTextCaseBucket[];
+  const frequentPatterns = mapPatternStats(payload.frequent_patterns ?? payload.frequentPatterns);
+  const topValues = (payload.top_values ?? payload.topValues ?? []).map(mapColumnValueFrequency);
+  const lengthHistogram = (payload.length_histogram ?? payload.lengthHistogram ?? []).map(mapColumnHistogramBin);
+
+  if (
+    !stats &&
+    !missingBreakdown.length &&
+    !duplicateBreakdown.length &&
+    !caseBreakdown.length &&
+    !frequentPatterns.length &&
+    !topValues.length &&
+    !lengthHistogram.length
+  ) {
+    return null;
+  }
+
+  return {
+    stats,
+    missingBreakdown,
+    duplicateBreakdown,
+    caseBreakdown,
+    frequentPatterns,
+    topValues,
+    lengthHistogram
+  };
+};
+
+const mapColumnProfileLayout = (
+  payload?: TestGenColumnProfileLayoutResponse | null
+): DataQualityColumnProfileLayout | null => {
+  if (!payload) {
+    return null;
+  }
+
+  const columnType = (payload.column_type ?? payload.columnType ?? 'other') as DataQualityColumnProfileType;
+  const relatedSuitesSource = payload.related_test_suites ?? payload.relatedTestSuites ?? [];
+  const badges = payload.badges ?? [];
+
+  return {
+    columnType,
+    characteristics: mapColumnCharacteristics(payload.characteristics ?? null),
+    tags: mapColumnTags(payload.tags ?? null),
+    piiSignals: mapIssueSummary(payload.pii_signals ?? payload.piiSignals ?? null),
+    hygieneIssues: mapIssueSummary(payload.hygiene_issues ?? payload.hygieneIssues ?? null),
+    testIssues: mapIssueSummary(payload.test_issues ?? payload.testIssues ?? null),
+    relatedTestSuites: relatedSuitesSource.map(mapRelatedSuite),
+    badges: badges ?? [],
+    numericProfile: mapNumericProfile(payload.numeric_profile ?? payload.numericProfile ?? null),
+    textProfile: mapTextProfile(payload.text_profile ?? payload.textProfile ?? null)
+  };
+};
+
 const mapColumnProfile = (payload: TestGenColumnProfileResponse): DataQualityColumnProfile => ({
   tableGroupId: payload.table_group_id,
   profileRunId: payload.profile_run_id ?? null,
@@ -288,7 +806,8 @@ const mapColumnProfile = (payload: TestGenColumnProfileResponse): DataQualityCol
   metrics: (payload.metrics ?? []).map(mapColumnMetric),
   topValues: (payload.top_values ?? []).map(mapColumnValueFrequency),
   histogram: (payload.histogram ?? []).map(mapColumnHistogramBin),
-  anomalies: (payload.anomalies ?? []).map(mapProfileAnomaly)
+  anomalies: (payload.anomalies ?? []).map(mapProfileAnomaly),
+  profileLayout: mapColumnProfileLayout(payload.profile_layout ?? payload.profileLayout ?? null)
 });
 
 const mapTestRun = (payload: TestGenTestRunResponse): DataQualityTestRun => ({
@@ -615,6 +1134,15 @@ export const startTestRun = async (
 
 export const fetchDatasetHierarchy = async (): Promise<DataQualityDatasetProductTeam[]> => {
   const response = await client.get<DataQualityDatasetProductTeam[]>('/data-quality/datasets');
+  return response.data;
+};
+
+export const fetchDataQualityTableContext = async (
+  dataDefinitionTableId: string
+): Promise<DataQualityDatasetTableContext> => {
+  const response = await client.get<DataQualityDatasetTableContext>(
+    `/data-quality/datasets/tables/${encodeURIComponent(dataDefinitionTableId)}/context`
+  );
   return response.data;
 };
 

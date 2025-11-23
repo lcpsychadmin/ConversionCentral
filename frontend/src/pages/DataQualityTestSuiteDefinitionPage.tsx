@@ -12,9 +12,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  Grid,
   IconButton,
-  LinearProgress,
   MenuItem,
   Paper,
   Stack,
@@ -35,6 +33,7 @@ import { useMutation, useQuery, useQueryClient } from 'react-query';
 
 import PageHeader from '@components/common/PageHeader';
 import ConfirmDialog from '@components/common/ConfirmDialog';
+import ColumnProfilePanel from '@components/data-quality/ColumnProfilePanel';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
 import {
   fetchDataQualityTestSuite,
@@ -51,7 +50,6 @@ import {
   DataDefinitionField,
   DataDefinitionTable,
   DataQualityColumnProfile,
-  DataQualityColumnMetric,
   DataQualitySuiteTest,
   DataQualitySuiteTestInput,
   DataQualitySuiteTestUpdate,
@@ -207,83 +205,6 @@ const formatDetailValue = (value: unknown): string => {
 
 const EMPTY_TEST_TYPES: DataQualityTestType[] = [];
 const EMPTY_PARAMETERS: DataQualityTestTypeParameter[] = [];
-
-const formatMetricDisplay = (metric: DataQualityColumnMetric): string => {
-  if (metric.formatted && metric.formatted.trim().length > 0) {
-    return metric.formatted;
-  }
-
-  const { value, unit } = metric;
-
-  if (value === null || value === undefined) {
-    return '—';
-  }
-
-  if (typeof value === 'number') {
-    const formatted = Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: 4 });
-    if (!unit) {
-      return formatted;
-    }
-    return unit === '%' ? `${formatted}${unit}` : `${formatted} ${unit}`;
-  }
-
-  const text = String(value);
-  if (!unit) {
-    return text;
-  }
-  return unit === '%' ? `${text}${unit}` : `${text} ${unit}`;
-};
-
-const formatPercentageDisplay = (value?: number | null): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return '—';
-  }
-  return `${value.toFixed(2)}%`;
-};
-
-const formatCountDisplay = (value?: number | null): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return '—';
-  }
-  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
-};
-
-const formatFrequencyValue = (value: unknown): string => {
-  if (value === null || value === undefined) {
-    return '—';
-  }
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? value.toLocaleString() : value.toString();
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'True' : 'False';
-  }
-  return String(value);
-};
-
-const mapAnomalySeverity = (severity: string): 'error' | 'warning' | 'info' => {
-  const normalized = severity.toLowerCase();
-  if (normalized === 'critical' || normalized === 'high') {
-    return 'error';
-  }
-  if (normalized === 'medium') {
-    return 'warning';
-  }
-  return 'info';
-};
-
-const formatDateTimeDisplay = (value?: string | null): string => {
-  if (!value) {
-    return '—';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return '—';
-  }
-  return parsed.toLocaleString();
-};
 
 const buildDefaultParameters = (metadata: DataQualityTestType | undefined): Record<string, string> => {
   const defaults: Record<string, string> = {};
@@ -854,7 +775,6 @@ const DataQualityTestSuiteDefinitionPage = () => {
   const tests = testsQuery.data ?? [];
   const profilingData = profilingQuery.data;
   const profilingIsLoading = profilingQuery.isLoading;
-  const profilingIsError = profilingQuery.isError;
   const profilingErrorMessage = profilingQuery.isError
     ? profilingQuery.error instanceof Error
       ? profilingQuery.error.message
@@ -862,171 +782,6 @@ const DataQualityTestSuiteDefinitionPage = () => {
     : null;
   const isLoading = suiteQuery.isLoading || testsQuery.isLoading || testTypesQuery.isLoading;
   const testsError = testsQuery.isError;
-
-  const renderProfilingContent = () => {
-    if (profilingIsLoading) {
-      return (
-        <Box display="flex" justifyContent="center" py={4}>
-          <CircularProgress />
-        </Box>
-      );
-    }
-
-    if (profilingIsError) {
-      return <Alert severity="error">{profilingErrorMessage ?? 'Unable to load column profiling.'}</Alert>;
-    }
-
-    if (!profilingData) {
-      return (
-        <Typography variant="body2" color="text.secondary">
-          Profiling results are not available for this column yet. Trigger a profiling run to generate baseline metrics.
-        </Typography>
-      );
-    }
-
-    const summaryItems = [
-      { label: 'Status', value: profilingData.status ?? '—' },
-      { label: 'Profile Run', value: profilingData.profileRunId ?? '—' },
-      { label: 'Started', value: formatDateTimeDisplay(profilingData.startedAt) },
-      { label: 'Completed', value: formatDateTimeDisplay(profilingData.completedAt) },
-      { label: 'Rows Profiled', value: formatCountDisplay(profilingData.rowCount ?? null) },
-      { label: 'Anomaly Count', value: formatCountDisplay(profilingData.anomalies.length) }
-    ];
-
-    const histogramMax = profilingData.histogram.reduce<number>((max, bin) => {
-      const count = typeof bin.count === 'number' ? bin.count : 0;
-      return count > max ? count : max;
-    }, 0);
-
-    return (
-      <Stack spacing={3}>
-        <Stack spacing={0.25}>
-          <Typography variant="h6">{profilingData.columnName}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {profilingData.tableName ?? 'Unmapped table'}
-          </Typography>
-          {profilingData.dataType ? (
-            <Typography variant="body2" color="text.secondary">
-              Detected type: {profilingData.dataType}
-            </Typography>
-          ) : null}
-        </Stack>
-
-        <Paper variant="outlined" sx={{ p: 2, backgroundColor: 'grey.50' }}>
-          <Grid container spacing={2}>
-            {summaryItems.map((item) => (
-              <Grid item xs={12} sm={6} md={4} key={item.label}>
-                <Typography variant="body2" color="text.secondary">
-                  {item.label}
-                </Typography>
-                <Typography variant="subtitle2">{item.value}</Typography>
-              </Grid>
-            ))}
-          </Grid>
-        </Paper>
-
-        {profilingData.metrics.length ? (
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Column Metrics
-            </Typography>
-            <Grid container spacing={2}>
-              {profilingData.metrics.map((metric) => (
-                <Grid item xs={12} sm={6} md={4} key={metric.key}>
-                  <Typography variant="body2" color="text.secondary">
-                    {metric.label}
-                  </Typography>
-                  <Typography variant="subtitle2">{formatMetricDisplay(metric)}</Typography>
-                </Grid>
-              ))}
-            </Grid>
-          </Box>
-        ) : null}
-
-        {profilingData.topValues.length ? (
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Top Values
-            </Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Value</TableCell>
-                  <TableCell>Count</TableCell>
-                  <TableCell>Percentage</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {profilingData.topValues.map((entry, index) => (
-                  <TableRow key={`${String(entry.value)}-${index}`}>
-                    <TableCell>{formatFrequencyValue(entry.value)}</TableCell>
-                    <TableCell>{formatCountDisplay(entry.count ?? null)}</TableCell>
-                    <TableCell>{formatPercentageDisplay(entry.percentage ?? null)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        ) : null}
-
-        {profilingData.histogram.length ? (
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Distribution
-            </Typography>
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Stack spacing={1.5}>
-                {profilingData.histogram.map((bin, index) => {
-                  const count = typeof bin.count === 'number' ? bin.count : 0;
-                  const percent = histogramMax > 0 ? (count / histogramMax) * 100 : 0;
-                  const key = `${bin.label}-${bin.lower ?? 'min'}-${bin.upper ?? 'max'}-${index}`;
-                  return (
-                    <Box key={key}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2">{bin.label || 'Range'}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {formatCountDisplay(bin.count ?? null)}
-                        </Typography>
-                      </Stack>
-                      <LinearProgress
-                        variant="determinate"
-                        value={percent}
-                        sx={{ height: 6, borderRadius: 999, mt: 0.5 }}
-                      />
-                    </Box>
-                  );
-                })}
-              </Stack>
-            </Paper>
-          </Box>
-        ) : null}
-
-        {profilingData.anomalies.length ? (
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Recent Anomalies
-            </Typography>
-            <Stack spacing={1}>
-              {profilingData.anomalies.map((anomaly, index) => (
-                <Alert
-                  key={`${anomaly.anomalyType}-${anomaly.detectedAt ?? index}`}
-                  severity={mapAnomalySeverity(anomaly.severity)}
-                >
-                  <Stack spacing={0.5}>
-                    <Typography variant="subtitle2">{anomaly.anomalyType}</Typography>
-                    <Typography variant="body2">{anomaly.description}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatDateTimeDisplay(anomaly.detectedAt)}
-                    </Typography>
-                  </Stack>
-                </Alert>
-              ))}
-            </Stack>
-          </Box>
-        ) : null}
-      </Stack>
-    );
-  };
 
   return (
     <Stack spacing={3}>
@@ -1436,7 +1191,14 @@ const DataQualityTestSuiteDefinitionPage = () => {
         maxWidth="md"
       >
         <DialogTitle>Column Profiling</DialogTitle>
-        <DialogContent dividers>{renderProfilingContent()}</DialogContent>
+        <DialogContent dividers sx={{ minWidth: 360 }}>
+          <ColumnProfilePanel
+            profile={profilingData ?? null}
+            isLoading={profilingIsLoading}
+            error={profilingErrorMessage}
+            emptyHint="Profiling results are not available for this column yet. Trigger a profiling run to generate baseline metrics."
+          />
+        </DialogContent>
         <DialogActions>
           <Button onClick={handleProfilingClose}>Close</Button>
         </DialogActions>
