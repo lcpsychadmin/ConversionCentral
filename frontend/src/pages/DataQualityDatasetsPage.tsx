@@ -1,7 +1,20 @@
 import { MouseEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Divider,
+  InputAdornment,
+  Paper,
+  Stack,
+  TextField,
+  Typography
+} from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import SearchIcon from '@mui/icons-material/Search';
 import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
 import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import { useMutation, useQueries, UseQueryResult, useQuery } from 'react-query';
@@ -33,6 +46,8 @@ const resolveErrorMessage = (error: unknown) =>
 
 const formatDescription = (value?: string | null) =>
   value && value.trim().length > 0 ? value : 'No description provided.';
+
+const TREE_SEARCH_DEFAULT_HELPER = 'Press Enter to jump to the first match.';
 
 const STATUS_RUNNING = ['running', 'queued', 'pending', 'in_progress', 'starting'];
 const STATUS_FAILED = ['failed', 'error', 'errored', 'cancelled', 'canceled'];
@@ -200,6 +215,15 @@ const buildDataObjectNodeId = (
 const buildTableNodeId = (tableId: string) => `table:${tableId}`;
 const buildFieldNodeId = (fieldId: string) => `field:${fieldId}`;
 
+const NODE_SEARCH_PRIORITY: Record<DatasetNodeType, number> = {
+  field: 1,
+  table: 2,
+  dataObject: 3,
+  application: 4,
+  productTeam: 5,
+  root: 99
+};
+
 interface HierarchySummary {
   productTeamCount: number;
   applicationCount: number;
@@ -239,6 +263,83 @@ const renderCountChip = (value: number, label: string) => (
     label={`${value.toLocaleString()} ${label}${value === 1 ? '' : 's'}`}
   />
 );
+
+const nodeMatchesSearch = (node: DatasetNodeContext, normalized: string) => {
+  const values: Array<string | null | undefined> = [];
+  switch (node.type) {
+    case 'productTeam':
+      values.push(node.productTeam?.name, node.productTeam?.description);
+      break;
+    case 'application':
+      values.push(node.application?.name, node.application?.description, node.application?.physicalName);
+      break;
+    case 'dataObject':
+      values.push(node.dataObject?.name, node.dataObject?.description);
+      break;
+    case 'table':
+      if (node.table) {
+        values.push(formatTablePrimary(node.table), formatTableSecondary(node.table), node.table.description);
+      }
+      break;
+    case 'field':
+      if (node.field) {
+        values.push(
+          node.field.name,
+          node.field.description,
+          node.field.fieldType,
+          node.field.referenceTable,
+          formatFieldSubtitle(node.field)
+        );
+      }
+      break;
+    default:
+      values.push('All Product Teams');
+      break;
+  }
+  return values
+    .filter((value): value is string => Boolean(value && value.trim().length > 0))
+    .some((value) => value.toLowerCase().includes(normalized));
+};
+
+const describeNode = (node: DatasetNodeContext): string => {
+  switch (node.type) {
+    case 'productTeam':
+      return `team "${node.productTeam?.name ?? 'Team'}"`;
+    case 'application':
+      return `application "${node.application?.name ?? 'Application'}"`;
+    case 'dataObject':
+      return `data object "${node.dataObject?.name ?? 'Data Object'}"`;
+    case 'table':
+      return `table "${node.table ? formatTablePrimary(node.table) : 'Table'}"`;
+    case 'field':
+      return `field "${node.field?.name ?? 'Field'}"`;
+    default:
+      return 'catalog overview';
+  }
+};
+
+const collectAncestorIds = (node: DatasetNodeContext): string[] => {
+  const ids = new Set<string>([ROOT_NODE_ID]);
+  if (node.productTeam) {
+    ids.add(buildProductTeamNodeId(node.productTeam.productTeamId));
+  }
+  if (node.application && node.productTeam) {
+    ids.add(buildApplicationNodeId(node.productTeam.productTeamId, node.application.applicationId));
+  }
+  if (node.dataObject && node.productTeam && node.application) {
+    ids.add(
+      buildDataObjectNodeId(
+        node.productTeam.productTeamId,
+        node.application.applicationId,
+        node.dataObject.dataObjectId
+      )
+    );
+  }
+  if (node.table) {
+    ids.add(buildTableNodeId(node.table.dataDefinitionTableId));
+  }
+  return Array.from(ids);
+};
 
 const StatTile = ({ label, value }: { label: string; value: ReactNode }) => (
   <Stack
@@ -365,6 +466,9 @@ const DataQualityDatasetsPage = () => {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<string[]>([ROOT_NODE_ID]);
+  const [treeSearch, setTreeSearch] = useState('');
+  const [treeSearchHelper, setTreeSearchHelper] = useState(TREE_SEARCH_DEFAULT_HELPER);
+  const [treeSearchHasError, setTreeSearchHasError] = useState(false);
 
   const hierarchyQuery = useQuery<DataQualityDatasetProductTeam[]>(
     ['data-quality', 'dataset-hierarchy'],
@@ -504,6 +608,63 @@ const DataQualityDatasetsPage = () => {
   }, [hierarchyData]);
 
   const hasHierarchyData = hierarchyData.length > 0;
+
+  const findNodeBySearch = useCallback(
+    (query: string): DatasetNodeContext | null => {
+      const normalized = query.trim().toLowerCase();
+      if (!normalized) {
+        return null;
+      }
+      let bestMatch: DatasetNodeContext | null = null;
+      let bestPriority = Number.POSITIVE_INFINITY;
+      for (const node of nodeLookup.values()) {
+        if (!node || node.id === ROOT_NODE_ID) {
+          continue;
+        }
+        if (!nodeMatchesSearch(node, normalized)) {
+          continue;
+        }
+        const priority = NODE_SEARCH_PRIORITY[node.type] ?? 99;
+        if (!bestMatch || priority < bestPriority) {
+          bestMatch = node;
+          bestPriority = priority;
+        }
+      }
+      return bestMatch;
+    },
+    [nodeLookup]
+  );
+
+  const jumpToNode = useCallback(
+    (node: DatasetNodeContext) => {
+      setSelectedNodeId(node.id);
+      const ancestors = collectAncestorIds(node);
+      setExpandedItems((prev) => {
+        const next = new Set(prev);
+        ancestors.forEach((id) => next.add(id));
+        return Array.from(next);
+      });
+    },
+    [setSelectedNodeId, setExpandedItems]
+  );
+
+  const handleTreeSearchSubmit = useCallback(() => {
+    const normalized = treeSearch.trim();
+    if (!normalized) {
+      setTreeSearchHelper('Enter a search term to locate datasets.');
+      setTreeSearchHasError(true);
+      return;
+    }
+    const match = findNodeBySearch(normalized);
+    if (match) {
+      jumpToNode(match);
+      setTreeSearchHelper(`Jumped to ${describeNode(match)}.`);
+      setTreeSearchHasError(false);
+    } else {
+      setTreeSearchHelper(`No matches found for "${normalized}".`);
+      setTreeSearchHasError(true);
+    }
+  }, [treeSearch, findNodeBySearch, jumpToNode]);
 
   const selectedTableId = selectedContext?.table?.dataDefinitionTableId ?? null;
   const shouldLoadTableContext = Boolean(
@@ -1134,14 +1295,52 @@ const DataQualityDatasetsPage = () => {
               maxHeight: { xs: '100%', lg: 640 }
             }}
           >
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-              <Typography fontWeight={600}>Dataset Hierarchy</Typography>
-              <Stack direction="row" spacing={1}>
-                <Button size="small" onClick={handleExpandAll} disabled={!hasHierarchyData}>
-                  Expand all
-                </Button>
-                <Button size="small" onClick={handleCollapseAll} disabled={!hasHierarchyData}>
-                  Collapse
+            <Stack spacing={1.5} sx={{ mb: 1 }}>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography fontWeight={600}>Dataset Hierarchy</Typography>
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" onClick={handleExpandAll} disabled={!hasHierarchyData}>
+                    Expand all
+                  </Button>
+                  <Button size="small" onClick={handleCollapseAll} disabled={!hasHierarchyData}>
+                    Collapse
+                  </Button>
+                </Stack>
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'flex-end' }}>
+                <TextField
+                  label="Quick search"
+                  size="small"
+                  fullWidth
+                  value={treeSearch}
+                  onChange={(event) => {
+                    setTreeSearch(event.target.value);
+                    setTreeSearchHelper(TREE_SEARCH_DEFAULT_HELPER);
+                    setTreeSearchHasError(false);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleTreeSearchSubmit();
+                    }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    )
+                  }}
+                  helperText={treeSearchHelper}
+                  error={treeSearchHasError}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleTreeSearchSubmit}
+                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' }, minWidth: { sm: 80 } }}
+                >
+                  Jump
                 </Button>
               </Stack>
             </Stack>

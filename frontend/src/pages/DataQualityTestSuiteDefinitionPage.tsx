@@ -29,6 +29,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
 
 import PageHeader from '@components/common/PageHeader';
@@ -81,8 +82,13 @@ interface FormState {
 }
 
 interface ColumnProfilingContext {
+  testId: string;
+  testName: string;
+  ruleTypeLabel: string;
   tableGroupId: string;
   columnName: string;
+  tableDisplayName: string;
+  schemaName: string | null;
   tableName: string | null;
   physicalName: string | null;
 }
@@ -751,10 +757,19 @@ const DataQualityTestSuiteDefinitionPage = () => {
       return;
     }
 
+    const resolvedTableName = selectedTest.tableName ?? selectedTest.physicalName ?? null;
+    const tableDisplayName = resolvedTableName ?? 'Unmapped table';
+    const ruleTypeLabel = getTestTypeLabel(selectedTest.ruleType);
+
     setProfilingContext({
+      testId: selectedTest.testId,
+      testName: selectedTest.name,
+      ruleTypeLabel,
       tableGroupId: selectedTest.tableGroupId,
       columnName: selectedTest.columnName,
-      tableName: selectedTest.tableName ?? selectedTest.physicalName ?? null,
+      tableDisplayName,
+      schemaName: selectedTest.schemaName ?? null,
+      tableName: resolvedTableName,
       physicalName: selectedTest.physicalName ?? null
     });
   };
@@ -780,6 +795,7 @@ const DataQualityTestSuiteDefinitionPage = () => {
       ? profilingQuery.error.message
       : 'Unable to load column profiling.'
     : null;
+  const refetchProfiling = profilingQuery.refetch;
   const isLoading = suiteQuery.isLoading || testsQuery.isLoading || testTypesQuery.isLoading;
   const testsError = testsQuery.isError;
 
@@ -1184,14 +1200,56 @@ const DataQualityTestSuiteDefinitionPage = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={Boolean(profilingContext)}
-        onClose={handleProfilingClose}
-        fullWidth
-        maxWidth="md"
-      >
-        <DialogTitle>Column Profiling</DialogTitle>
+      <Dialog open={Boolean(profilingContext)} onClose={handleProfilingClose} fullWidth maxWidth="md">
+        <DialogTitle>
+          {profilingContext ? `${profilingContext.columnName} Profiling` : 'Column Profiling'}
+        </DialogTitle>
         <DialogContent dividers sx={{ minWidth: 360 }}>
+          {profilingContext ? (
+            <>
+              <Stack spacing={1.5} sx={{ mb: 2 }}>
+                <Stack spacing={0.25}>
+                  <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
+                    {profilingContext.testName}
+                  </Typography>
+                  <Typography variant="h6">{profilingContext.columnName}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {profilingContext.schemaName
+                      ? `${profilingContext.schemaName}.${profilingContext.tableDisplayName}`
+                      : profilingContext.tableDisplayName}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                    Table Group: {profilingContext.tableGroupId}
+                  </Typography>
+                </Stack>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  alignItems={{ sm: 'center' }}
+                  flexWrap="wrap"
+                >
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    <Chip label={profilingContext.ruleTypeLabel} size="small" color="primary" variant="outlined" />
+                    <Chip label={profilingContext.tableDisplayName} size="small" variant="outlined" />
+                  </Stack>
+                  <Box flexGrow={1} />
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    onClick={() => {
+                      if (!profilingIsLoading) {
+                        void refetchProfiling();
+                      }
+                    }}
+                    disabled={profilingIsLoading}
+                  >
+                    Refresh metrics
+                  </Button>
+                </Stack>
+              </Stack>
+              <Divider sx={{ mb: 2 }} />
+            </>
+          ) : null}
           <ColumnProfilePanel
             profile={profilingData ?? null}
             isLoading={profilingIsLoading}
