@@ -304,6 +304,47 @@ class TestGenClient:
         )
         return self._fetch(statement, {"table_group_id": table_group_id})
 
+    def fetch_table_characteristics(
+        self,
+        *,
+        table_ids: Sequence[str] | None = None,
+        table_group_ids: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        table_chars_table = _format_table(self._params.catalog, self._schema, "dq_data_table_chars")
+        filters: list[str] = []
+        params: dict[str, Any] = {}
+
+        if table_ids:
+            filters.append("table_id IN :table_ids")
+            params["table_ids"] = tuple(table_ids)
+        if table_group_ids:
+            filters.append("table_group_id IN :table_group_ids")
+            params["table_group_ids"] = tuple(table_group_ids)
+
+        where_clause = f" WHERE {' AND '.join(filters)}" if filters else ""
+        statement = text(
+            f"""
+            SELECT
+                table_id,
+                table_group_id,
+                schema_name,
+                table_name,
+                record_count,
+                column_count,
+                latest_anomaly_ct,
+                dq_score_profiling,
+                latest_run_completed_at
+            FROM {table_chars_table}{where_clause}
+            """
+        )
+
+        if table_ids:
+            statement = statement.bindparams(bindparam("table_ids", expanding=True))
+        if table_group_ids:
+            statement = statement.bindparams(bindparam("table_group_ids", expanding=True))
+
+        return self._with_profiling_retry(lambda: self._fetch(statement, params))
+
     def list_test_suites(
         self,
         *,

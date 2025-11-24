@@ -13,7 +13,9 @@ from app.models import DataObject, ProcessArea, System, SystemConnection
 from app.routers.data_quality_testgen import get_testgen_client
 from app.schemas.data_quality import (
     DataQualityBulkProfileRunResponse,
+    DataQualityDatasetProfilingStatsResponse,
     DataQualityDatasetProductTeam,
+    DataQualityDatasetTableContext,
     DataQualityProfileRunEntry,
     DataQualityProfileRunListResponse,
     DataQualityProfileRunTableGroup,
@@ -22,6 +24,7 @@ from app.schemas.data_quality import (
 )
 from app.services.data_quality_keys import parse_connection_id, parse_table_group_id
 from app.services.data_quality_datasets import build_dataset_hierarchy
+from app.services.data_quality_dataset_stats import build_dataset_profiling_stats
 from app.services.data_quality_profiling import (
     CALLBACK_URL_PLACEHOLDER,
     DataQualityProfilingService,
@@ -29,7 +32,7 @@ from app.services.data_quality_profiling import (
     ProfilingServiceError,
     ProfilingTargetNotFound,
 )
-from app.services.data_quality_table_context import resolve_table_contexts_for_data_object
+from app.services.data_quality_table_context import resolve_table_context, resolve_table_contexts_for_data_object
 from app.services.data_quality_testgen import TestGenClient, TestGenClientError
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,43 @@ def _resolve_connection_uuid(
 @router.get("/datasets", response_model=List[DataQualityDatasetProductTeam])
 def get_dataset_hierarchy(db: Session = Depends(get_db)) -> List[DataQualityDatasetProductTeam]:
     return build_dataset_hierarchy(db)
+
+
+@router.get(
+    "/datasets/profiling-stats",
+    response_model=DataQualityDatasetProfilingStatsResponse,
+)
+def get_dataset_profiling_stats(
+    db: Session = Depends(get_db),
+    client: TestGenClient = Depends(get_testgen_client),
+) -> DataQualityDatasetProfilingStatsResponse:
+    try:
+        return build_dataset_profiling_stats(db, client)
+    except TestGenClientError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get(
+    "/datasets/tables/{data_definition_table_id}/context",
+    response_model=DataQualityDatasetTableContext,
+)
+def get_dataset_table_context(
+    data_definition_table_id: UUID,
+    db: Session = Depends(get_db)
+) -> DataQualityDatasetTableContext:
+    context = resolve_table_context(db, data_definition_table_id)
+    return DataQualityDatasetTableContext(
+        data_definition_table_id=context.data_definition_table_id,
+        data_definition_id=context.data_definition_id,
+        data_object_id=context.data_object_id,
+        application_id=context.application_id,
+        product_team_id=context.product_team_id,
+        table_group_id=context.table_group_id,
+        table_id=context.table_id,
+        schema_name=context.schema_name,
+        table_name=context.table_name,
+        physical_name=context.physical_name,
+    )
 
 
 def get_profiling_service(client: TestGenClient = Depends(get_testgen_client)) -> DataQualityProfilingService:

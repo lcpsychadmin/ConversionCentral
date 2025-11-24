@@ -5,11 +5,19 @@ from typing import Dict, List
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models.entities import DataDefinition, DataDefinitionTable, DataObject, ProcessArea, System
+from app.models.entities import (
+    DataDefinition,
+    DataDefinitionField,
+    DataDefinitionTable,
+    DataObject,
+    ProcessArea,
+    System,
+)
 from app.schemas.data_quality import (
     DataQualityDatasetApplication,
     DataQualityDatasetDataObject,
     DataQualityDatasetDefinition,
+    DataQualityDatasetField,
     DataQualityDatasetProductTeam,
     DataQualityDatasetTable,
 )
@@ -31,6 +39,9 @@ def build_dataset_hierarchy(db: Session) -> List[DataQualityDatasetProductTeam]:
             joinedload(DataDefinition.data_object).joinedload(DataObject.process_area),
             joinedload(DataDefinition.system),
             selectinload(DataDefinition.tables).selectinload(DataDefinitionTable.table),
+            selectinload(DataDefinition.tables)
+            .selectinload(DataDefinitionTable.fields)
+            .selectinload(DataDefinitionField.field),
         )
     )
     definitions = db.execute(stmt).unique().scalars().all()
@@ -47,22 +58,52 @@ def build_dataset_hierarchy(db: Session) -> List[DataQualityDatasetProductTeam]:
         if process_area is None:
             continue
 
-        tables = [
-            DataQualityDatasetTable(
-                data_definition_table_id=table_link.id,
-                table_id=table_link.table.id,
-                schema_name=table_link.table.schema_name,
-                table_name=table_link.table.name,
-                physical_name=table_link.table.physical_name,
-                alias=table_link.alias,
-                description=table_link.description or table_link.table.description,
-                load_order=table_link.load_order,
-                is_constructed=table_link.is_construction,
-                table_type=table_link.table.table_type,
+        tables = []
+        for table_link in definition.tables:
+            if table_link.table is None:
+                continue
+
+            field_links = [
+                DataQualityDatasetField(
+                    data_definition_field_id=field_link.id,
+                    field_id=field_link.field.id,
+                    name=field_link.field.name,
+                    description=field_link.field.description,
+                    field_type=field_link.field.field_type,
+                    field_length=field_link.field.field_length,
+                    decimal_places=field_link.field.decimal_places,
+                    application_usage=field_link.field.application_usage,
+                    business_definition=field_link.field.business_definition,
+                    notes=field_link.notes,
+                    display_order=field_link.display_order,
+                    is_unique=field_link.is_unique,
+                    reference_table=field_link.field.reference_table,
+                )
+                for field_link in sorted(
+                    table_link.fields,
+                    key=lambda entry: (
+                        entry.display_order,
+                        entry.field.name.lower() if entry.field and entry.field.name else "",
+                    ),
+                )
+                if field_link.field is not None
+            ]
+
+            tables.append(
+                DataQualityDatasetTable(
+                    data_definition_table_id=table_link.id,
+                    table_id=table_link.table.id,
+                    schema_name=table_link.table.schema_name,
+                    table_name=table_link.table.name,
+                    physical_name=table_link.table.physical_name,
+                    alias=table_link.alias,
+                    description=table_link.description or table_link.table.description,
+                    load_order=table_link.load_order,
+                    is_constructed=table_link.is_construction,
+                    table_type=table_link.table.table_type,
+                    fields=field_links,
+                )
             )
-            for table_link in definition.tables
-            if table_link.table is not None
-        ]
 
         product_entry = product_map.setdefault(
             str(process_area.id),

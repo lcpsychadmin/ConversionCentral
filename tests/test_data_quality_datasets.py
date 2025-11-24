@@ -8,8 +8,10 @@ from app.routers.data_quality import get_profiling_service
 from app.models.entities import (
     ConnectionTableSelection,
     DataDefinition,
+    DataDefinitionField,
     DataDefinitionTable,
     DataObject,
+    Field,
     ProcessArea,
     System,
     SystemConnection,
@@ -99,7 +101,22 @@ def _seed_dataset_context(db_session, *, include_connection: bool = True, connec
         load_order=1,
     )
 
-    db_session.add_all([product_team, system, data_object, definition, table, definition_table])
+    field = Field(
+        table=table,
+        name="invoice_id",
+        description="Invoice identifier",
+        field_type="string",
+        field_length=64,
+    )
+    definition_field = DataDefinitionField(
+        definition_table=definition_table,
+        field=field,
+        display_order=1,
+        is_unique=True,
+        notes="Primary key",
+    )
+
+    db_session.add_all([product_team, system, data_object, definition, table, definition_table, field, definition_field])
 
     connection = None
     selection = None
@@ -166,8 +183,23 @@ def test_dataset_hierarchy_groups_by_product_team_application_and_data_object(cl
         load_order=1,
         is_construction=False,
     )
+    field = Field(
+        table=table,
+        name="invoice_id",
+        description="Invoice identifier",
+        field_type="string",
+        field_length=64,
+        decimal_places=None,
+    )
+    definition_field = DataDefinitionField(
+        definition_table=definition_table,
+        field=field,
+        display_order=0,
+        is_unique=True,
+        notes="Primary key",
+    )
 
-    db_session.add_all([product_team, system, data_object, definition, table, definition_table])
+    db_session.add_all([product_team, system, data_object, definition, table, definition_table, field, definition_field])
     db_session.commit()
 
     response = client.get("/data-quality/datasets")
@@ -205,6 +237,23 @@ def test_dataset_hierarchy_groups_by_product_team_application_and_data_object(cl
                                             "loadOrder": 1,
                                             "isConstructed": False,
                                             "tableType": "base",
+                                            "fields": [
+                                                {
+                                                    "dataDefinitionFieldId": str(definition_field.id),
+                                                    "fieldId": str(field.id),
+                                                    "name": "invoice_id",
+                                                    "description": "Invoice identifier",
+                                                    "fieldType": "string",
+                                                    "fieldLength": 64,
+                                                    "decimalPlaces": None,
+                                                    "applicationUsage": None,
+                                                    "businessDefinition": None,
+                                                    "notes": "Primary key",
+                                                    "displayOrder": 0,
+                                                    "isUnique": True,
+                                                    "referenceTable": None,
+                                                }
+                                            ],
                                         }
                                     ],
                                 }
@@ -253,6 +302,18 @@ def test_start_profile_runs_returns_400_when_no_active_connections(client, db_se
 
     assert response.status_code == 400
     assert stub.calls == []
+
+
+def test_get_table_context_returns_table_group(client, db_session):
+    context = _seed_dataset_context(db_session)
+    expected_group = build_table_group_id(context["connection"].id, context["data_object_id"])
+
+    response = client.get(f"/data-quality/datasets/tables/{context['definition_table_id']}/context")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tableGroupId"] == expected_group
+    assert payload["dataDefinitionTableId"] == str(context["definition_table_id"])
 
 
 def test_start_profile_runs_returns_404_when_no_tables(client, db_session):

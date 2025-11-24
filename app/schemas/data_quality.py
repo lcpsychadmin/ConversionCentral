@@ -254,6 +254,25 @@ class AlertAcknowledgeRequest(BaseModel):
     acknowledged_at: Optional[datetime] = None
 
 
+class DataQualityDatasetField(BaseModel):
+    data_definition_field_id: UUID = Field(alias="dataDefinitionFieldId")
+    field_id: UUID = Field(alias="fieldId")
+    name: str
+    description: Optional[str] = None
+    field_type: Optional[str] = Field(default=None, alias="fieldType")
+    field_length: Optional[int] = Field(default=None, alias="fieldLength")
+    decimal_places: Optional[int] = Field(default=None, alias="decimalPlaces")
+    application_usage: Optional[str] = Field(default=None, alias="applicationUsage")
+    business_definition: Optional[str] = Field(default=None, alias="businessDefinition")
+    notes: Optional[str] = None
+    display_order: Optional[int] = Field(default=None, alias="displayOrder")
+    is_unique: Optional[bool] = Field(default=None, alias="isUnique")
+    reference_table: Optional[str] = Field(default=None, alias="referenceTable")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 class DataQualityDatasetTable(BaseModel):
     data_definition_table_id: UUID = Field(alias="dataDefinitionTableId")
     table_id: UUID = Field(alias="tableId")
@@ -265,6 +284,23 @@ class DataQualityDatasetTable(BaseModel):
     load_order: Optional[int] = Field(default=None, alias="loadOrder")
     is_constructed: bool = Field(alias="isConstructed")
     table_type: Optional[str] = Field(default=None, alias="tableType")
+    fields: List[DataQualityDatasetField] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetTableContext(BaseModel):
+    data_definition_table_id: UUID = Field(alias="dataDefinitionTableId")
+    data_definition_id: UUID = Field(alias="dataDefinitionId")
+    data_object_id: UUID = Field(alias="dataObjectId")
+    application_id: UUID = Field(alias="applicationId")
+    product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
+    table_group_id: str = Field(alias="tableGroupId")
+    table_id: Optional[str] = Field(default=None, alias="tableId")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: Optional[str] = Field(default=None, alias="tableName")
+    physical_name: Optional[str] = Field(default=None, alias="physicalName")
 
     class Config:
         allow_population_by_field_name = True
@@ -305,6 +341,38 @@ class DataQualityDatasetProductTeam(BaseModel):
     name: str
     description: Optional[str] = None
     applications: List[DataQualityDatasetApplication] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfilingStats(BaseModel):
+    table_count: int = Field(alias="tableCount")
+    profiled_table_count: int = Field(alias="profiledTableCount")
+    row_count: Optional[int] = Field(default=None, alias="rowCount")
+    column_count: Optional[int] = Field(default=None, alias="columnCount")
+    profiled_column_count: Optional[int] = Field(default=None, alias="profiledColumnCount")
+    anomaly_count: Optional[int] = Field(default=None, alias="anomalyCount")
+    dq_score: Optional[float] = Field(default=None, alias="dqScore")
+    last_completed_at: Optional[datetime] = Field(default=None, alias="lastCompletedAt")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityTableProfilingStats(DataQualityProfilingStats):
+    table_group_id: str = Field(alias="tableGroupId")
+    table_id: Optional[str] = Field(default=None, alias="tableId")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityDatasetProfilingStatsResponse(BaseModel):
+    product_teams: Dict[str, DataQualityProfilingStats] = Field(default_factory=dict, alias="productTeams")
+    applications: Dict[str, DataQualityProfilingStats] = Field(default_factory=dict)
+    data_objects: Dict[str, DataQualityProfilingStats] = Field(default_factory=dict, alias="dataObjects")
+    tables: Dict[str, DataQualityTableProfilingStats] = Field(default_factory=dict)
 
     class Config:
         allow_population_by_field_name = True

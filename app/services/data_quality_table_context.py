@@ -40,6 +40,10 @@ def _matches_selection(
 @dataclass(frozen=True)
 class TableContext:
     data_definition_table_id: UUID
+    data_definition_id: UUID
+    data_object_id: UUID
+    application_id: UUID
+    product_team_id: UUID | None
     table_group_id: str
     table_id: str | None
     schema_name: str | None
@@ -49,13 +53,26 @@ class TableContext:
 
 def _build_table_context(table_link: DataDefinitionTable) -> TableContext:
     definition: DataDefinition | None = table_link.data_definition
-    if definition is None or definition.data_object_id is None or definition.system is None:
+    if (
+        definition is None
+        or definition.id is None
+        or definition.data_object_id is None
+        or definition.system is None
+        or definition.system.id is None
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="Data definition table is not linked to a valid system and data object",
         )
 
     system: System = definition.system
+    data_object = definition.data_object
+    if data_object is None or data_object.id is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Data definition table is not linked to a valid data object",
+        )
+
     data_object_id = definition.data_object_id
 
     logical_name = table_link.table.name if table_link.table is not None else None
@@ -93,6 +110,10 @@ def _build_table_context(table_link: DataDefinitionTable) -> TableContext:
 
     return TableContext(
         data_definition_table_id=table_link.id,
+        data_definition_id=definition.id,
+        data_object_id=data_object_id,
+        application_id=system.id,
+        product_team_id=data_object.process_area_id if data_object else None,
         table_group_id=table_group_id,
         table_id=table_id,
         schema_name=table_schema,
@@ -149,3 +170,27 @@ def resolve_table_contexts_for_data_object(
             skipped.append(table_link.id)
             continue
     return contexts, skipped
+
+
+def resolve_all_table_contexts(db: Session) -> List[TableContext]:
+    table_links: Iterable[DataDefinitionTable] = (
+        db.query(DataDefinitionTable)
+        .join(DataDefinition)
+        .options(
+            joinedload(DataDefinitionTable.data_definition)
+            .joinedload(DataDefinition.system)
+            .joinedload(System.connections)
+            .selectinload(SystemConnection.catalog_selections),
+            joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.data_object),
+            joinedload(DataDefinitionTable.table),
+        )
+        .all()
+    )
+
+    contexts: List[TableContext] = []
+    for table_link in table_links:
+        try:
+            contexts.append(_build_table_context(table_link))
+        except HTTPException:
+            continue
+    return contexts
