@@ -564,6 +564,13 @@ const SourceSystemsPage = () => {
       useDatabricksManagedConnection: values.useDatabricksManagedConnection
     };
 
+    if (values.useDatabricksManagedConnection) {
+      const catalogOverride = values.databricksCatalogOverride?.trim();
+      payload.databricksCatalog = catalogOverride ? catalogOverride : null;
+      const schemaOverride = values.databricksSchemaOverride?.trim();
+      payload.databricksSchema = schemaOverride ? schemaOverride : null;
+    }
+
     if (connectionString !== null) {
       payload.connectionString = connectionString;
     }
@@ -632,6 +639,8 @@ const SourceSystemsPage = () => {
     : null;
 
   const detailSystem = selectedConnection ? systemLookup.get(selectedConnection.systemId) : null;
+  const newConnectionDisabled =
+    connectionBusy || visibleSystems.length === 0 || !selectedSystem;
 
   return (
     <Box>
@@ -723,7 +732,7 @@ const SourceSystemsPage = () => {
               <Button
                 variant="contained"
                 onClick={handleConnectionCreateClick}
-                disabled={connectionBusy || visibleSystems.length === 0}
+                disabled={newConnectionDisabled}
               >
                 New Connection
               </Button>
@@ -854,6 +863,9 @@ const SourceSystemsPage = () => {
             title={connectionFormMode === 'create' ? 'Create Connection' : 'Edit Connection'}
             systems={visibleSystems}
             initialValues={connectionFormMode === 'edit' ? selectedConnection : null}
+            defaultSystemId={connectionFormMode === 'create' ? selectedSystem?.id ?? null : null}
+            systemLocked={connectionFormMode === 'create' && Boolean(selectedSystem)}
+            managedWarehouseCatalog={databricksSettingsQuery.data?.catalog ?? null}
             loading={connectionSaving}
             testing={testing}
             onClose={handleConnectionFormClose}

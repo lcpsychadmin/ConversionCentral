@@ -13,5 +13,6 @@ pyodbc==5.1.0
 databricks-sql-connector==3.4.0
 databricks-connect==14.3.2
 python-multipart==0.0.9
+openpyxl==3.1.5
 PyYAML==6.0.2
 requests==2.32.5

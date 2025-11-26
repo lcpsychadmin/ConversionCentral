@@ -8,7 +8,7 @@ from app.models import ApplicationDatabaseSetting
 def test_status_not_configured(client):
     response = client.get("/application-database/status")
     assert response.status_code == 200
-    assert response.json() == {"configured": False, "setting": None, "admin_email": None}
+    assert response.json() == {"configured": True, "setting": None, "admin_email": None}
 
 
 @pytest.mark.parametrize("engine_value", ["default_postgres"])

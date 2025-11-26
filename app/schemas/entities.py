@@ -992,6 +992,8 @@ class SystemConnectionBase(BaseModel):
 
 class SystemConnectionCreate(SystemConnectionBase):
     connection_string: Optional[str] = Field(None, min_length=1)
+    databricks_catalog: Optional[str] = Field(None, max_length=120)
+    databricks_schema: Optional[str] = Field(None, max_length=120)
     use_databricks_managed_connection: bool = False
 
     @root_validator
@@ -1002,6 +1004,8 @@ class SystemConnectionCreate(SystemConnectionBase):
             raise ValueError(
                 "connection_string is required unless use_databricks_managed_connection is true."
             )
+        if values.get("databricks_schema") and not values.get("databricks_catalog"):
+            raise ValueError("databricks_schema requires databricks_catalog to be set.")
         return values
 
 
@@ -1014,6 +1018,14 @@ class SystemConnectionUpdate(BaseModel):
     ingestion_enabled: Optional[bool] = None
     notes: Optional[str] = None
     use_databricks_managed_connection: Optional[bool] = None
+    databricks_catalog: Optional[str] = Field(None, max_length=120)
+    databricks_schema: Optional[str] = Field(None, max_length=120)
+
+    @root_validator
+    def _validate_schema_dependency(cls, values: dict) -> dict:
+        if values.get("databricks_schema") and not values.get("databricks_catalog"):
+            raise ValueError("databricks_schema requires databricks_catalog to be set.")
+        return values
 
 
 class SystemConnectionRead(SystemConnectionBase, TimestampSchema):
@@ -1217,6 +1229,8 @@ class DatabricksSqlSettingTestRequest(BaseModel):
     ingestion_method: Optional[str] = Field(None, regex=r"^(sql|spark)$")
     ingestion_batch_rows: Optional[int] = Field(None, ge=1, le=100_000)
     spark_compute: Optional[str] = Field(None, regex=r"^(classic|serverless)$")
+    profiling_policy_id: Optional[str] = Field(None, max_length=120)
+    profiling_notebook_path: Optional[str] = Field(None, max_length=400)
 
 
 class DatabricksSqlSettingTestResult(BaseModel):

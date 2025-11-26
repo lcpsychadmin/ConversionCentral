@@ -151,7 +151,7 @@ const ProcessAreasPage = () => {
   const busy = creating || updating || deleting;
   const tableLoading = processAreasLoading;
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
     : null;
   const dataObjectsErrorMessage = dataObjectsError
     ? getErrorMessage(dataObjectsErrorDetails, 'Unable to load data objects.')
@@ -165,12 +165,12 @@ const ProcessAreasPage = () => {
   return (
     <Box>
       <PageHeader
-        title="Product Teams"
-        subtitle="Manage product teams and review their related data objects."
+        title="Process Areas"
+        subtitle="Manage process areas and review their related data objects."
         actions={
           canManage ? (
             <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
-              New Product Team
+              New Process Area
             </Button>
           ) : undefined
         }
@@ -223,7 +223,7 @@ const ProcessAreasPage = () => {
             gutterBottom
             sx={{ color: isDarkMode ? theme.palette.common.white : theme.palette.primary.dark, fontWeight: 700, mb: 2.5 }}
           >
-            Product Team Details
+            Process Area Details
           </Typography>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
@@ -256,7 +256,7 @@ const ProcessAreasPage = () => {
                   </Typography>
                 </Box>
               ) : assignedDataObjects.length === 0 ? (
-                <Alert severity="info">No data objects are linked to this product team yet.</Alert>
+                <Alert severity="info">No data objects are linked to this process area yet.</Alert>
               ) : (
                 <List dense>
                   {assignedDataObjects.map((obj) => (
@@ -280,7 +280,7 @@ const ProcessAreasPage = () => {
       {canManage && (
         <ProcessAreaForm
           open={formOpen}
-          title={formMode === 'create' ? 'Create Product Team' : 'Edit Product Team'}
+          title={formMode === 'create' ? 'Create Process Area' : 'Edit Process Area'}
           initialValues={formMode === 'edit' ? selected : null}
           loading={busy}
           onClose={handleFormClose}
@@ -290,7 +290,7 @@ const ProcessAreasPage = () => {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete Product Team"
+        title="Delete Process Area"
         description={`Are you sure you want to delete "${selected?.name ?? ''}"? This action cannot be undone.`}
         confirmLabel="Delete"
         onClose={() => setConfirmOpen(false)}

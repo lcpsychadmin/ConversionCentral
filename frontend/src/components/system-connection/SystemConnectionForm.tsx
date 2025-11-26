@@ -28,6 +28,9 @@ interface SystemConnectionFormProps {
   title: string;
   systems: System[];
   initialValues?: SystemConnection | null;
+  defaultSystemId?: string | null;
+  systemLocked?: boolean;
+  managedWarehouseCatalog?: string | null;
   loading?: boolean;
   testing?: boolean;
   onClose: () => void;
@@ -62,25 +65,31 @@ const getDefaultPort = (databaseType: RelationalDatabaseType): string => DEFAULT
 
 const sanitizeNotes = (notes?: string | null) => notes ?? '';
 
+const normalizeCatalogOverride = (value?: string) => (value ?? '').trim();
+
 const buildInitialSnapshot = (
   systems: System[],
-  initialValues?: SystemConnection | null
+  initialValues?: SystemConnection | null,
+  defaultSystemId?: string | null
 ): SystemConnectionFormValues => {
   const parsed = initialValues ? parseJdbcConnectionString(initialValues.connectionString) : null;
+  const parsedOptions = parsed?.options ?? {};
 
   return {
-    systemId: initialValues?.systemId ?? '',
+    systemId: initialValues?.systemId ?? defaultSystemId ?? '',
     databaseType: parsed?.databaseType ?? 'postgresql',
     host: parsed?.host ?? '',
     port: parsed?.port || getDefaultPort(parsed?.databaseType ?? 'postgresql'),
     database: parsed?.database ?? '',
     username: parsed?.username ?? '',
     password: parsed?.password ?? '',
-    options: parsed?.options ?? {},
+    options: parsedOptions,
     notes: sanitizeNotes(initialValues?.notes),
     active: initialValues?.active ?? true,
     ingestionEnabled: initialValues?.ingestionEnabled ?? true,
     useDatabricksManagedConnection: initialValues?.usesDatabricksManagedConnection ?? false,
+    databricksCatalogOverride: parsedOptions.catalog ?? '',
+    databricksSchemaOverride: parsedOptions.schema ?? '',
   };
 };
 
@@ -131,7 +140,9 @@ const normalizeValues = (
   database: values.database.trim(),
   username: values.username.trim(),
   password: values.password,
-  notes: values.notes?.trim() ? values.notes.trim() : null
+  notes: values.notes?.trim() ? values.notes.trim() : null,
+  databricksCatalogOverride: values.databricksCatalogOverride?.trim() ?? '',
+  databricksSchemaOverride: values.databricksSchemaOverride?.trim() ?? '',
 });
 
 const SystemConnectionForm = ({
@@ -139,6 +150,9 @@ const SystemConnectionForm = ({
   title,
   systems,
   initialValues,
+  defaultSystemId,
+  systemLocked = false,
+  managedWarehouseCatalog = null,
   loading = false,
   testing = false,
   onClose,
@@ -148,8 +162,8 @@ const SystemConnectionForm = ({
   managedWarehouseLoaded = false
 }: SystemConnectionFormProps) => {
   const initialSnapshot = useMemo(
-    () => buildInitialSnapshot(systems, initialValues),
-    [systems, initialValues]
+    () => buildInitialSnapshot(systems, initialValues, defaultSystemId),
+    [systems, initialValues, defaultSystemId]
   );
 
   const [values, setValues] = useState<SystemConnectionFormValues>(initialSnapshot);
@@ -184,12 +198,22 @@ const SystemConnectionForm = ({
               nextType === 'databricks' ? prev.useDatabricksManagedConnection : false,
           };
         }
+        if (field === 'databricksCatalogOverride') {
+          return {
+            ...prev,
+            databricksCatalogOverride: value,
+            databricksSchemaOverride: value ? prev.databricksSchemaOverride : '',
+          };
+        }
         return { ...prev, [field]: value };
       });
       setErrors((prev) => {
         const next = { ...prev, [field]: undefined, form: undefined };
         if (field === 'databaseType') {
           next.port = undefined;
+        }
+        if (field === 'databricksCatalogOverride' && !value.trim()) {
+          next.databricksSchemaOverride = undefined;
         }
         return next;
       });
@@ -307,7 +331,11 @@ const SystemConnectionForm = ({
       sanitizeNotes(values.notes) !== sanitizeNotes(initialSnapshot.notes) ||
       values.active !== initialSnapshot.active ||
       values.ingestionEnabled !== initialSnapshot.ingestionEnabled ||
-      values.useDatabricksManagedConnection !== initialSnapshot.useDatabricksManagedConnection
+      values.useDatabricksManagedConnection !== initialSnapshot.useDatabricksManagedConnection ||
+      normalizeCatalogOverride(values.databricksCatalogOverride) !==
+        normalizeCatalogOverride(initialSnapshot.databricksCatalogOverride) ||
+      normalizeCatalogOverride(values.databricksSchemaOverride) !==
+        normalizeCatalogOverride(initialSnapshot.databricksSchemaOverride)
     );
   }, [values, initialSnapshot]);
 
@@ -323,25 +351,24 @@ const SystemConnectionForm = ({
   );
 
   const databaseLabel = values.databaseType === 'sap' ? 'Database / Tenant' : 'Database';
-  const databaseHelper =
-    errors.database ??
-    (usingManagedWarehouse
-      ? 'Managed Databricks warehouse catalog is applied automatically.'
-      : DATABASE_HELPER_TEXT[values.databaseType]);
-  const portHelper =
-    errors.port ??
-    (usingManagedWarehouse
-      ? 'Managed warehouse listens on port 443.'
-      : `Default ${getDefaultPort(values.databaseType)}`);
-  const hostHelper =
-    errors.host ??
-    (usingManagedWarehouse
-      ? 'Managed Databricks warehouse host is applied automatically.'
-      : 'Hostname or IP address');
-  const usernameHelper =
-    errors.username ?? (usingManagedWarehouse ? 'Managed by Databricks settings.' : undefined);
-  const passwordHelper =
-    errors.password ?? (usingManagedWarehouse ? 'Managed by Databricks settings.' : undefined);
+  const databaseHelper = errors.database ?? DATABASE_HELPER_TEXT[values.databaseType];
+  const portHelper = errors.port ?? `Default ${getDefaultPort(values.databaseType)}`;
+  const hostHelper = errors.host ?? 'Hostname or IP address';
+  const usernameHelper = errors.username ?? undefined;
+  const passwordHelper = errors.password ?? undefined;
+  const managedCatalogFallback = managedWarehouseCatalog?.trim() || 'workspace';
+  const catalogOverrideValue = values.databricksCatalogOverride ?? '';
+  const schemaOverrideValue = values.databricksSchemaOverride ?? '';
+  const catalogHelper =
+    errors.databricksCatalogOverride ??
+    (catalogOverrideValue.trim()
+      ? 'Overrides the managed catalog for this connection.'
+      : `Uses the managed catalog (${managedCatalogFallback}).`);
+  const schemaHelper =
+    errors.databricksSchemaOverride ??
+    (schemaOverrideValue.trim()
+      ? 'Overrides the managed schema for this connection.'
+      : 'Leave blank to use the managed schema (or omit when catalog-only overrides are needed).');
 
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
@@ -361,6 +388,7 @@ const SystemConnectionForm = ({
               onChange={handleChange('systemId')}
               error={!!errors.systemId}
               helperText={errors.systemId}
+              disabled={systemLocked}
             >
               <MenuItem value="" disabled>
                 Select an application
@@ -427,73 +455,96 @@ const SystemConnectionForm = ({
                       catalog are supplied automatically from your warehouse settings.
                     </Alert>
                   )}
+                  {usingManagedWarehouse && (
+                    <TextField
+                      label="Catalog"
+                      fullWidth
+                      id="connection-databricks-catalog"
+                      name="databricksCatalogOverride"
+                      value={values.databricksCatalogOverride ?? ''}
+                      onChange={handleChange('databricksCatalogOverride')}
+                      error={!!errors.databricksCatalogOverride}
+                      helperText={catalogHelper}
+                    />
+                  )}
+                  {usingManagedWarehouse && (
+                    <TextField
+                      label="Schema"
+                      fullWidth
+                      id="connection-databricks-schema"
+                      name="databricksSchemaOverride"
+                      value={values.databricksSchemaOverride ?? ''}
+                      onChange={handleChange('databricksSchemaOverride')}
+                      error={!!errors.databricksSchemaOverride}
+                      helperText={schemaHelper}
+                    />
+                  )}
               </Stack>
             )}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Host"
-                fullWidth
-                required={!usingManagedWarehouse}
-                disabled={usingManagedWarehouse}
-                id="connection-host"
-                name="host"
-                value={values.host}
-                onChange={handleChange('host')}
-                error={!!errors.host}
-                helperText={hostHelper}
-              />
-              <TextField
-                label="Port"
-                fullWidth
-                required={!usingManagedWarehouse}
-                disabled={usingManagedWarehouse}
-                id="connection-port"
-                name="port"
-                value={values.port}
-                onChange={handleChange('port')}
-                error={!!errors.port}
-                helperText={portHelper}
-              />
-            </Stack>
-            <TextField
-              label={databaseLabel}
-              fullWidth
-              required={!usingManagedWarehouse}
-              disabled={usingManagedWarehouse}
-              id="connection-database"
-              name="database"
-              value={values.database}
-              onChange={handleChange('database')}
-              error={!!errors.database}
-              helperText={databaseHelper}
-            />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Username"
-                fullWidth
-                required={!usingManagedWarehouse}
-                disabled={usingManagedWarehouse}
-                id="connection-username"
-                name="username"
-                value={values.username}
-                onChange={handleChange('username')}
-                error={!!errors.username}
-                helperText={usernameHelper}
-              />
-              <TextField
-                label="Password"
-                fullWidth
-                required={!usingManagedWarehouse}
-                disabled={usingManagedWarehouse}
-                id="connection-password"
-                name="password"
-                type="password"
-                value={values.password}
-                onChange={handleChange('password')}
-                error={!!errors.password}
-                helperText={passwordHelper}
-              />
-            </Stack>
+            {!usingManagedWarehouse && (
+              <>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Host"
+                    fullWidth
+                    required
+                    id="connection-host"
+                    name="host"
+                    value={values.host}
+                    onChange={handleChange('host')}
+                    error={!!errors.host}
+                    helperText={hostHelper}
+                  />
+                  <TextField
+                    label="Port"
+                    fullWidth
+                    required
+                    id="connection-port"
+                    name="port"
+                    value={values.port}
+                    onChange={handleChange('port')}
+                    error={!!errors.port}
+                    helperText={portHelper}
+                  />
+                </Stack>
+                <TextField
+                  label={databaseLabel}
+                  fullWidth
+                  required
+                  id="connection-database"
+                  name="database"
+                  value={values.database}
+                  onChange={handleChange('database')}
+                  error={!!errors.database}
+                  helperText={databaseHelper}
+                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Username"
+                    fullWidth
+                    required
+                    id="connection-username"
+                    name="username"
+                    value={values.username}
+                    onChange={handleChange('username')}
+                    error={!!errors.username}
+                    helperText={usernameHelper}
+                  />
+                  <TextField
+                    label="Password"
+                    fullWidth
+                    required
+                    id="connection-password"
+                    name="password"
+                    type="password"
+                    value={values.password}
+                    onChange={handleChange('password')}
+                    error={!!errors.password}
+                    helperText={passwordHelper}
+                  />
+                </Stack>
+              </>
+            )}
             <TextField
               label="Notes"
               fullWidth
@@ -532,7 +583,7 @@ const SystemConnectionForm = ({
             Cancel
           </Button>
           <Box display="flex" gap={1}>
-            {onTest && (
+            {onTest && !usingManagedWarehouse && (
               <LoadingButton
                 onClick={handleTest}
                 loading={testing}

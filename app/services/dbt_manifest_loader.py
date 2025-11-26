@@ -39,19 +39,16 @@ def load_manifest(manifest: ManifestInput) -> DbtManifest:
 
     if isinstance(manifest, Mapping):
         return load_manifest_from_mapping(manifest)
-    if isinstance(manifest, (Path, str)):
-        path = Path(manifest)
-        if path.exists():
-            return load_manifest_path(path)
-    if isinstance(manifest, (str, bytes)):
+    if isinstance(manifest, Path):
+        return load_manifest_path(manifest)
+    if isinstance(manifest, bytes):
+        return load_manifest_from_str(manifest)
+    if isinstance(manifest, str):
         try:
             return load_manifest_from_str(manifest)
         except JSONDecodeError:
-            if isinstance(manifest, str):
-                path = Path(manifest)
-                if path.exists():
-                    return load_manifest_path(path)
+            path = Path(manifest)
+            if path.exists():
+                return load_manifest_path(path)
             raise
-    if isinstance(manifest, Path):
-        return load_manifest_path(manifest)
     raise TypeError(f"Unsupported manifest input type: {type(manifest)!r}")

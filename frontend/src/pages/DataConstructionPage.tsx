@@ -1,4 +1,4 @@
-import { ReactNode, SyntheticEvent, useCallback, useMemo, useState } from 'react';
+import { ReactNode, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { AxiosError } from 'axios';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
 import { LoadingButton } from '@mui/lab';
@@ -104,6 +104,8 @@ function TabPanel({ children, value, index, sx, ...other }: TabPanelProps) {
     </Box>
   );
 }
+
+const MANAGED_DATABRICKS_PHYSICAL_NAME = 'databricks_warehouse';
 
 type ConstructionTableRow = DataDefinitionTable & {
   dataObjectId: string;
@@ -227,7 +229,7 @@ const DataConstructionPage = () => {
     fetchProcessAreas,
     {
       onError: (error) => {
-        toast.showError(getErrorMessage(error, 'Failed to load product teams'));
+        toast.showError(getErrorMessage(error, 'Failed to load process areas'));
       }
     }
   );
@@ -255,6 +257,17 @@ const DataConstructionPage = () => {
       }
     }
   );
+
+  const applicationOptions = useMemo(
+    () => systems.filter((system) => system.physicalName !== MANAGED_DATABRICKS_PHYSICAL_NAME),
+    [systems]
+  );
+
+  useEffect(() => {
+    if (selectedSystemId && !applicationOptions.some((system) => system.id === selectedSystemId)) {
+      setSelectedSystemId(null);
+    }
+  }, [applicationOptions, selectedSystemId]);
 
   // Fetch ALL data definitions (no filter) to show tables upfront
   const { data: allDefinitions = [], isLoading: isLoadingAllDefinitions } = useQuery(
@@ -296,7 +309,7 @@ const DataConstructionPage = () => {
   const filteredTables = useMemo(() => {
     let result = allConstructionTables;
 
-    // Filter by Product Team if selected
+    // Filter by Process Area if selected
     if (selectedProcessAreaId) {
       result = result.filter(table =>
         table.processAreaId === selectedProcessAreaId
@@ -389,9 +402,9 @@ const DataConstructionPage = () => {
     [dataObjects, selectedDataObjectId]
   );
 
-  const selectedSystem = useMemo(
-    () => systems.find((s) => s.id === selectedSystemId),
-    [systems, selectedSystemId]
+  const selectedApplication = useMemo(
+    () => applicationOptions.find((s) => s.id === selectedSystemId) ?? null,
+    [applicationOptions, selectedSystemId]
   );
 
   // Handlers
@@ -553,7 +566,7 @@ const DataConstructionPage = () => {
       },
       {
         field: 'processAreaName',
-        headerName: 'Product Team',
+        headerName: 'Process Area',
         flex: 1,
         minWidth: 160,
         valueGetter: ({ row }) => row.processAreaName || '—'
@@ -647,7 +660,7 @@ const DataConstructionPage = () => {
   );
 
   const handleProcessAreaChange = useCallback((_event: SyntheticEvent, value: ProcessArea | null) => {
-    // Only update Product Team - don't reset other filters
+    // Only update Process Area - don't reset other filters
     setSelectedProcessAreaId(value?.id ?? null);
     // Close modal and clear search when changing filters
     setSelectedTableId(null);
@@ -694,7 +707,7 @@ const DataConstructionPage = () => {
             fontSize: '1.05rem'
           }}
         >
-          Filter by Product Team, Data Object & System
+          Filter by Process Area, Data Object & Application
         </Typography>
         <Grid container spacing={2.5}>
           <Grid item xs={12} md={6} lg={3}>
@@ -709,8 +722,8 @@ const DataConstructionPage = () => {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Product Team"
-                  placeholder={isLoadingProcessAreas ? 'Loading...' : 'Select product team'}
+                  label="Process Area"
+                  placeholder={isLoadingProcessAreas ? 'Loading...' : 'Select process area'}
                   sx={filterInputStyles}
                 />
               )}
@@ -740,17 +753,17 @@ const DataConstructionPage = () => {
           <Grid item xs={12} md={6} lg={3}>
             <Autocomplete
               fullWidth
-              options={systems}
+              options={applicationOptions}
               getOptionLabel={(option) => option.name}
-              value={selectedSystem ?? null}
+              value={selectedApplication}
               onChange={handleSystemChange}
               loading={isLoadingSystems}
               disabled={isLoadingSystems}
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="System"
-                  placeholder={isLoadingSystems ? 'Loading...' : 'Select system'}
+                  label="Application"
+                  placeholder={isLoadingSystems ? 'Loading...' : 'Select application'}
                   sx={filterInputStyles}
                 />
               )}
@@ -963,7 +976,7 @@ const DataConstructionPage = () => {
                     </Typography>
                   )}
                   <Typography variant="body2" color="text.secondary">
-                    Product Team: {tablePendingDelete.processAreaName || '—'}
+                    Process Area: {tablePendingDelete.processAreaName || '—'}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Data Object: {tablePendingDelete.dataObjectName || '—'}

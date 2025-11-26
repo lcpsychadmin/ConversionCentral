@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Optional
 
 from sqlalchemy import (
     MetaData,
@@ -126,9 +126,23 @@ def fetch_connection_catalog(
     except UnsupportedConnectionError as exc:
         raise ConnectionCatalogError(str(exc)) from exc
 
-    engine = create_engine(url, pool_pre_ping=True)
+    drivername = (url.drivername or "").lower()
+    query_params = dict(url.query) if url.query else {}
+
+    engine_kwargs = {"pool_pre_ping": True}
+    if drivername.startswith("databricks"):
+        engine_kwargs["connect_args"] = {"timeout": 20}
+
+    engine = create_engine(url, **engine_kwargs)
 
     try:
+        if drivername.startswith("databricks"):
+            return _fetch_databricks_catalog(
+                engine,
+                catalog=_normalize_string(query_params.get("catalog")),
+                schema=_normalize_string(query_params.get("schema")),
+            )
+
         inspector = inspect(engine)
         schema_names = _safe_get_schema_names(inspector)
         row_estimates = _fetch_row_estimates(engine, url.drivername)
@@ -338,3 +352,127 @@ def _serialize_preview_value(value: object) -> object:
         except UnicodeDecodeError:
             return value.hex()
     return value
+
+
+def _fetch_databricks_catalog(
+    engine: Engine,
+    *,
+    catalog: Optional[str],
+    schema: Optional[str],
+) -> list[CatalogTable]:
+    normalized_catalog = _normalize_string(catalog)
+    normalized_schema = _normalize_string(schema)
+
+    tables_relation = _databricks_information_schema_relation("tables", normalized_catalog)
+    columns_relation = _databricks_information_schema_relation("columns", normalized_catalog)
+
+    columns = _fetch_databricks_column_counts(engine, columns_relation, normalized_schema)
+    tables = _fetch_databricks_table_rows(engine, tables_relation, normalized_schema)
+
+    catalog_entries: list[CatalogTable] = []
+    for row in tables:
+        schema_name = _row_value(row, "table_schema", "schema_name", "database_name")
+        table_name = _row_value(row, "table_name")
+        table_type = _row_value(row, "table_type")
+        if not schema_name or not table_name:
+            continue
+        column_count = columns.get((schema_name, table_name))
+        catalog_entries.append(
+            CatalogTable(
+                schema_name=str(schema_name),
+                table_name=str(table_name),
+                table_type=str(table_type) if table_type is not None else None,
+                column_count=column_count,
+                estimated_rows=None,
+            )
+        )
+
+    return sorted(catalog_entries, key=lambda item: (item.schema_name, item.table_name))
+
+
+def _fetch_databricks_table_rows(engine: Engine, relation: str, schema: Optional[str]):
+    conditions: list[str] = []
+    params: dict[str, str] = {}
+    if schema:
+        conditions.append("table_schema = :schema")
+        params["schema"] = schema
+
+    statement = f"SELECT table_schema, table_name, table_type FROM {relation}"
+    if conditions:
+        statement += " WHERE " + " AND ".join(conditions)
+    statement += " ORDER BY table_schema, table_name"
+
+    with engine.connect() as connection:
+        result = connection.execute(text(statement), params)
+        return list(result)
+
+
+def _fetch_databricks_column_counts(
+    engine: Engine,
+    relation: str,
+    schema: Optional[str],
+) -> dict[tuple[str, str], int]:
+    conditions: list[str] = []
+    params: dict[str, str] = {}
+    if schema:
+        conditions.append("table_schema = :schema")
+        params["schema"] = schema
+
+    statement = f"""
+        SELECT table_schema,
+               table_name,
+               COUNT(*) AS column_count
+        FROM {relation}
+    """
+    if conditions:
+        statement += " WHERE " + " AND ".join(conditions)
+    statement += " GROUP BY table_schema, table_name"
+
+    counts: dict[tuple[str, str], int] = {}
+    with engine.connect() as connection:
+        result = connection.execute(text(statement), params)
+        for row in result:
+            schema_name = _row_value(row, "table_schema", "schema_name", "database_name")
+            table_name = _row_value(row, "table_name")
+            value = _row_value(row, "column_count")
+            if schema_name and table_name and value is not None:
+                counts[(str(schema_name), str(table_name))] = int(value)
+    return counts
+
+
+def _databricks_information_schema_relation(object_name: str, catalog: Optional[str]) -> str:
+    safe_object = _quote_identifier(object_name)
+    info_schema = "`information_schema`"
+    if catalog:
+        return f"{_quote_identifier(catalog)}.{info_schema}.{safe_object}"
+    return f"{info_schema}.{safe_object}"
+
+
+def _quote_identifier(identifier: str) -> str:
+    cleaned = (identifier or "").strip().replace("`", "")
+    return f"`{cleaned}`"
+
+
+def _row_value(row, *candidates: str):
+    mapping = getattr(row, "_mapping", None)
+    if mapping:
+        normalized = {str(key).lower(): value for key, value in mapping.items()}
+        for candidate in candidates:
+            lowered = candidate.lower()
+            if lowered in normalized and normalized[lowered] is not None:
+                return normalized[lowered]
+    for candidate in candidates:
+        direct = getattr(row, candidate, None)
+        if direct is not None:
+            return direct
+        upper = getattr(row, candidate.upper(), None)
+        if upper is not None:
+            return upper
+    return None
+
+
+def _normalize_string(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    trimmed = value.strip()
+    return trimmed or None

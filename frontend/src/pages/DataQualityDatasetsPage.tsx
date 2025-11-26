@@ -293,7 +293,7 @@ const nodeMatchesSearch = (node: DatasetNodeContext, normalized: string) => {
       }
       break;
     default:
-      values.push('All Product Teams');
+      values.push('All Process Areas');
       break;
   }
   return values
@@ -931,8 +931,8 @@ const DataQualityDatasetsPage = () => {
       itemId={ROOT_NODE_ID}
       label={renderNodeLabel({
         nodeId: ROOT_NODE_ID,
-        title: 'All Product Teams',
-        subtitle: `${hierarchySummary.productTeamCount.toLocaleString()} team${
+        title: 'All Process Areas',
+        subtitle: `${hierarchySummary.productTeamCount.toLocaleString()} process area${
           hierarchySummary.productTeamCount === 1 ? '' : 's'
         }`,
         meta: (
@@ -954,12 +954,12 @@ const DataQualityDatasetsPage = () => {
           Data Quality Catalog
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Select a product team, application, data object, table, or field from the tree to see metadata and profiling
+          Select a process area, application, data object, table, or field from the tree to see metadata and profiling
           options.
         </Typography>
       </Box>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
-        <StatTile label="Product Teams" value={hierarchySummary.productTeamCount.toLocaleString()} />
+        <StatTile label="Process Areas" value={hierarchySummary.productTeamCount.toLocaleString()} />
         <StatTile label="Applications" value={hierarchySummary.applicationCount.toLocaleString()} />
         <StatTile label="Data Objects" value={hierarchySummary.dataObjectCount.toLocaleString()} />
         <StatTile label="Tables" value={hierarchySummary.tableCount.toLocaleString()} />
@@ -1198,7 +1198,7 @@ const DataQualityDatasetsPage = () => {
     <Stack spacing={3}>
       <PageHeader
         title="Data Quality Datasets"
-        subtitle="Explore product teams, applications, data objects, and their registered data definitions synchronized from Conversion Central."
+        subtitle="Explore process areas, applications, data objects, and their registered data definitions synchronized from Conversion Central."
         actions={
           <Button component={RouterLink} to="/data-quality/profiling-runs" variant="outlined">
             View Profiling Runs

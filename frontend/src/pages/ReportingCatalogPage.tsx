@@ -36,7 +36,7 @@ import type { ReportSummary } from '@cc-types/reporting';
 
 const DATASET_LIMIT = 500;
 
-const UNASSIGNED_PRODUCT_TEAM_LABEL = 'Unassigned Product Team';
+const UNASSIGNED_PROCESS_AREA_LABEL = 'Unassigned Process Area';
 const UNASSIGNED_DATA_OBJECT_LABEL = 'Unassigned Data Object';
 
 type CatalogBranchNode = {
@@ -109,7 +109,7 @@ const ReportingCatalogPage = () => {
 
     publishedReports.forEach((report) => {
       const productTeamKey = report.productTeamId ?? 'unassigned';
-      const productTeamLabel = report.productTeamName?.trim() || UNASSIGNED_PRODUCT_TEAM_LABEL;
+      const productTeamLabel = report.productTeamName?.trim() || UNASSIGNED_PROCESS_AREA_LABEL;
 
       let productTeamNode = productTeamNodes.get(productTeamKey);
       if (!productTeamNode) {
@@ -398,7 +398,7 @@ const ReportingCatalogPage = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minHeight: '100vh' }}>
       <PageHeader
         title="Report Catalog"
-        subtitle="Browse published reports grouped by product team and data object, preview result sets, and export to CSV."
+        subtitle="Browse published reports grouped by process area and data object, preview result sets, and export to CSV."
       />
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems={{ xs: 'stretch', lg: 'flex-start' }}>

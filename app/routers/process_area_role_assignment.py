@@ -13,7 +13,7 @@ from app.schemas import (
 
 router = APIRouter(
     prefix="/process-area-role-assignments",
-    tags=["Product Team Role Assignments"],
+    tags=["Process Area Role Assignments"],
 )
 
 
@@ -22,7 +22,7 @@ def _get_assignment_or_404(assignment_id: UUID, db: Session) -> ProcessAreaRoleA
     if not assignment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product team role assignment not found",
+            detail="Process area role assignment not found",
         )
     return assignment
 
@@ -35,7 +35,7 @@ def _ensure_foreign_keys(
     db: Session,
 ) -> None:
     if process_area_id and not db.get(ProcessArea, process_area_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product team not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
     if user_id and not db.get(User, user_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if role_id and not db.get(Role, role_id):
@@ -61,7 +61,7 @@ def _ensure_unique_combination(
     if db.query(query.exists()).scalar():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Assignment already exists for this user, role, and product team",
+            detail="Assignment already exists for this user, role, and process area",
         )
 
 

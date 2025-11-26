@@ -168,6 +168,8 @@ export interface SystemConnectionInput {
   active?: boolean;
   ingestionEnabled?: boolean;
   useDatabricksManagedConnection?: boolean;
+  databricksCatalog?: string | null;
+  databricksSchema?: string | null;
 }
 
 export interface SystemConnectionUpdateInput {
@@ -179,6 +181,8 @@ export interface SystemConnectionUpdateInput {
   active?: boolean;
   ingestionEnabled?: boolean;
   useDatabricksManagedConnection?: boolean;
+  databricksCatalog?: string | null;
+  databricksSchema?: string | null;
 }
 
 export interface DatabricksSqlSettings {
@@ -380,6 +384,8 @@ export interface SystemConnectionFormValues {
   active: boolean;
   ingestionEnabled: boolean;
   useDatabricksManagedConnection: boolean;
+  databricksCatalogOverride?: string;
+  databricksSchemaOverride?: string;
 }
 
 export interface ConnectionCatalogTable {

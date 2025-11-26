@@ -616,7 +616,7 @@ def test_available_source_tables_filters_results(client, monkeypatch):
     assert response.status_code == HTTPStatus.OK
 
     payload = response.json()
-    assert payload == [
+    expected = [
         {
             "catalogName": None,
             "schemaName": "demo",
@@ -624,8 +624,18 @@ def test_available_source_tables_filters_results(client, monkeypatch):
             "tableType": "table",
             "columnCount": 10,
             "estimatedRows": 1000,
-        }
+        },
+        {
+            "catalogName": None,
+            "schemaName": "dbo",
+            "tableName": "legacy_accounts",
+            "tableType": None,
+            "columnCount": None,
+            "estimatedRows": None,
+        },
     ]
+    sort_key = lambda row: (row["schemaName"], row["tableName"])
+    assert sorted(payload, key=sort_key) == sorted(expected, key=sort_key)
 
 
 def test_available_source_tables_includes_databricks_tables_without_selection(client):
@@ -693,6 +703,68 @@ def test_available_source_tables_includes_databricks_tables_without_selection(cl
             "catalogName": None,
             "schemaName": "marketing",
             "tableName": "marketing.spend",
+            "tableType": "table",
+            "columnCount": None,
+            "estimatedRows": None,
+        }
+    ]
+
+
+def test_available_source_tables_include_ingested_application_tables(client):
+    process_area_id = client.post(
+        "/process-areas",
+        json={
+            "name": "Operations",
+            "description": "Ops data",
+            "status": "draft",
+        },
+    ).json()["id"]
+
+    ops_system_id = client.post(
+        "/systems",
+        json={
+            "name": "Ops Warehouse",
+            "physical_name": "OPS_WH",
+            "description": "Operational warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    data_object_id = client.post(
+        "/data-objects",
+        json={
+            "process_area_id": process_area_id,
+            "name": "Ops Object",
+            "description": "Ops",
+            "status": "draft",
+            "system_ids": [ops_system_id],
+        },
+    ).json()["id"]
+
+    client.post(
+        "/tables",
+        json={
+            "system_id": ops_system_id,
+            "name": "Orders",
+            "physical_name": "orders",
+            "schema_name": "ds_ops",
+            "description": "Ingested orders",
+            "table_type": "table",
+            "status": "active",
+        },
+    )
+
+    response = client.get(
+        f"/data-definitions/data-objects/{data_object_id}/available-source-tables"
+    )
+    assert response.status_code == HTTPStatus.OK
+
+    payload = response.json()
+    assert payload == [
+        {
+            "catalogName": None,
+            "schemaName": "ds_ops",
+            "tableName": "orders",
             "tableType": "table",
             "columnCount": None,
             "estimatedRows": None,
@@ -2642,6 +2714,94 @@ def test_system_connection_crud_flow(client):
 
     delete_resp = client.delete(f"/system-connections/{system_connection_id}")
     assert delete_resp.status_code == HTTPStatus.NO_CONTENT
+
+
+def test_system_connection_managed_catalog_override(client, monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    def fake_managed_connection_string(*, catalog_override=None, schema_override=None):
+        captured["catalog"] = catalog_override
+        captured["schema"] = schema_override
+        return "jdbc:databricks://token@managed"
+
+    monkeypatch.setattr(
+        "app.routers.system_connection.get_managed_databricks_connection_string",
+        fake_managed_connection_string,
+    )
+
+    system_id = client.post(
+        "/systems",
+        json={
+            "name": "Managed Platform",
+            "physical_name": "managed_platform",
+            "description": "Platform using managed warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    response = client.post(
+        "/system-connections",
+        json={
+            "system_id": system_id,
+            "connection_type": "jdbc",
+            "auth_method": "username_password",
+            "use_databricks_managed_connection": True,
+            "databricks_catalog": "analytics",
+            "databricks_schema": "analytics_schema",
+        },
+    )
+    assert response.status_code == HTTPStatus.CREATED
+    assert captured["catalog"] == "analytics"
+    assert captured["schema"] == "analytics_schema"
+    assert response.json()["connection_string"] == "jdbc:databricks://token@managed"
+
+
+def test_system_connection_update_managed_catalog_override(client, monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    def fake_managed_connection_string(*, catalog_override=None, schema_override=None):
+        captured["catalog"] = catalog_override
+        captured["schema"] = schema_override
+        return "jdbc:databricks://token@managed"
+
+    system_id = client.post(
+        "/systems",
+        json={
+            "name": "Managed Platform",
+            "physical_name": "managed_platform",
+            "description": "Platform using managed warehouse",
+            "status": "active",
+        },
+    ).json()["id"]
+
+    connection_id = client.post(
+        "/system-connections",
+        json={
+            "system_id": system_id,
+            "connection_type": "jdbc",
+            "connection_string": "jdbc:postgresql://host:5432/db",
+            "auth_method": "username_password",
+            "notes": "Placeholder",
+        },
+    ).json()["id"]
+
+    monkeypatch.setattr(
+        "app.routers.system_connection.get_managed_databricks_connection_string",
+        fake_managed_connection_string,
+    )
+
+    response = client.put(
+        f"/system-connections/{connection_id}",
+        json={
+            "use_databricks_managed_connection": True,
+            "databricks_catalog": "finance",
+            "databricks_schema": "fin_reporting",
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert captured["catalog"] == "finance"
+    assert captured["schema"] == "fin_reporting"
+    assert response.json()["connection_string"] == "jdbc:databricks://token@managed"
 
 
 def test_system_connection_test_endpoint(client):

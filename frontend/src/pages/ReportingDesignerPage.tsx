@@ -705,7 +705,7 @@ const ReportingDesignerContent = () => {
         const processArea = processAreaId ? processAreasById.get(processAreaId) : null;
         existing = {
           id: `pt-${key}`,
-          label: processArea?.name ?? 'Unassigned Product Team',
+          label: processArea?.name ?? 'Unassigned Process Area',
           secondary: processArea?.description ?? null,
           type: 'productTeam',
           children: [],
@@ -2484,7 +2484,7 @@ const ReportingDesignerContent = () => {
     }
 
     if (selectedDataObject && resolvedProductTeamId && selectedDataObject.processAreaId && selectedDataObject.processAreaId !== resolvedProductTeamId) {
-      setDialogError('Selected data object belongs to a different product team.');
+      setDialogError('Selected data object belongs to a different process area.');
       return;
     }
 
@@ -2494,7 +2494,7 @@ const ReportingDesignerContent = () => {
         return;
       }
       if (!resolvedProductTeamId) {
-        setDialogError('The selected data object is not assigned to a product team yet.');
+        setDialogError('The selected data object is not assigned to a process area yet.');
         return;
       }
     }
@@ -3164,7 +3164,7 @@ const ReportingDesignerContent = () => {
     ? processAreasById.get(selectedProductTeamId) ?? null
     : null;
   const selectedProductTeamLabel = selectedProductTeam?.name
-    ?? (selectedProductTeamId ? activeReport?.productTeamName ?? 'Unknown product team' : 'Unassigned');
+    ?? (selectedProductTeamId ? activeReport?.productTeamName ?? 'Unknown process area' : 'Unassigned');
   const selectedDataObject = selectedDataObjectId
     ? dataObjectsById.get(selectedDataObjectId) ?? null
     : null;
@@ -3174,13 +3174,13 @@ const ReportingDesignerContent = () => {
     ? processAreasById.get(selectedDataObject.processAreaId)?.name ?? null
     : null;
   const productTeamHelperText =
-    pendingPersistAction === 'publish' ? 'Product team required to publish.' : 'Optional for drafts.';
+    pendingPersistAction === 'publish' ? 'Process area required to publish.' : 'Optional for drafts.';
   const dataObjectHelperText =
     pendingPersistAction === 'publish' ? 'Data object required to publish.' : 'Optional for drafts.';
   const dataObjectPlaceholderLabel = dataObjects.length === 0
     ? 'No data objects available'
     : draftProductTeamIdInput && filteredDataObjects.length === 0
-      ? 'No data objects for selected product team'
+      ? 'No data objects for selected process area'
       : 'Select data object';
 
   return (
@@ -3316,7 +3316,7 @@ const ReportingDesignerContent = () => {
               <Chip
                 variant="outlined"
                 color={selectedProductTeamId ? 'primary' : 'default'}
-                label={`Product Team: ${selectedProductTeamLabel}`}
+                label={`Process Area: ${selectedProductTeamLabel}`}
               />
               <Chip
                 variant="outlined"
@@ -3554,7 +3554,7 @@ const ReportingDesignerContent = () => {
             />
             <TextField
               select
-              label="Product Team"
+              label="Process Area"
               value={draftProductTeamIdInput ?? ''}
               onChange={(event) => {
                 const value = event.target.value as string;
@@ -3606,7 +3606,7 @@ const ReportingDesignerContent = () => {
               </MenuItem>
               {filteredDataObjects.map((dataObject) => {
                 const associatedTeamName = dataObject.processAreaId
-                  ? processAreasById.get(dataObject.processAreaId)?.name ?? 'Unknown product team'
+                  ? processAreasById.get(dataObject.processAreaId)?.name ?? 'Unknown process area'
                   : 'Unassigned';
                 return (
                   <MenuItem key={dataObject.id} value={dataObject.id}>

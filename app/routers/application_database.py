@@ -41,7 +41,9 @@ def get_application_database_status(db: Session = Depends(get_control_db)) -> Ap
     setting = get_active_setting(db)
     admin_email = get_admin_email(db)
     if not setting:
-        return ApplicationDatabaseStatus(configured=False, setting=None, admin_email=admin_email)
+        # The application now always runs against the baked-in Postgres instance,
+        # so report the database as configured even if no overrides were stored.
+        return ApplicationDatabaseStatus(configured=True, setting=None, admin_email=admin_email)
     return ApplicationDatabaseStatus(configured=True, setting=_serialize(setting), admin_email=admin_email)
 
 

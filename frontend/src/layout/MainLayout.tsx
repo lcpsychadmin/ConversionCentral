@@ -50,7 +50,6 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <TuneIcon />,
     children: [
-      { label: 'Application Database', path: '/data-configuration/application-database' },
       { label: 'Data Warehouse', path: '/data-configuration/data-warehouse' },
       { label: 'Source Systems', path: '/data-configuration/source-systems' },
       { label: 'Ingestion Schedules', path: '/data-configuration/ingestion-schedules' }
@@ -69,7 +68,7 @@ const navItems: NavItem[] = [
           { label: 'Security Classifications', path: '/application-settings/security-classifications' }
         ]
       },
-      { label: 'Product Teams', path: '/process-areas' },
+      { label: 'Process Areas', path: '/process-areas' },
       { label: 'Data Objects', path: '/data-objects' },
       { label: 'Data Object Definition', path: '/data-definitions' }
     ]
@@ -178,6 +177,9 @@ const MainLayout = () => {
   const navigate = useNavigate();
 
   const isDarkMode = theme.palette.mode === 'dark';
+  const navBackground = isDarkMode
+    ? alpha(theme.palette.common.black, 0.24)
+    : alpha(theme.palette.common.white, 0.85);
   const navTextColor = isDarkMode ? theme.palette.common.white : theme.palette.text.primary;
   const navHeadingColor = isDarkMode ? theme.palette.common.white : theme.palette.primary.dark;
   const navHoverBackground = alpha(theme.palette.primary.main, isDarkMode ? 0.18 : 0.12);
@@ -342,7 +344,7 @@ const MainLayout = () => {
   const drawer = (
     <Box
       sx={{
-        backgroundColor: alpha(theme.palette.primary.main, 0.08),
+        backgroundColor: navBackground,
         flexGrow: 1,
         display: 'flex',
         flexDirection: 'column',
@@ -596,7 +598,7 @@ const MainLayout = () => {
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: 'transparent',
+              backgroundColor: navBackground,
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
               boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
               display: 'flex'
@@ -618,7 +620,7 @@ const MainLayout = () => {
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: drawerWidth,
-              backgroundColor: 'transparent',
+              backgroundColor: navBackground,
               borderRight: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
               boxShadow: `2px 0 12px ${alpha(theme.palette.primary.main, 0.1)}`,
               display: 'flex',

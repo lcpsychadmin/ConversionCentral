@@ -13,14 +13,31 @@ import {
   Snackbar,
   Checkbox,
   FormControl,
+  Menu,
   MenuItem,
+  Divider,
+  ListItemIcon,
+  ListItemText,
   Select,
+  TextField,
+  InputAdornment,
+  IconButton,
+  Popover,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import SaveIcon from '@mui/icons-material/Save';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import FilterAltIcon from '@mui/icons-material/FilterAlt';
+import ClearAllIcon from '@mui/icons-material/ClearAll';
+import ViewColumnIcon from '@mui/icons-material/ViewColumn';
+import TableChartIcon from '@mui/icons-material/TableChart';
 import { alpha, lighten, useTheme } from '@mui/material/styles';
 import { RevoGrid, Template } from '@revolist/react-datagrid';
 import type { ColumnDataSchemaModel, ColumnRegular } from '@revolist/revogrid';
@@ -47,6 +64,7 @@ type PayloadFieldKey = `payload.${string}`;
 type GridRowData = EditableConstructedRow &
   Record<PayloadFieldKey, unknown> & {
     __isPlaceholder?: boolean;
+    __isSelectedRow?: boolean;
   };
 
 type ColumnTemplateContext = {
@@ -225,6 +243,9 @@ const READ_ONLY_AUDIT_FIELDS = new Set<string>([
   AUDIT_MODIFIED_DATE_FIELD,
 ]);
 
+const HEADER_HEIGHT_PX = 72;
+const DATA_ROW_HEIGHT_PX = 68;
+
 const cloneConstructedRow = (row: ConstructedData): EditableConstructedRow => ({
   ...row,
   payload: { ...row.payload },
@@ -240,67 +261,67 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
 }) => {
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === 'dark';
-  const modalHeaderColor = useMemo(
+  const headerSurfaceColor = useMemo(
     () => theme.palette.primary.dark ?? theme.palette.primary.main,
     [theme]
   );
-  const modalHeaderTextColor = useMemo(
-    () => theme.palette.getContrastText(modalHeaderColor),
-    [modalHeaderColor, theme]
+  const headerTextColor = useMemo(
+    () => theme.palette.getContrastText(headerSurfaceColor),
+    [headerSurfaceColor, theme]
   );
   const headerGradient = useMemo(
     () =>
-      `linear-gradient(180deg, ${alpha(modalHeaderColor, isDarkMode ? 0.96 : 0.98)} 0%, ${modalHeaderColor} 100%)`,
-    [isDarkMode, modalHeaderColor]
+      `linear-gradient(180deg, ${alpha(headerSurfaceColor, isDarkMode ? 0.96 : 0.98)} 0%, ${headerSurfaceColor} 100%)`,
+    [headerSurfaceColor, isDarkMode]
   );
-  const headerBaseColor = useMemo(() => modalHeaderColor, [modalHeaderColor]);
-  const headerColor = useMemo(() => modalHeaderTextColor, [modalHeaderTextColor]);
+  const headerBaseColor = useMemo(() => headerSurfaceColor, [headerSurfaceColor]);
+  const headerColor = useMemo(() => headerTextColor, [headerTextColor]);
   const headerBorderColor = useMemo(
-    () => alpha(modalHeaderColor, isDarkMode ? 0.7 : 0.6),
-    [isDarkMode, modalHeaderColor]
+    () => alpha(headerSurfaceColor, isDarkMode ? 0.7 : 0.6),
+    [headerSurfaceColor, isDarkMode]
   );
   const headerHoverColor = useMemo(
-    () => lighten(modalHeaderColor, isDarkMode ? 0.08 : 0.16),
-    [isDarkMode, modalHeaderColor]
+    () => lighten(headerSurfaceColor, isDarkMode ? 0.08 : 0.16),
+    [headerSurfaceColor, isDarkMode]
   );
   const headerActiveColor = useMemo(
-    () => lighten(modalHeaderColor, isDarkMode ? 0.04 : 0.12),
-    [isDarkMode, modalHeaderColor]
+    () => lighten(headerSurfaceColor, isDarkMode ? 0.04 : 0.12),
+    [headerSurfaceColor, isDarkMode]
   );
-  const cellBackground = useMemo(() => {
-    const paper = theme.palette.background.paper;
-    return isDarkMode ? alpha(paper, 0.34) : alpha(theme.palette.common.white, 0.96);
-  }, [isDarkMode, theme]);
-  const zebraBackground = useMemo(() => {
-    const tone = theme.palette.primary.light ?? theme.palette.primary.main;
-    return isDarkMode ? alpha(tone, 0.42) : alpha(tone, 0.12);
-  }, [isDarkMode, theme]);
+  const cellBackground = useMemo(
+    () => alpha(theme.palette.grey[50], isDarkMode ? 0.18 : 1),
+    [isDarkMode, theme]
+  );
+  const zebraBackground = useMemo(
+    () => alpha(theme.palette.grey[300], isDarkMode ? 0.6 : 0.92),
+    [isDarkMode, theme]
+  );
   const cellBorderColor = useMemo(
-    () => alpha(theme.palette.divider, isDarkMode ? 0.5 : 0.22),
+    () => alpha(theme.palette.grey[300], isDarkMode ? 0.7 : 0.6),
     [isDarkMode, theme]
   );
   const secondaryCellBorderColor = useMemo(
-    () => alpha(theme.palette.divider, isDarkMode ? 0.32 : 0.15),
+    () => alpha(theme.palette.grey[200], isDarkMode ? 0.5 : 0.4),
     [isDarkMode, theme]
   );
   const rowHoverBackground = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.28 : 0.12),
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.22 : 0.08),
     [isDarkMode, theme]
   );
   const rowSelectionBackground = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.42 : 0.18),
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.35 : 0.16),
     [isDarkMode, theme]
   );
   const rowHoverOutline = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.22),
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.4 : 0.15),
     [isDarkMode, theme]
   );
   const rowSelectionOutline = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.62 : 0.32),
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.5 : 0.22),
     [isDarkMode, theme]
   );
   const focusRing = useMemo(
-    () => alpha(theme.palette.primary.main, isDarkMode ? 0.72 : 0.4),
+    () => alpha(theme.palette.primary.main, isDarkMode ? 0.6 : 0.35),
     [isDarkMode, theme]
   );
   const gridBackground = useMemo(() => {
@@ -312,43 +333,27 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     return alpha(theme.palette.common.white, 0.98);
   }, [isDarkMode, theme]);
   const gridBorderColor = useMemo(
-    () => alpha(isDarkMode ? theme.palette.primary.dark ?? theme.palette.divider : theme.palette.primary.light ?? theme.palette.divider, isDarkMode ? 0.32 : 0.2),
+    () => alpha(theme.palette.grey[400], isDarkMode ? 0.6 : 0.45),
     [isDarkMode, theme]
   );
-  const gridShadow = useMemo(
-    () =>
-      isDarkMode
-        ? theme.shadows[8]
-        : `0 10px 28px ${alpha(theme.palette.common.black, 0.1)}`,
-    [isDarkMode, theme]
-  );
-  const rowHeaderTextColor = useMemo(() => modalHeaderTextColor, [modalHeaderTextColor]);
+  const gridShadow = useMemo(() => 'none', []);
+  const rowHeaderTextColor = useMemo(() => headerTextColor, [headerTextColor]);
   const rowHeaderDividerColor = useMemo(
-    () => alpha(modalHeaderTextColor, isDarkMode ? 0.25 : 0.18),
-    [isDarkMode, modalHeaderTextColor]
+    () => alpha(headerTextColor, isDarkMode ? 0.25 : 0.18),
+    [headerTextColor, isDarkMode]
   );
   const toolbarGradient = useMemo(() => {
     if (isDarkMode) {
-      return `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.88)} 0%, ${alpha(
-        theme.palette.background.default,
-        0.94
-      )} 100%)`;
+      return alpha(theme.palette.background.paper, 0.86);
     }
-    return `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.98)} 0%, ${alpha(
-      theme.palette.background.default,
-      0.92
-    )} 100%)`;
+    return alpha(theme.palette.common.white, 0.96);
   }, [isDarkMode, theme]);
   const toolbarBorderColor = useMemo(
-    () => alpha(theme.palette.divider, isDarkMode ? 0.45 : 0.28),
+    () => alpha(theme.palette.grey[400], isDarkMode ? 0.5 : 0.35),
     [isDarkMode, theme]
   );
   const toolbarTextColor = useMemo(
     () => (isDarkMode ? alpha(theme.palette.common.white, 0.92) : theme.palette.text.primary),
-    [isDarkMode, theme]
-  );
-  const toolbarShadow = useMemo(
-    () => (isDarkMode ? theme.shadows[4] : theme.shadows[2]),
     [isDarkMode, theme]
   );
   const toast = useToast();
@@ -445,6 +450,21 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
   } | null>(null);
   const [dirtyRowIds, setDirtyRowIds] = useState<Set<string>>(new Set());
   const [validationHighlights, setValidationHighlights] = useState<Record<string, RowValidationState>>({});
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [globalFilter, setGlobalFilter] = useState('');
+  const [columnSort, setColumnSort] = useState<{ prop: string; direction: 'asc' | 'desc' } | null>(
+    null
+  );
+  const [columnMenuState, setColumnMenuState] = useState<{
+    anchorEl: HTMLElement;
+    columnProp: string;
+    columnLabel: string;
+  } | null>(null);
+  const [filterPopoverState, setFilterPopoverState] = useState<{
+    anchorEl: HTMLElement;
+    columnProp: string;
+    columnLabel: string;
+  } | null>(null);
 
   const getValidationMeta = useCallback(
     (row: { id?: unknown; rowId?: unknown }, fieldName?: string | null) => {
@@ -471,6 +491,73 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     [validationHighlights]
   );
   const gridRef = useRef<HTMLRevoGridElement | null>(null);
+
+  const handleFilterChange = useCallback((columnProp: string, value: string) => {
+    setColumnFilters((prev) => {
+      const trimmed = value.trim();
+      const exists = Object.prototype.hasOwnProperty.call(prev, columnProp);
+      if (!trimmed) {
+        if (!exists) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[columnProp];
+        return next;
+      }
+      const nextValue = value;
+      if (exists && prev[columnProp] === nextValue) {
+        return prev;
+      }
+      return { ...prev, [columnProp]: nextValue };
+    });
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setColumnFilters((prev) => {
+      if (!Object.keys(prev).length) {
+        return prev;
+      }
+      return {};
+    });
+  }, []);
+
+  const handleColumnMenuOpen = useCallback(
+    (anchorEl: HTMLElement, columnProp: string, columnLabel: string) => {
+      setColumnMenuState({ anchorEl, columnProp, columnLabel });
+    },
+    []
+  );
+
+  const handleColumnMenuClose = useCallback(() => {
+    setColumnMenuState(null);
+  }, []);
+
+  const handleFilterPopoverClose = useCallback(() => {
+    setFilterPopoverState(null);
+  }, []);
+
+  const handleColumnSortChange = useCallback((prop: string, direction: 'asc' | 'desc') => {
+    setColumnSort({ prop, direction });
+  }, []);
+
+  const handleClearColumnSort = useCallback(() => {
+    setColumnSort(null);
+  }, []);
+
+  const handleClearFilterValue = useCallback(
+    (columnProp: string) => {
+      handleFilterChange(columnProp, '');
+    },
+    [handleFilterChange]
+  );
+
+  const handleGlobalFilterChange = useCallback((value: string) => {
+    setGlobalFilter(value);
+  }, []);
+
+  const handleClearGlobalFilter = useCallback(() => {
+    setGlobalFilter('');
+  }, []);
 
   const applyValidationHighlights = useCallback(
     (rowId: string | number | undefined | null, errors: ValidationHighlight[]) => {
@@ -771,13 +858,136 @@ ${error.message}`
     return hasContent ? createEmptyRow({ applyAuditDefaults: false }) : null;
   }, [createEmptyRow, localRows]);
 
+  const normalizedFilters = useMemo(() => {
+    return Object.entries(columnFilters)
+      .map(([key, value]) => [key, (value ?? '').trim().toLowerCase()] as const)
+      .filter(([, value]) => value.length > 0);
+  }, [columnFilters]);
+
+  const normalizedGlobalFilter = useMemo(() => globalFilter.trim().toLowerCase(), [globalFilter]);
+
+  const hasActiveColumnFilters = normalizedFilters.length > 0;
+  const hasGlobalFilter = normalizedGlobalFilter.length > 0;
+
+  const columnFilteredRows = useMemo(() => {
+    if (!normalizedFilters.length) {
+      return localRows;
+    }
+    return localRows.filter((row) => {
+      return normalizedFilters.every(([prop, needle]) => {
+        const fieldName = prop.startsWith('payload.') ? prop.slice('payload.'.length) : prop;
+        const value = row.payload?.[fieldName];
+        const haystack = value === null || value === undefined ? '' : String(value);
+        return haystack.toLowerCase().includes(needle);
+      });
+    });
+  }, [localRows, normalizedFilters]);
+
+  const filteredRows = useMemo(() => {
+    if (!hasGlobalFilter) {
+      return columnFilteredRows;
+    }
+    return columnFilteredRows.filter((row) => {
+      const candidates: Array<unknown> = [
+        row.rowIdentifier,
+        row.createdAt,
+        row.updatedAt,
+        ...fields.map((field) => row.payload?.[field.name]),
+      ];
+      return candidates.some((value) => {
+        if (value === null || value === undefined) {
+          return false;
+        }
+        const haystack = String(value).toLowerCase();
+        return haystack.includes(normalizedGlobalFilter);
+      });
+    });
+  }, [columnFilteredRows, fields, hasGlobalFilter, normalizedGlobalFilter]);
+
+  const sortedRows = useMemo(() => {
+    if (!columnSort) {
+      return filteredRows;
+    }
+    const { prop, direction } = columnSort;
+    const fieldName = prop.startsWith('payload.') ? prop.slice('payload.'.length) : prop;
+    const order = direction === 'asc' ? 1 : -1;
+    const getValue = (row: EditableConstructedRow) => {
+      if (prop.startsWith('payload.')) {
+        return row.payload?.[fieldName] ?? '';
+      }
+      return (row as unknown as Record<string, unknown>)[fieldName];
+    };
+    return [...filteredRows].sort((a, b) => {
+      const aValue = getValue(a);
+      const bValue = getValue(b);
+      if (aValue === bValue) {
+        return 0;
+      }
+      if (aValue === undefined || aValue === null) {
+        return -1 * order;
+      }
+      if (bValue === undefined || bValue === null) {
+        return 1 * order;
+      }
+      const aNum = Number(aValue);
+      const bNum = Number(bValue);
+      const bothNumeric = !Number.isNaN(aNum) && !Number.isNaN(bNum);
+      if (bothNumeric) {
+        return (aNum - bNum) * order;
+      }
+      return String(aValue).localeCompare(String(bValue)) * order;
+    });
+  }, [columnSort, filteredRows]);
+
+  const hasActiveFilters = hasActiveColumnFilters || hasGlobalFilter;
+
+  const columnSizeHints = useMemo(() => {
+    const hints: Record<string, number> = {};
+    if (!fields.length) {
+      return hints;
+    }
+
+    const approximateCharWidth = 8.2;
+    const paddingPx = 40;
+
+    fields.forEach((field) => {
+      const columnProp = `payload.${field.name}` as const;
+      let maxCharacters = Math.max(6, field.name.length + (field.isNullable ? 2 : 0));
+
+      localRows.forEach((row) => {
+        const rawValue = row.payload?.[field.name];
+        if (rawValue === null || rawValue === undefined) {
+          return;
+        }
+        const normalized = typeof rawValue === 'string' ? rawValue : String(rawValue);
+        const length = normalized.trim().length || normalized.length;
+        if (length > maxCharacters) {
+          maxCharacters = length;
+        }
+      });
+
+      const computedWidth = Math.round(maxCharacters * approximateCharWidth + paddingPx);
+      const baseMin = field.name === AUDIT_CREATED_DATE_FIELD || field.name === AUDIT_MODIFIED_DATE_FIELD ? 220 : 140;
+      const baseMax = field.name === AUDIT_CREATED_DATE_FIELD || field.name === AUDIT_MODIFIED_DATE_FIELD ? 560 : 420;
+      hints[columnProp] = Math.min(Math.max(computedWidth, baseMin), baseMax);
+    });
+
+    return hints;
+  }, [fields, localRows]);
+
   const gridRows = useMemo<GridRowData[]>(() => {
-    const base = localRows.map((row) => toGridRow(row));
-    if (placeholderRow) {
-      base.push(toGridRow(placeholderRow, { isPlaceholder: true }));
+    const base = sortedRows.map((row) => {
+      const gridRow = toGridRow(row);
+      gridRow.__isSelectedRow = selectedRowIds.has(String(row.id));
+      return gridRow;
+    });
+    if (!hasActiveFilters && placeholderRow) {
+      const placeholderGridRow = toGridRow(placeholderRow, { isPlaceholder: true });
+      placeholderGridRow.__isSelectedRow = false;
+      base.push(placeholderGridRow);
     }
     return base;
-  }, [localRows, placeholderRow, toGridRow]);
+  }, [hasActiveFilters, placeholderRow, selectedRowIds, sortedRows, toGridRow]);
 
   const toUndoRow = useCallback(
     (row: GridRowData | EditableConstructedRow): EditableConstructedRow => toEditableRow(row),
@@ -1187,7 +1397,11 @@ ${error.message}`
 
         const currentValue = (row.payload?.[fieldName] ?? '') as string;
         const validation = getValidationMeta(row, fieldName);
-        const className = [validation.rowClass, validation.cellClass]
+        const className = [
+          validation.rowClass,
+          validation.cellClass,
+          row.__isSelectedRow ? 'cc-row-selected' : undefined,
+        ]
           .filter(Boolean)
           .join(' ')
           .trim();
@@ -1361,14 +1575,17 @@ ${error.message}`
 
   const handleSelectAllChange = useCallback(
     (checked: boolean) => {
-      if (!checked) {
-        setSelectedRowIds(new Set<string>());
-        return;
-      }
-      const allIds = localRows.map((row) => String(row.id));
-      setSelectedRowIds(new Set(allIds));
+      setSelectedRowIds((prev) => {
+        const next = new Set(prev);
+        if (!checked) {
+          filteredRows.forEach((row) => next.delete(String(row.id)));
+          return next;
+        }
+        filteredRows.forEach((row) => next.add(String(row.id)));
+        return next;
+      });
     },
-    [localRows]
+    [filteredRows]
   );
 
   // Intercepts Excel-style clipboard pastes so we can create and persist multiple rows at once.
@@ -1974,14 +2191,20 @@ ${error.message}`
         }
         const rowId = String(row.id);
         const validation = getValidationMeta(row, null);
-        const className = validation.rowClass;
+        const className = [
+          validation.rowClass,
+          row.__isSelectedRow ? 'cc-row-selected' : undefined,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
         const validationProps = validation.message
           ? { title: validation.message, 'data-validation-message': validation.message }
           : {};
         const checked = selectedRowIds.has(rowId);
         return (
           <Box
-            className={className}
+            className={className || undefined}
             sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
             {...validationProps}
           >
@@ -1991,6 +2214,7 @@ ${error.message}`
               onClick={(event) => event.stopPropagation()}
               onChange={(event) => handleSelectionToggle(row, event.target.checked)}
               sx={{
+                p: 0,
                 color: isDarkMode
                   ? alpha(theme.palette.common.white, 0.9)
                   : alpha(theme.palette.text.secondary, 0.7),
@@ -2019,14 +2243,20 @@ ${error.message}`
           return null;
         }
         const validation = getValidationMeta(row, null);
-        const className = validation.rowClass;
+        const className = [
+          validation.rowClass,
+          row.__isSelectedRow ? 'cc-row-selected' : undefined,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
         const validationProps = validation.message
           ? { title: validation.message, 'data-validation-message': validation.message }
           : {};
         return (
           <Tooltip title="Delete row" arrow>
             <Box
-              className={className}
+              className={className || undefined}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -2064,10 +2294,21 @@ ${error.message}`
 
   const unsavedCount = dirtyRowIds.size;
   const hasUnsavedChanges = unsavedCount > 0;
-  const dataRowCount = localRows.length;
+  const totalRowCount = localRows.length;
+  const dataRowCount = filteredRows.length;
   const selectedRowCount = selectedRowIds.size;
-  const isAllSelected = dataRowCount > 0 && selectedRowCount === dataRowCount;
-  const isIndeterminateSelection = selectedRowCount > 0 && selectedRowCount < dataRowCount;
+  const visibleSelectedRowCount = useMemo(() => {
+    return filteredRows.reduce((count, row) => {
+      if (selectedRowIds.has(String(row.id))) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+  }, [filteredRows, selectedRowIds]);
+  const isAllSelected = dataRowCount > 0 && visibleSelectedRowCount === dataRowCount;
+  const isIndeterminateSelection =
+    dataRowCount > 0 && visibleSelectedRowCount > 0 && visibleSelectedRowCount < dataRowCount;
+  const rowCountLabel = hasActiveFilters ? `${dataRowCount} of ${totalRowCount}` : `${dataRowCount}`;
 
   const dirtyStateChangeRef = useRef(onDirtyStateChange);
 
@@ -2127,7 +2368,14 @@ ${error.message}`
         return (
           <Box
             data-column={columnProp !== undefined ? String(columnProp) : undefined}
-            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              width: '100%',
+              px: 0.5,
+            }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2141,24 +2389,21 @@ ${error.message}`
                 onChange={(event) => handleSelectAllChange(event.target.checked)}
                 inputProps={{ 'aria-label': 'Select all rows' }}
                 sx={{
-                  color: isDarkMode
-                    ? alpha(theme.palette.common.white, 0.9)
-                    : alpha(theme.palette.text.secondary, 0.7),
+                  p: 0,
+                  color: headerColor,
                   '& .MuiSvgIcon-root': {
-                    color: isDarkMode
-                      ? alpha(theme.palette.common.white, 0.9)
-                      : alpha(theme.palette.text.secondary, 0.7),
+                    color: headerColor,
                   },
                   '&.Mui-checked': {
-                    color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
+                    color: headerColor,
                     '& .MuiSvgIcon-root': {
-                      color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
+                      color: headerColor,
                     },
                   },
                   '&.MuiCheckbox-indeterminate': {
-                    color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
+                    color: headerColor,
                     '& .MuiSvgIcon-root': {
-                      color: isDarkMode ? theme.palette.common.white : theme.palette.primary.main,
+                      color: headerColor,
                     },
                   },
                 }}
@@ -2168,6 +2413,110 @@ ${error.message}`
         );
       }),
     [dataRowCount, handleSelectAllChange, isAllSelected, isDarkMode, isIndeterminateSelection, theme]
+  );
+
+  const filterableHeaderTemplate = useCallback(
+    (label: string, columnProp: string) =>
+      Template((templateProps: TemplateCallbackProps) => {
+        if (isColumnDataSchemaModel(templateProps)) {
+          return null;
+        }
+
+        const filterValue = columnFilters[columnProp] ?? '';
+        const isFilterActive = filterValue.length > 0;
+        const isSorted = columnSort?.prop === columnProp ? columnSort.direction : undefined;
+
+        const stopPropagation = (event: React.SyntheticEvent) => {
+          event.stopPropagation();
+        };
+
+        return (
+          <Box
+            sx={{
+              position: 'relative',
+              height: '100%',
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              px: 1.5,
+            }}
+          >
+            <Typography
+              variant="subtitle2"
+              sx={{
+                fontWeight: 700,
+                fontSize: theme.typography.pxToRem(14),
+                color: headerColor,
+                lineHeight: 1.3,
+                textTransform: 'none',
+                width: '100%',
+                pr: theme.spacing(3),
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {label}
+            </Typography>
+            {(isFilterActive || isSorted) && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: theme.spacing(0.6),
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  fontSize: theme.typography.pxToRem(11),
+                  fontWeight: 600,
+                  letterSpacing: 0.2,
+                  color: alpha(headerColor, 0.85),
+                }}
+              >
+                {isSorted && (isSorted === 'desc' ? <ArrowDownwardIcon fontSize="inherit" /> : <ArrowUpwardIcon fontSize="inherit" />)}
+                {isFilterActive && <FilterAltIcon fontSize="inherit" />}
+              </Box>
+            )}
+            <IconButton
+              size="small"
+              aria-label={`Open menu for ${label}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleColumnMenuOpen(event.currentTarget, columnProp, label);
+              }}
+              onMouseDown={stopPropagation}
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                right: theme.spacing(0.5),
+                transform: 'translateY(-50%)',
+                color: headerColor,
+                opacity: isFilterActive || isSorted ? 1 : 0.6,
+                height: 28,
+                width: 28,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 0.25,
+                borderRadius: 1,
+                '&:hover': { opacity: 1, backgroundColor: alpha(headerColor, 0.18) },
+              }}
+            >
+              <MoreVertIcon fontSize="inherit" />
+            </IconButton>
+          </Box>
+        );
+      }),
+    [
+      columnFilters,
+      columnSort,
+      handleColumnMenuOpen,
+      headerColor,
+      theme,
+    ]
   );
 
   const columns = useMemo<ColumnRegular[]>(() => {
@@ -2187,7 +2536,7 @@ ${error.message}`
       },
       {
         prop: '__actions__',
-        name: 'Actions',
+        name: '',
         size: 72,
         minSize: 60,
         readonly: true,
@@ -2241,7 +2590,11 @@ ${error.message}`
           }
 
           const validation = getValidationMeta(model, fieldName);
-          const className = [validation.rowClass, validation.cellClass]
+          const className = [
+            validation.rowClass,
+            validation.cellClass,
+            model.__isSelectedRow ? 'cc-row-selected' : undefined,
+          ]
             .filter(Boolean)
             .join(' ')
             .trim();
@@ -2290,6 +2643,14 @@ ${error.message}`
         });
       }
 
+      const sizeHint = columnSizeHints[columnProp];
+      if (sizeHint) {
+        const minSize = column.minSize ?? 140;
+        column.size = Math.max(sizeHint, minSize);
+        column.minSize = Math.min(minSize, column.size);
+      }
+
+      column.columnTemplate = filterableHeaderTemplate(column.name ?? field.name, columnProp);
       base.push(column);
     });
 
@@ -2297,12 +2658,29 @@ ${error.message}`
   }, [
     deleteCellTemplate,
     fields,
+    columnSizeHints,
+    filterableHeaderTemplate,
     getValidationMeta,
     projectSelectCellTemplate,
     releaseSelectCellTemplate,
     selectAllHeaderTemplate,
     selectCellTemplate,
   ]);
+
+  useEffect(() => {
+    const gridEl = gridRef.current;
+    if (!gridEl) {
+      return;
+    }
+    const autoSizer = (gridEl as unknown as { autoSizeColumnAll?: () => void }).autoSizeColumnAll;
+    if (typeof autoSizer !== 'function') {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      autoSizer.call(gridEl);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [columns, gridRows]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 2 }}>
@@ -2312,29 +2690,93 @@ ${error.message}`
           gap: 1,
           alignItems: 'center',
           justifyContent: 'space-between',
-          px: 2.5,
-          py: 2,
-          borderRadius: 3,
+          px: 2,
+          py: 1.5,
+          borderRadius: 2,
           backgroundImage: toolbarGradient,
           border: `1px solid ${toolbarBorderColor}`,
-          boxShadow: toolbarShadow,
+          boxShadow: 'none',
           color: toolbarTextColor,
         }}
       >
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'inherit' }}>
             Data Rows
           </Typography>
           <Typography variant="body2" sx={{ color: alpha(toolbarTextColor, 0.82), fontWeight: 500 }}>
-            ({dataRowCount} rows)
+            ({rowCountLabel} rows)
           </Typography>
           {dataRowCount === 0 && (
             <Typography variant="body2" sx={{ ml: 1, color: alpha(toolbarTextColor, 0.82) }}>
-              No rows yet. Use Add Row to get started.
+              {totalRowCount === 0
+                ? 'No rows yet. Use Add Row to get started.'
+                : hasActiveFilters
+                  ? 'No rows match the current filters.'
+                  : 'No rows yet. Use Add Row to get started.'}
             </Typography>
           )}
         </Box>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" justifyContent="flex-end">
+          <TextField
+            value={globalFilter}
+            onChange={(event) => handleGlobalFilterChange(event.target.value)}
+            placeholder="Search rows"
+            size="small"
+            variant="outlined"
+            aria-label="Search constructed data rows"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start" sx={{ color: alpha(toolbarTextColor, 0.8) }}>
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: hasGlobalFilter ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={handleClearGlobalFilter} edge="end">
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+            }}
+            sx={{
+              minWidth: 260,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                backgroundColor: alpha(toolbarTextColor, 0.08),
+                color: toolbarTextColor,
+                height: 38,
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: alpha(toolbarTextColor, 0.6),
+                },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                  borderColor: alpha(toolbarTextColor, 0.85),
+                  borderWidth: 1,
+                },
+              },
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: alpha(toolbarTextColor, 0.3),
+              },
+              '& .MuiInputBase-input': {
+                fontSize: theme.typography.pxToRem(13.5),
+                py: 0.5,
+              },
+            }}
+          />
+          {hasActiveFilters && (
+            <Button
+              size="small"
+              variant="text"
+              color="inherit"
+              onClick={() => {
+                handleClearFilters();
+                handleClearGlobalFilter();
+              }}
+              sx={{ textTransform: 'none', fontWeight: 500 }}
+            >
+              Clear Filters
+            </Button>
+          )}
           <Button
             size="small"
             variant="contained"
@@ -2372,6 +2814,136 @@ ${error.message}`
         </Stack>
       </Box>
 
+      <Menu
+        anchorEl={columnMenuState?.anchorEl ?? null}
+        open={Boolean(columnMenuState)}
+        onClose={handleColumnMenuClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+        keepMounted
+      >
+        <MenuItem
+          onClick={() => {
+            if (columnMenuState) {
+              handleColumnSortChange(columnMenuState.columnProp, 'asc');
+            }
+            handleColumnMenuClose();
+          }}
+        >
+          <ListItemIcon>
+            <ArrowUpwardIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Sort by ASC" />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (columnMenuState) {
+              handleColumnSortChange(columnMenuState.columnProp, 'desc');
+            }
+            handleColumnMenuClose();
+          }}
+        >
+          <ListItemIcon>
+            <ArrowDownwardIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Sort by DESC" />
+        </MenuItem>
+        {columnMenuState && columnSort?.prop === columnMenuState.columnProp && (
+          <MenuItem
+            onClick={() => {
+              handleClearColumnSort();
+              handleColumnMenuClose();
+            }}
+          >
+            <ListItemIcon>
+              <ClearAllIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Clear sort" />
+          </MenuItem>
+        )}
+        <Divider sx={{ my: 0.5 }} />
+        <MenuItem
+          onClick={() => {
+            if (columnMenuState?.anchorEl) {
+              setFilterPopoverState({
+                anchorEl: columnMenuState.anchorEl,
+                columnProp: columnMenuState.columnProp,
+                columnLabel: columnMenuState.columnLabel,
+              });
+            }
+            handleColumnMenuClose();
+          }}
+        >
+          <ListItemIcon>
+            <FilterAltIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Filter" />
+        </MenuItem>
+        <Divider sx={{ my: 0.5 }} />
+        <MenuItem disabled>
+          <ListItemIcon>
+            <ViewColumnIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Hide column" />
+        </MenuItem>
+        <MenuItem disabled>
+          <ListItemIcon>
+            <TableChartIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Manage columns" />
+        </MenuItem>
+      </Menu>
+
+      <Popover
+        open={Boolean(filterPopoverState)}
+        anchorEl={filterPopoverState?.anchorEl ?? null}
+        onClose={handleFilterPopoverClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            border: `1px solid ${alpha(toolbarBorderColor, 0.7)}`,
+            boxShadow: theme.shadows[4],
+          },
+        }}
+      >
+        {filterPopoverState && (
+          <Box sx={{ p: 2, width: 280, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              {`Filter ${filterPopoverState.columnLabel}`}
+            </Typography>
+            <TextField
+              autoFocus
+              size="small"
+              value={columnFilters[filterPopoverState.columnProp] ?? ''}
+              onChange={(event) => handleFilterChange(filterPopoverState.columnProp, event.target.value)}
+              placeholder="Enter value"
+              variant="outlined"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <FilterAltIcon fontSize="small" sx={{ color: alpha(toolbarTextColor, 0.6) }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Stack direction="row" justifyContent="flex-end" spacing={1.5}>
+              <Button
+                size="small"
+                color="inherit"
+                onClick={() => handleClearFilterValue(filterPopoverState.columnProp)}
+              >
+                Clear
+              </Button>
+              <Button size="small" variant="contained" onClick={handleFilterPopoverClose}>
+                Apply
+              </Button>
+            </Stack>
+          </Box>
+        )}
+      </Popover>
+
       <Box
         sx={{
           flex: 1,
@@ -2380,7 +2952,7 @@ ${error.message}`
           minHeight: 320,
           maxHeight: '70vh',
           mb: 2,
-          borderRadius: 3,
+          borderRadius: 2,
           boxShadow: gridShadow,
           border: `1px solid ${gridBorderColor}`,
           background: gridBackground,
@@ -2403,20 +2975,59 @@ ${error.message}`
               ? alpha(theme.palette.common.white, 0.95)
               : theme.palette.text.primary,
             '--revo-grid-cell-border': cellBorderColor,
+            '--revo-grid-header-height': `${HEADER_HEIGHT_PX}px`,
+            '--revo-grid-row-size': `${DATA_ROW_HEIGHT_PX}px`,
           },
           '& revo-grid revogr-header, & revo-grid .rowHeaders': {
             backgroundColor: headerBaseColor,
             backgroundImage: headerGradient,
             color: headerColor,
+            minHeight: `${HEADER_HEIGHT_PX}px`,
+            height: `${HEADER_HEIGHT_PX}px`,
+            borderBottom: 'none',
+          },
+          '& revo-grid revogr-header revogr-data': {
+            borderBottom: 'none',
+          },
+          '& revo-grid revogr-header revogr-data .rgRow': {
+            borderBottom: 'none',
+          },
+          '& revo-grid revogr-header revogr-data .rgRow .rgCell': {
+            borderBottom: 'none',
+            borderTop: 'none',
+            borderRight: 'none',
+            borderLeft: 'none',
+            boxShadow: 'none',
+          },
+          '& revo-grid[theme="default"] revogr-header .header-rgRow, & revo-grid:not([theme]) revogr-header .header-rgRow': {
+            height: 0,
+            minHeight: 0,
+            boxShadow: 'none',
+            border: 'none',
           },
           '& revo-grid revogr-header .rgHeaderCell': {
-            borderBottom: `1px solid ${headerBorderColor}`,
-            boxShadow: `-1px 0 0 0 ${alpha(headerBorderColor, 0.75)}`,
+            borderBottom: 'none',
+            borderRight: 'none',
+            boxShadow: 'none',
+            minHeight: `${HEADER_HEIGHT_PX}px`,
+            height: '100%',
+            padding: theme.spacing(1, 1.25),
+            alignItems: 'stretch',
+            boxSizing: 'border-box',
           },
           '& revo-grid .rgHeader .rgCell': {
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
             color: headerColor,
             textTransform: 'none',
             letterSpacing: 0.2,
+            fontWeight: 700,
+            fontSize: theme.typography.pxToRem(15),
+            gap: theme.spacing(0.5),
+            minHeight: `${HEADER_HEIGHT_PX - 8}px`,
+            textAlign: 'center',
           },
           '& revo-grid .rowHeaders revogr-data .rgRow .rgCell': {
             display: 'flex',
@@ -2448,8 +3059,9 @@ ${error.message}`
             color: rowHeaderTextColor,
             boxShadow: `inset 0 0 0 1px ${rowHeaderDividerColor}`,
           },
-          '& revo-grid revogr-data .rgRow:nth-of-type(even)': {
-            backgroundColor: 'transparent',
+          '& revo-grid revogr-data .rgRow': {
+            minHeight: DATA_ROW_HEIGHT_PX,
+            maxHeight: DATA_ROW_HEIGHT_PX,
           },
           '& revo-grid revogr-data .rgRow:nth-of-type(even) .rgCell': {
             backgroundColor: zebraBackground,
@@ -2462,35 +3074,35 @@ ${error.message}`
             boxShadow: `inset 0 0 0 1px ${rowHoverOutline}`,
           },
           '& revo-grid revogr-data .rgRow:hover .rgCell': {
-            backgroundColor: rowHoverBackground,
+            backgroundColor: 'transparent',
           },
           '& revo-grid revogr-data .rgRow[aria-selected="true"]': {
             backgroundColor: rowSelectionBackground,
-            boxShadow: `inset 0 0 0 2px ${rowSelectionOutline}`,
+            boxShadow: `inset 0 0 0 1px ${rowSelectionOutline}`,
           },
           '& revo-grid revogr-data .rgRow[aria-selected="true"] .rgCell': {
-            backgroundColor: rowSelectionBackground,
+            backgroundColor: 'transparent',
           },
           '& revo-grid revogr-data .rgRow[aria-selected="true"]:hover': {
-            backgroundColor: alpha(rowSelectionBackground, isDarkMode ? 1 : 0.92),
-            boxShadow: `inset 0 0 0 2px ${alpha(rowSelectionOutline, 1)}`,
+            backgroundColor: alpha(rowSelectionBackground, isDarkMode ? 0.95 : 0.85),
+            boxShadow: `inset 0 0 0 1px ${rowSelectionOutline}`,
           },
           '& revo-grid revogr-data .rgRow[aria-selected="true"]:hover .rgCell': {
-            backgroundColor: alpha(rowSelectionBackground, isDarkMode ? 1 : 0.92),
+            backgroundColor: 'transparent',
           },
           '& revo-grid revogr-data .rgCell': {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-start',
             color: isDarkMode
-              ? alpha(theme.palette.common.white, 0.94)
+              ? alpha(theme.palette.common.white, 0.95)
               : theme.palette.text.primary,
-            backgroundColor: cellBackground,
             borderBottom: `1px solid ${cellBorderColor}`,
             borderRight: `1px solid ${secondaryCellBorderColor}`,
-            padding: theme.spacing(0.75, 1.25),
-            fontSize: theme.typography.pxToRem(16),
-            lineHeight: 1.6,
+            padding: theme.spacing(1.1, 1.5),
+            fontSize: theme.typography.pxToRem(15),
+            lineHeight: 1.5,
+            backgroundColor: 'transparent',
             transition: theme.transitions.create(['background-color', 'box-shadow'], {
               duration: theme.transitions.duration.shortest,
             }),
@@ -2508,6 +3120,10 @@ ${error.message}`
           },
           '& .cc-validation-row': {
             backgroundColor: alpha(theme.palette.error.light, isDarkMode ? 0.2 : 0.12),
+          },
+          '& .cc-row-selected': {
+            backgroundColor: rowSelectionBackground,
+            boxShadow: `inset 0 0 0 1px ${rowSelectionOutline}`,
           },
           '& .cc-validation-error-cell': {
             position: 'relative',
@@ -2538,11 +3154,11 @@ ${error.message}`
         onPasteCapture={handlePaste}
       >
         <RevoGrid
-            ref={gridRef}
+          ref={gridRef}
           theme="default"
           source={gridRows}
           columns={columns}
-          rowHeaders={true}
+          rowHeaders={false}
           range={true}
           resize={true}
           autoSizeColumn={true}

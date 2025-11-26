@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import List
+from uuid import uuid4
 
 import pytest
 
@@ -221,3 +223,37 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
     assert any("MERGE INTO `sandbox`.`dq`.`dq_table_groups`" in stmt for stmt in executed)
     assert any("MERGE INTO `sandbox`.`dq`.`dq_tables`" in stmt for stmt in executed)
     assert any("DELETE FROM `sandbox`.`dq`.`dq_connections`" in stmt for stmt in executed)
+
+
+def test_tables_for_connection_uses_ingestion_naming(monkeypatch):
+    data_object_id = uuid4()
+    selection = SimpleNamespace(id=uuid4(), schema_name="sample_data", table_name="WebSales_Customers")
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system=SimpleNamespace(id=uuid4(), name="Demo Data", physical_name=None),
+        catalog_selections=[selection],
+        active=True,
+    )
+
+    tables = data_quality_metadata._tables_for_connection(connection, data_object_id=data_object_id, table_keys=None)
+
+    assert len(tables) == 1
+    assert tables[0].schema_name == "demo_data"
+    assert tables[0].table_name == "sample_data_websales_customers"
+
+
+def test_tables_for_connection_falls_back_when_system_name_missing(monkeypatch):
+    data_object_id = uuid4()
+    selection = SimpleNamespace(id=uuid4(), schema_name="finance", table_name="transactions")
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system=SimpleNamespace(id=uuid4(), name=None, physical_name=None),
+        catalog_selections=[selection],
+        active=True,
+    )
+
+    tables = data_quality_metadata._tables_for_connection(connection, data_object_id=data_object_id, table_keys=None)
+
+    assert len(tables) == 1
+    assert tables[0].schema_name == "finance"
+    assert tables[0].table_name == "finance_transactions"

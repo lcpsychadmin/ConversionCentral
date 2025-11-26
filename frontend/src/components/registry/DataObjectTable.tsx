@@ -10,7 +10,7 @@ const columns: GridColDef<DataObject>[] = [
   { field: 'name', headerName: 'Name', flex: 1 },
   {
     field: 'processAreaName',
-    headerName: 'Product Team',
+    headerName: 'Process Area',
     flex: 1,
     valueGetter: ({ row }) => row.processAreaName ?? 'Unassigned'
   },

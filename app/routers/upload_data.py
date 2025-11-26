@@ -6,16 +6,20 @@ import io
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from sqlalchemy import func, text
+from sqlalchemy import Column, func, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import sqltypes
+
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from app.constants.audit_fields import AUDIT_FIELD_NAME_SET
 from app.database import get_db
@@ -49,6 +53,7 @@ from app.services.constructed_data_warehouse import (
     ConstructedDataWarehouse,
     ConstructedDataWarehouseError,
 )
+from app.services.ingestion_loader import SparkTableLoader, build_loader_plan
 
 
 logger = logging.getLogger(__name__)
@@ -77,8 +82,12 @@ async def preview_upload_data(
     delimiter: Optional[str] = Form(None),
 ) -> UploadDataPreviewResponse:
     data = await _read_upload_bytes(file)
-    detected_delimiter = _resolve_delimiter(file.filename, delimiter)
-    columns, rows = _parse_csv_data(data, delimiter=detected_delimiter, has_header=has_header)
+    columns, rows = _parse_uploaded_table_data(
+        data=data,
+        filename=file.filename,
+        has_header=has_header,
+        delimiter=delimiter,
+    )
     await file.close()
     sample_rows = rows[:SAMPLE_ROW_LIMIT]
     return UploadDataPreviewResponse(columns=columns, sample_rows=sample_rows, total_rows=len(rows))
@@ -121,8 +130,12 @@ async def create_table_from_upload(
 
     sanitized_table_name = _sanitize_table_name(table_name)
     data = await _read_upload_bytes(file)
-    detected_delimiter = _resolve_delimiter(file.filename, delimiter)
-    columns, rows = _parse_csv_data(data, delimiter=detected_delimiter, has_header=has_header)
+    columns, rows = _parse_uploaded_table_data(
+        data=data,
+        filename=file.filename,
+        has_header=has_header,
+        delimiter=delimiter,
+    )
     included_indexes = list(range(len(columns)))
     if overrides_raw:
         overrides = _parse_column_overrides(overrides_raw)
@@ -156,7 +169,17 @@ async def create_table_from_upload(
 
     try:
         with engine.begin() as connection:
-            _apply_create_table(connection, qualified_table, columns, rows, mode, target, dialect_name)
+            _apply_create_table(
+                connection=connection,
+                qualified_table=qualified_table,
+                table_name=sanitized_table_name,
+                schema_name=resolved_schema,
+                columns=columns,
+                rows=rows,
+                mode=mode,
+                target=target,
+                dialect_name=dialect_name,
+            )
         logger.info("upload:create-table:warehouse-created name=%s", sanitized_table_name)
     except SQLAlchemyError as exc:  # pragma: no cover - requires live warehouse dialect for full coverage
         message = str(getattr(exc, "orig", exc)) or str(exc)
@@ -335,6 +358,27 @@ def _decode_bytes(data: bytes) -> str:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to decode file. Use UTF-8 encoding.")
 
 
+def _parse_uploaded_table_data(
+    *,
+    data: bytes,
+    filename: Optional[str],
+    has_header: bool,
+    delimiter: Optional[str],
+) -> tuple[list[UploadDataColumn], list[list[Optional[str]]]]:
+    if _is_excel_file(filename):
+        return _parse_excel_data(data, has_header=has_header)
+
+    detected_delimiter = _resolve_delimiter(filename, delimiter)
+    return _parse_csv_data(data, delimiter=detected_delimiter, has_header=has_header)
+
+
+def _is_excel_file(filename: Optional[str]) -> bool:
+    if not filename:
+        return False
+    suffix = Path(filename).suffix.lower()
+    return suffix in {".xlsx", ".xlsm"}
+
+
 def _parse_csv_data(
     data: bytes,
     *,
@@ -366,6 +410,79 @@ def _parse_csv_data(
     normalized_rows = [_normalize_row(row, column_count) for row in data_rows]
     columns = _build_columns(header_row, normalized_rows, column_count)
     return columns, normalized_rows
+
+
+def _parse_excel_data(
+    data: bytes,
+    *,
+    has_header: bool,
+) -> tuple[list[UploadDataColumn], list[list[Optional[str]]]]:
+    try:
+        workbook = load_workbook(filename=io.BytesIO(data), read_only=True, data_only=True)
+    except InvalidFileException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded Excel file is invalid.",
+        ) from exc
+    except Exception as exc:  # pragma: no cover - defensive fallback for corrupted files
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to read the uploaded Excel file.",
+        ) from exc
+
+    try:
+        sheet = workbook.active
+        raw_rows: list[list[str]] = []
+        for row in sheet.iter_rows(values_only=True):
+            formatted = _format_excel_row(row)
+            if formatted:
+                raw_rows.append(formatted)
+    finally:
+        workbook.close()
+
+    if not raw_rows:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file contains no data.")
+
+    column_count = max(len(row) for row in raw_rows)
+    if column_count == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file has no columns.")
+
+    if has_header:
+        header_row = raw_rows[0]
+        data_rows = raw_rows[1:]
+    else:
+        header_row = [f"column_{index + 1}" for index in range(column_count)]
+        data_rows = raw_rows
+
+    if len(header_row) < column_count:
+        header_row = header_row + [f"column_{index + 1}" for index in range(len(header_row), column_count)]
+
+    normalized_rows = [_normalize_row(row, column_count) for row in data_rows]
+    columns = _build_columns(header_row, normalized_rows, column_count)
+    return columns, normalized_rows
+
+
+def _format_excel_row(row: Sequence[Any]) -> list[str]:
+    formatted = [_stringify_excel_cell(cell) for cell in row]
+    while formatted and not formatted[-1].strip():
+        formatted.pop()
+    if not formatted:
+        return []
+    if not any(cell.strip() for cell in formatted):
+        return []
+    return formatted
+
+
+def _stringify_excel_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, time):
+        return value.isoformat()
+    return str(value)
 
 
 def _parse_column_overrides(payload: str) -> list[UploadDataColumnOverride]:
@@ -627,6 +744,8 @@ def _normalize_override_type(value: str) -> str:
 def _apply_create_table(
     connection: Connection,
     qualified_table: str,
+    table_name: str,
+    schema_name: Optional[str],
     columns: Sequence[UploadDataColumn],
     rows: Sequence[Sequence[Optional[str]]],
     mode: UploadTableMode,
@@ -640,6 +759,31 @@ def _apply_create_table(
         connection.execute(text(f"DROP TABLE IF EXISTS {qualified_table}"))
     elif mode is not UploadTableMode.CREATE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported upload mode.")
+
+    spark_loader: SparkTableLoader | None = None
+    if (
+        target is DataWarehouseTarget.DATABRICKS_SQL
+        and dialect_name == "databricks"
+        and rows
+    ):
+        spark_loader = _initialize_spark_loader()
+
+    if spark_loader is not None:
+        if mode is UploadTableMode.CREATE and _table_exists(connection, qualified_table):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Table already exists.")
+        try:
+            _load_table_with_spark(
+                loader=spark_loader,
+                schema_name=schema_name,
+                table_name=table_name,
+                columns=columns,
+                rows=rows,
+                mode=mode,
+            )
+            return
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Spark load failed for %s; falling back to SQL inserts", qualified_table, exc_info=exc)
+            connection.execute(text(f"DROP TABLE IF EXISTS {qualified_table}"))
 
     column_definitions = ", ".join(
         f"{_quote_identifier(column.field_name, dialect_name)} {_resolve_column_sql_type(column.inferred_type, dialect_name, target)}"
@@ -688,7 +832,7 @@ def _register_uploaded_table_metadata(
 ) -> _UploadMetadataResult:
     process_area = session.get(ProcessArea, product_team_id)
     if not process_area:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected product team was not found.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected process area was not found.")
 
     data_object = session.get(DataObject, data_object_id)
     if not data_object:
@@ -696,7 +840,7 @@ def _register_uploaded_table_metadata(
     if data_object.process_area_id != product_team_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Data object does not belong to the selected product team.",
+            detail="Data object does not belong to the selected process area.",
         )
 
     system = session.get(System, system_id)
@@ -987,6 +1131,112 @@ def _drop_table_if_exists(engine: Engine, qualified_table: str) -> None:
             connection.execute(text(f"DROP TABLE IF EXISTS {qualified_table}"))
     except SQLAlchemyError:  # pragma: no cover - best-effort cleanup
         return
+
+
+def _table_exists(connection: Connection, qualified_table: str) -> bool:
+    try:
+        connection.execute(text(f"SELECT 1 FROM {qualified_table} LIMIT 1"))
+    except SQLAlchemyError:
+        return False
+    return True
+
+
+def _initialize_spark_loader() -> SparkTableLoader | None:
+    try:
+        return SparkTableLoader()
+    except RuntimeError as exc:
+        logger.info("Spark loader unavailable: %s", exc)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning("Unable to initialize Spark loader: %s", exc)
+    return None
+
+
+def _load_table_with_spark(
+    *,
+    loader: SparkTableLoader,
+    schema_name: Optional[str],
+    table_name: str,
+    columns: Sequence[UploadDataColumn],
+    rows: Sequence[Sequence[Optional[str]]],
+    mode: UploadTableMode,
+) -> None:
+    typed_rows = _build_spark_rows(columns, rows)
+    if not typed_rows:
+        return
+
+    plan = build_loader_plan(
+        schema=schema_name,
+        table_name=table_name,
+        replace=(mode is UploadTableMode.REPLACE),
+        deduplicate=False,
+    )
+    loader_columns = _build_sqlalchemy_columns(columns)
+    loader.load_rows(plan, typed_rows, loader_columns)
+
+
+def _build_spark_rows(
+    columns: Sequence[UploadDataColumn],
+    rows: Sequence[Sequence[Optional[str]]],
+) -> list[Mapping[str, object | None]]:
+    payloads: list[Mapping[str, object | None]] = []
+    for row in rows:
+        record: dict[str, object | None] = {}
+        for index, column in enumerate(columns):
+            raw_value = row[index] if index < len(row) else None
+            record[column.field_name] = _coerce_row_value(raw_value, column.inferred_type)
+        payloads.append(record)
+    return payloads
+
+
+def _build_sqlalchemy_columns(columns: Sequence[UploadDataColumn]) -> list[Column]:
+    loader_columns: list[Column] = []
+    for column in columns:
+        loader_columns.append(Column(column.field_name, _map_inferred_type_to_sqlalchemy(column.inferred_type), nullable=True))
+    return loader_columns
+
+
+def _coerce_row_value(value: Optional[str], inferred_type: str) -> object | None:
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    lowered = candidate.lower()
+    if inferred_type == "boolean":
+        if lowered in TRUE_VALUES:
+            return True
+        if lowered in FALSE_VALUES:
+            return False
+        return None
+    if inferred_type == "integer":
+        try:
+            return int(candidate)
+        except ValueError:
+            return None
+    if inferred_type == "float":
+        try:
+            return float(candidate)
+        except ValueError:
+            return None
+    if inferred_type == "timestamp":
+        normalized = candidate[:-1] + "+00:00" if candidate.endswith("Z") else candidate
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+    return candidate
+
+
+def _map_inferred_type_to_sqlalchemy(column_type: str) -> sqltypes.TypeEngine:
+    mapping = {
+        "boolean": sqltypes.Boolean(),
+        "integer": sqltypes.BigInteger(),
+        "float": sqltypes.Float(),
+        "timestamp": sqltypes.DateTime(timezone=True),
+        "string": sqltypes.String(),
+    }
+    return mapping.get((column_type or "").lower(), sqltypes.String())
 
 
 def _resolve_column_sql_type(column_type: str, dialect_name: str, target: DataWarehouseTarget) -> str:

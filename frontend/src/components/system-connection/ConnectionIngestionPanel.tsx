@@ -291,6 +291,11 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
   const handleFormSubmit = async (values: ScheduleFormValues) => {
     // SAP HANA is not a warehouse target; do not set a sapHanaSettingId on schedule payloads.
     const normalizedSapHanaId = null;
+    const selectionIds = values.connectionTableSelectionIds.filter(Boolean);
+    if (selectionIds.length === 0) {
+      toast.showError('Select at least one table to schedule.');
+      return;
+    }
 
     if (editing) {
       setBusyScheduleId(editing.id);
@@ -317,22 +322,27 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
     }
 
     try {
-      const payload: IngestionScheduleInput = {
-        connectionTableSelectionId: values.connectionTableSelectionId,
-        scheduleExpression: values.scheduleExpression,
-        timezone: trimOrUndefined(values.timezone) ?? null,
-        loadStrategy: values.loadStrategy,
-        watermarkColumn: trimOrUndefined(values.watermarkColumn) ?? null,
-        primaryKeyColumn: trimOrUndefined(values.primaryKeyColumn) ?? null,
-        targetSchema: trimOrUndefined(values.targetSchema) ?? null,
-        targetTableName: null,
-         targetWarehouse: values.targetWarehouse,
-         sapHanaSettingId: normalizedSapHanaId,
-        batchSize: values.batchSize,
-        isActive: values.isActive
-      };
-      await createSchedule(payload);
+      for (const selectionId of selectionIds) {
+        const payload: IngestionScheduleInput = {
+          connectionTableSelectionId: selectionId,
+          scheduleExpression: values.scheduleExpression,
+          timezone: trimOrUndefined(values.timezone) ?? null,
+          loadStrategy: values.loadStrategy,
+          watermarkColumn: trimOrUndefined(values.watermarkColumn) ?? null,
+          primaryKeyColumn: trimOrUndefined(values.primaryKeyColumn) ?? null,
+          targetSchema: trimOrUndefined(values.targetSchema) ?? null,
+          targetTableName: null,
+          targetWarehouse: values.targetWarehouse,
+          sapHanaSettingId: normalizedSapHanaId,
+          batchSize: values.batchSize,
+          isActive: values.isActive
+        };
+        await createSchedule(payload);
+      }
       setFormOpen(false);
+      if (selectionIds.length > 1) {
+        toast.showSuccess(`Created ${selectionIds.length} schedules.`);
+      }
     } finally {
       setEditing(null);
       setBusyScheduleId(null);
@@ -404,6 +414,7 @@ const ConnectionIngestionPanel = ({ connection, system, catalogRows }: Connectio
         sapHanaOptions={sapHanaOptions}
         initialValues={editing}
         disableSelectionChange={Boolean(editing)}
+        allowMultiSelect={!editing}
         loading={creating || updating}
         onClose={() => {
           setFormOpen(false);

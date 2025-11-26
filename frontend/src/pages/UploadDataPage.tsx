@@ -105,6 +105,8 @@ const COLUMN_TYPE_OPTIONS: Array<{ value: UploadColumnType; label: string }> = [
   { value: 'boolean', label: 'Boolean' }
 ];
 
+const MANAGED_DATABRICKS_PHYSICAL_NAME = 'databricks_warehouse';
+
 const normalizeColumnType = (value: string): UploadColumnType => {
   const normalized = value.toLowerCase() as UploadColumnType;
   return ['string', 'integer', 'float', 'timestamp', 'boolean'].includes(normalized)
@@ -168,7 +170,7 @@ const UploadDataPage = () => {
     fetchProcessAreas,
     {
       onError: (error: unknown) => {
-        toast.showError(getErrorMessage(error, 'Unable to load product teams.'));
+        toast.showError(getErrorMessage(error, 'Unable to load process areas.'));
       }
     }
   );
@@ -192,7 +194,7 @@ const UploadDataPage = () => {
     fetchSystems,
     {
       onError: (error: unknown) => {
-        toast.showError(getErrorMessage(error, 'Unable to load systems.'));
+        toast.showError(getErrorMessage(error, 'Unable to load applications.'));
       }
     }
   );
@@ -203,10 +205,11 @@ const UploadDataPage = () => {
   );
 
   const availableSystems = useMemo<System[]>(() => {
-    if (selectedDataObject?.systems && selectedDataObject.systems.length > 0) {
-      return selectedDataObject.systems;
-    }
-    return systems;
+    const nextSystems =
+      selectedDataObject?.systems && selectedDataObject.systems.length > 0
+        ? selectedDataObject.systems
+        : systems;
+    return nextSystems.filter((entry) => (entry.physicalName?.toLowerCase() ?? '') !== MANAGED_DATABRICKS_PHYSICAL_NAME);
   }, [selectedDataObject, systems]);
 
   const handleProductTeamSelect = useCallback(
@@ -255,7 +258,7 @@ const UploadDataPage = () => {
         throw new Error('No file selected.');
       }
       if (!productTeamId || !dataObjectId || !systemId) {
-        throw new Error('Select a product team, data object, and system before uploading.');
+        throw new Error('Select a process area, data object, and application before uploading.');
       }
       return createTableFromUpload({
         file: selectedFile,
@@ -485,7 +488,7 @@ const UploadDataPage = () => {
 
   const headerDescription = useMemo(() => {
     if (!preview) {
-      return 'Upload a CSV or TSV file to create a new table in the configured warehouse.';
+      return 'Upload a CSV, TSV, or Excel (.xlsx) file to create a new table in the configured warehouse.';
     }
     return `Detected ${preview.columns.length} column${preview.columns.length === 1 ? '' : 's'} and ${preview.totalRows} row${preview.totalRows === 1 ? '' : 's'}.`;
   }, [preview]);
@@ -621,7 +624,7 @@ const UploadDataPage = () => {
             {selectedFile ? selectedFile.name : 'Drag & drop a file here, or click to browse'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Supported formats: CSV and TSV. Maximum size 5 MB.
+            Supported formats: CSV, TSV, and Excel (.xlsx). Maximum size 5 MB.
           </Typography>
           <Stack direction="row" spacing={2} alignItems="center">
             <Button
@@ -633,7 +636,7 @@ const UploadDataPage = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.tsv,.txt,.tab"
+                accept=".csv,.tsv,.txt,.tab,.xlsx,.xlsm"
                 hidden
                 onChange={handleInputChange}
               />
@@ -916,15 +919,15 @@ const UploadDataPage = () => {
               required
               disabled={!canManage || createMutation.isLoading || isLoadingProcessAreas}
             >
-              <InputLabel id="upload-product-team-label">Product Team</InputLabel>
+              <InputLabel id="upload-product-team-label">Process Area</InputLabel>
               <Select
                 labelId="upload-product-team-label"
                 value={productTeamId}
-                label="Product Team"
+                label="Process Area"
                 onChange={handleProductTeamSelect}
               >
                 <MenuItem value="">
-                  <em>Select a product team</em>
+                  <em>Select a process area</em>
                 </MenuItem>
                 {processAreas.map((area: ProcessArea) => (
                   <MenuItem key={area.id} value={area.id}>
@@ -933,7 +936,7 @@ const UploadDataPage = () => {
                 ))}
               </Select>
               {!isLoadingProcessAreas && processAreas.length === 0 && (
-                <FormHelperText>No product teams available.</FormHelperText>
+                <FormHelperText>No process areas available.</FormHelperText>
               )}
             </FormControl>
             <FormControl
@@ -958,25 +961,25 @@ const UploadDataPage = () => {
                 ))}
               </Select>
               {!productTeamId && (
-                <FormHelperText>Select a product team first.</FormHelperText>
+                <FormHelperText>Select a process area first.</FormHelperText>
               )}
             </FormControl>
           </Stack>
 
           <FormControl
             fullWidth
-              required
+            required
             disabled={!canManage || createMutation.isLoading || !dataObjectId || isLoadingSystems}
           >
-            <InputLabel id="upload-system-label">System</InputLabel>
+            <InputLabel id="upload-application-label">Application</InputLabel>
             <Select
-              labelId="upload-system-label"
+              labelId="upload-application-label"
               value={systemId}
-              label="System"
+              label="Application"
               onChange={handleSystemSelect}
             >
               <MenuItem value="">
-                <em>Select a system</em>
+                <em>Select an application</em>
               </MenuItem>
               {availableSystems.map((system: System) => (
                 <MenuItem key={system.id} value={system.id}>
@@ -985,9 +988,9 @@ const UploadDataPage = () => {
               ))}
             </Select>
             {!dataObjectId ? (
-              <FormHelperText>Select a data object to continue.</FormHelperText>
+              <FormHelperText>Select a data object to view applications.</FormHelperText>
             ) : availableSystems.length === 0 ? (
-              <FormHelperText>No systems are linked to this data object.</FormHelperText>
+              <FormHelperText>No applications are linked to this data object.</FormHelperText>
             ) : null}
           </FormControl>
 

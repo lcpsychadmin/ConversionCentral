@@ -41,7 +41,11 @@ from app.services.data_construction_sync import (
     delete_constructed_tables_for_definition,
     sync_construction_tables_for_definition,
 )
-from app.services.table_filters import connection_is_databricks, table_is_databricks_eligible
+from app.services.table_filters import (
+    connection_is_databricks,
+    table_is_constructed,
+    table_is_databricks_eligible,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -719,6 +723,7 @@ def get_available_source_tables(
         .filter(SystemConnection.system_id.in_(system_ids))
         .all()
     )
+
     databricks_connections = [
         connection for connection in connections if connection_is_databricks(connection)
     ]
@@ -732,14 +737,12 @@ def get_available_source_tables(
         databricks_connections = [
             connection for connection in all_connections if connection_is_databricks(connection)
         ]
-    connection_ids = [conn.id for conn in databricks_connections]
 
-    if not databricks_connections:
-        return []
+    connection_ids = [conn.id for conn in connections]
 
     allowed_tables: list[dict] = []
     seen_keys: set[tuple[str | None, str]] = set()
-    connection_map = {connection.id: connection for connection in databricks_connections}
+    connection_map = {connection.id: connection for connection in connections}
     selections_by_connection: dict[UUID, list[ConnectionTableSelection]] = {}
     systems_with_known_tables: set[UUID] = set()
 
@@ -770,6 +773,38 @@ def get_available_source_tables(
                     "estimatedRows": selection.estimated_rows,
                 }
             )
+
+    table_sources = (
+        db.query(Table)
+        .options(
+            selectinload(Table.system).selectinload(System.connections),
+            selectinload(Table.definition_tables),
+        )
+        .filter(Table.system_id.in_(system_ids))
+        .all()
+    )
+
+    for table in table_sources:
+        if table_is_constructed(table):
+            continue
+
+        schema_name = table.schema_name or ""
+        table_name = table.physical_name or table.name
+        key = (schema_name.lower(), (table_name or "").lower())
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        systems_with_known_tables.add(table.system_id)
+        allowed_tables.append(
+            {
+                "catalogName": getattr(table, "catalog_name", None),
+                "schemaName": schema_name,
+                "tableName": table_name,
+                "tableType": table.table_type,
+                "columnCount": None,
+                "estimatedRows": None,
+            }
+        )
 
     databricks_system_ids = {connection.system_id for connection in databricks_connections}
     if databricks_system_ids:

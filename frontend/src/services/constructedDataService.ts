@@ -121,6 +121,7 @@ export interface DataObject {
 export interface System {
   id: string;
   name: string;
+  physicalName?: string;
   status: string;
 }
 
@@ -335,7 +336,7 @@ export async function deleteValidationRule(id: string): Promise<void> {
 }
 
 /**
- * Fetch all product teams
+ * Fetch all process areas
  */
 export async function fetchProcessAreas(): Promise<ProcessArea[]> {
   const response = await client.get<ProcessArea[]>('/process-areas');
@@ -343,7 +344,7 @@ export async function fetchProcessAreas(): Promise<ProcessArea[]> {
 }
 
 /**
- * Fetch all data objects for a product team
+ * Fetch all data objects for a process area
  */
 export async function fetchDataObjects(processAreaId: string): Promise<DataObject[]> {
   const response = await client.get<DataObject[]>(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.schemas import (
     DatabricksClusterPolicyRead,
 )
 from app.ingestion import reset_ingestion_engine
-from app.services.databricks_bootstrap import ensure_databricks_connection
+from app.services.databricks_bootstrap import ensure_databricks_connection, teardown_databricks_environment
 from app.services.databricks_sql import (
     DatabricksConnectionError,
     DatabricksConnectionParams,
@@ -225,6 +225,45 @@ def create_databricks_setting(
     reset_ingestion_engine()
     background_tasks.add_task(ensure_databricks_connection)
     return record
+
+
+@router.delete("/{setting_id}", response_class=Response)
+def delete_databricks_setting(
+    setting_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> None:
+    setting = db.get(DatabricksSqlSetting, setting_id)
+    if not setting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Databricks setting not found")
+
+    teardown_params: DatabricksConnectionParams | None = None
+    if setting.access_token:
+        teardown_params = DatabricksConnectionParams(
+            workspace_host=setting.workspace_host,
+            http_path=setting.http_path,
+            access_token=setting.access_token,
+            catalog=setting.catalog,
+            schema_name=setting.schema_name,
+            constructed_schema=setting.constructed_schema,
+            ingestion_batch_rows=setting.ingestion_batch_rows,
+            ingestion_method=setting.ingestion_method,
+            spark_compute=setting.spark_compute,
+            data_quality_schema=setting.data_quality_schema,
+            data_quality_storage_format=setting.data_quality_storage_format or "delta",
+            data_quality_auto_manage_tables=
+                bool(setting.data_quality_auto_manage_tables)
+                if setting.data_quality_auto_manage_tables is not None
+                else True,
+            profiling_policy_id=setting.profiling_policy_id,
+            profiling_notebook_path=setting.profiling_notebook_path,
+        )
+
+    db.delete(setting)
+    db.commit()
+    reset_ingestion_engine()
+    background_tasks.add_task(teardown_databricks_environment, teardown_params)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/{setting_id}", response_model=DatabricksSqlSettingRead)

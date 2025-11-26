@@ -101,11 +101,11 @@ const DataObjectsPage = () => {
   const handleCreateClick = () => {
     if (!canManage) return;
     if (processAreasLoading || processAreasFetching || systemsLoading) {
-  toast.showInfo('Product teams or systems are still loading. Try again in a moment.');
+      toast.showInfo('Process areas or systems are still loading. Try again in a moment.');
       return;
     }
     if (processAreasError) {
-  const message = getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.');
+      const message = getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.');
       toast.showError(message);
       return;
     }
@@ -115,7 +115,7 @@ const DataObjectsPage = () => {
       return;
     }
     if (processAreas.length === 0) {
-  toast.showInfo('Create a product team before adding data objects.');
+      toast.showInfo('Create a process area before adding data objects.');
       return;
     }
 
@@ -186,7 +186,7 @@ const DataObjectsPage = () => {
     ? getErrorMessage(dataObjectsErrorDetails, 'Unable to load data objects.')
     : null;
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
     : null;
   const systemsErrorMessage = systemsError
     ? getErrorMessage(systemsErrorDetails, 'Unable to load systems.')
@@ -196,7 +196,7 @@ const DataObjectsPage = () => {
     <Box>
       <PageHeader
         title="Data Objects"
-        subtitle="Manage data objects, product team alignment, and system ownership."
+        subtitle="Manage data objects, process area alignment, and system ownership."
         actions={
           canManage ? (
             <Button variant="contained" onClick={handleCreateClick} disabled={busy}>
@@ -226,7 +226,7 @@ const DataObjectsPage = () => {
 
       {canManage && noProcessAreasAvailable && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          No product teams are available yet. Create a product team to enable new data objects.
+          No process areas are available yet. Create a process area to enable new data objects.
         </Alert>
       )}
 
@@ -271,7 +271,7 @@ const DataObjectsPage = () => {
             <Grid item xs={12} md={6}>
               <Stack spacing={2}>
                 <DetailLine label="Name" value={selected.name} />
-                <DetailLine label="Product Team" value={selected.processAreaName ?? 'Unassigned'} />
+                <DetailLine label="Process Area" value={selected.processAreaName ?? 'Unassigned'} />
                 <DetailLine label="Description" value={selected.description ?? '—'} />
               </Stack>
             </Grid>

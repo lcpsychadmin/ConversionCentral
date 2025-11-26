@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import app.routers.databricks_settings as databricks_router
 from app.models import DatabricksSqlSetting
 
@@ -62,3 +64,27 @@ def test_update_validates_connection_when_core_fields_change(client, db_session,
     assert called["status"] is True
     payload = response.json()
     assert payload["workspace_host"] == "adb-456.azuredatabricks.net"
+
+
+def test_delete_setting_removes_record_and_triggers_teardown(client, db_session, monkeypatch):
+    setting = _create_setting(db_session)
+
+    teardown_calls: list[object] = []
+
+    def _capture(params):
+        teardown_calls.append(params)
+
+    monkeypatch.setattr(databricks_router, "teardown_databricks_environment", _capture)
+
+    response = client.delete(f"/databricks/settings/{setting.id}")
+    assert response.status_code == 204
+    assert db_session.get(DatabricksSqlSetting, setting.id) is None
+    assert len(teardown_calls) == 1
+    captured = teardown_calls[0]
+    assert captured.schema_name == "default"
+
+
+def test_delete_setting_404_when_missing(client, monkeypatch):
+    monkeypatch.setattr(databricks_router, "teardown_databricks_environment", lambda params: None)
+    response = client.delete(f"/databricks/settings/{uuid.uuid4()}")
+    assert response.status_code == 404

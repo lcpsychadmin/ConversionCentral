@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 
 from fastapi.testclient import TestClient
@@ -10,9 +11,27 @@ from app.models import DataDefinitionTable, DataObject, DataObjectSystem, Field,
 
 from app.ingestion.engine import get_ingestion_engine, reset_ingestion_engine
 
+from openpyxl import Workbook
+
 
 def _make_file_tuple(filename: str, content: str) -> tuple[str, bytes, str]:
     return (filename, content.encode('utf-8'), 'text/csv')
+
+
+def _make_excel_file_tuple(filename: str, rows: list[list[object]]) -> tuple[str, bytes, str]:
+    workbook = Workbook()
+    sheet = workbook.active
+    for row in rows:
+        sheet.append(row)
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    return (
+        filename,
+        buffer.getvalue(),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 def _seed_upload_dependencies(session: Session) -> dict[str, str]:
@@ -48,6 +67,20 @@ def test_upload_preview_returns_columns(client: TestClient) -> None:
     assert payload['columns'][1]['inferred_type'] == 'integer'
 
 
+def test_upload_preview_supports_excel_files(client: TestClient) -> None:
+    reset_ingestion_engine()
+    response = client.post(
+        '/upload-data/preview',
+        data={'has_header': 'true'},
+        files={'file': _make_excel_file_tuple('sample.xlsx', [['name', 'age'], ['Alice', 30]])}
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload['total_rows'] == 1
+    assert payload['columns'][0]['field_name'] == 'name'
+    assert payload['columns'][1]['field_name'] == 'age'
+
+
 def test_create_table_from_upload(client: TestClient, db_session: Session) -> None:
     reset_ingestion_engine()
     ids = _seed_upload_dependencies(db_session)
@@ -73,6 +106,32 @@ def test_create_table_from_upload(client: TestClient, db_session: Session) -> No
     with engine.connect() as connection:
         count = connection.execute(text('SELECT COUNT(*) FROM "people_data"')).scalar()
     assert count == 2
+
+
+def test_create_table_from_excel_upload(client: TestClient, db_session: Session) -> None:
+    reset_ingestion_engine()
+    ids = _seed_upload_dependencies(db_session)
+    response = client.post(
+        '/upload-data/create-table',
+        data={
+            'table_name': 'People Data',
+            'mode': 'create',
+            'has_header': 'true',
+            'product_team_id': ids['product_team_id'],
+            'data_object_id': ids['data_object_id'],
+            'system_id': ids['system_id'],
+        },
+        files={'file': _make_excel_file_tuple('people.xlsx', [['name', 'age'], ['Alice', 30]])}
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload['rows_inserted'] == 1
+    assert payload['table_name'] == 'people_data'
+
+    engine = get_ingestion_engine()
+    with engine.connect() as connection:
+        rows = connection.execute(text('SELECT name, age FROM "people_data"')).fetchall()
+    assert rows == [('Alice', 30)]
 
 
 def test_create_table_with_column_overrides(client: TestClient, db_session: Session) -> None:

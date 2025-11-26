@@ -18,6 +18,8 @@ import {
   Typography
 } from '@mui/material';
 import Select, { SelectChangeEvent } from '@mui/material/Select';
+import Checkbox from '@mui/material/Checkbox';
+import ListItemText from '@mui/material/ListItemText';
 
 import { DataWarehouseTarget, IngestionLoadStrategy, IngestionSchedule } from '../../types/data';
 
@@ -54,10 +56,11 @@ interface IngestionScheduleFormProps {
   onClose: () => void;
   onSubmit: (values: FormValues) => void;
   disableSelectionChange?: boolean;
+  allowMultiSelect?: boolean;
 }
 
 export interface FormValues {
-  connectionTableSelectionId: string;
+  connectionTableSelectionIds: string[];
   scheduleExpression: string;
   timezone: string;
   loadStrategy: IngestionLoadStrategy;
@@ -70,10 +73,10 @@ export interface FormValues {
   isActive: boolean;
 }
 
-type FieldErrorMap = Partial<Record<keyof FormValues | 'form', string>>;
+type FieldErrorMap = Partial<Record<keyof FormValues | 'form' | 'connectionTableSelectionId', string>>;
 
 const DEFAULT_VALUES: FormValues = {
-  connectionTableSelectionId: '',
+  connectionTableSelectionIds: [],
   scheduleExpression: '0 2 * * *',
   timezone: 'UTC',
   loadStrategy: 'timestamp',
@@ -94,11 +97,11 @@ const buildInitialValues = (
     const firstOption = options.find((option) => !option.disabled) ?? options[0];
     return {
       ...DEFAULT_VALUES,
-      connectionTableSelectionId: firstOption?.id ?? ''
+      connectionTableSelectionIds: firstOption ? [firstOption.id] : []
     };
   }
   return {
-    connectionTableSelectionId: initial.connectionTableSelectionId,
+    connectionTableSelectionIds: [initial.connectionTableSelectionId],
     scheduleExpression: initial.scheduleExpression,
     timezone: initial.timezone ?? 'UTC',
     loadStrategy: initial.loadStrategy,
@@ -115,8 +118,8 @@ const buildInitialValues = (
 const validate = (values: FormValues): FieldErrorMap => {
   const errors: FieldErrorMap = {};
 
-  if (!values.connectionTableSelectionId) {
-    errors.connectionTableSelectionId = 'Select a table to ingest.';
+  if (!values.connectionTableSelectionIds || values.connectionTableSelectionIds.length === 0) {
+    errors.connectionTableSelectionId = 'Select at least one table to ingest.';
   }
 
   if (!values.scheduleExpression.trim()) {
@@ -151,7 +154,7 @@ const normalize = (values: FormValues): FormValues => ({
   targetSchema: trimString(values.targetSchema),
   sapHanaSettingId: values.sapHanaSettingId?.trim() || '',
   batchSize: Number(values.batchSize),
-  connectionTableSelectionId: values.connectionTableSelectionId
+  connectionTableSelectionIds: values.connectionTableSelectionIds
 });
 
 const IngestionScheduleForm = ({
@@ -164,7 +167,8 @@ const IngestionScheduleForm = ({
   loading = false,
   onClose,
   onSubmit,
-  disableSelectionChange = false
+  disableSelectionChange = false,
+  allowMultiSelect = false
 }: IngestionScheduleFormProps) => {
   const initialSnapshot = useMemo(
     () => buildInitialValues(initialValues, options),
@@ -182,6 +186,8 @@ const IngestionScheduleForm = ({
   useEffect(() => {
     // SAP HANA is no longer a warehouse target; leave sapHanaSetting untouched by warehouse selection.
   }, [sapHanaOptions, values.targetWarehouse, values.sapHanaSettingId]);
+
+  const multiSelectEnabled = allowMultiSelect && !disableSelectionChange;
 
   const handleChange = <K extends keyof FormValues>(field: K) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -229,8 +235,8 @@ const IngestionScheduleForm = ({
     }
   };
 
-  const selectedOption = options.find((option) => option.id === values.connectionTableSelectionId);
-  const targetPreview = selectedOption?.targetPreview;
+  const selectedOptions = options.filter((option) => values.connectionTableSelectionIds.includes(option.id));
+  const targetPreview = !multiSelectEnabled && selectedOptions.length === 1 ? selectedOptions[0]?.targetPreview : undefined;
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
       <Box component="form" noValidate onSubmit={handleSubmit}>
@@ -239,30 +245,63 @@ const IngestionScheduleForm = ({
           <Stack spacing={2} mt={1}>
             {errors.form && <Alert severity="error">{errors.form}</Alert>}
             <FormControl fullWidth required error={!!errors.connectionTableSelectionId}>
-              <InputLabel id="ingestion-table-label">Table Selection</InputLabel>
+              <InputLabel id="ingestion-table-label">
+                {multiSelectEnabled ? 'Table Selections' : 'Table Selection'}
+              </InputLabel>
               <Select
                 labelId="ingestion-table-label"
-                label="Table Selection"
-                value={values.connectionTableSelectionId}
+                label={multiSelectEnabled ? 'Table Selections' : 'Table Selection'}
+                multiple={multiSelectEnabled}
+                value={multiSelectEnabled ? values.connectionTableSelectionIds : values.connectionTableSelectionIds[0] ?? ''}
                 disabled={disableSelectionChange}
-                onChange={(event: SelectChangeEvent<string>) => {
+                onChange={(event: SelectChangeEvent<string | string[]>) => {
+                  const rawValue = event.target.value;
+                  const normalizedArray = Array.isArray(rawValue) ? rawValue : [rawValue];
+                  const nextIds = multiSelectEnabled ? normalizedArray : [normalizedArray[0] ?? ''];
                   setValues((prev) => ({
                     ...prev,
-                    connectionTableSelectionId: event.target.value
+                    connectionTableSelectionIds: nextIds.filter((item) => item)
                   }));
                   setErrors((prev) => ({ ...prev, connectionTableSelectionId: undefined }));
+                }}
+                renderValue={(selected) => {
+                  if (!multiSelectEnabled) {
+                    const option = options.find((opt) => opt.id === selected);
+                    return option ? option.label : 'Select table';
+                  }
+                  const selections = Array.isArray(selected) ? selected : [selected];
+                  if (selections.length === 0) {
+                    return 'Select tables';
+                  }
+                  if (selections.length === 1) {
+                    const option = options.find((opt) => opt.id === selections[0]);
+                    return option ? option.label : '1 table selected';
+                  }
+                  return `${selections.length} tables selected`;
                 }}
               >
                 {options.map((option) => (
                   <MenuItem key={option.id} value={option.id} disabled={option.disabled}>
-                    {option.disabled ? `${option.label} (not selected)` : option.label}
+                    {multiSelectEnabled && !option.disabled && (
+                      <Checkbox checked={values.connectionTableSelectionIds.includes(option.id)} />
+                    )}
+                    <ListItemText
+                      primary={option.disabled ? `${option.label} (not selected)` : option.label}
+                      secondary={multiSelectEnabled ? option.targetPreview : undefined}
+                    />
                   </MenuItem>
                 ))}
               </Select>
               <FormHelperText>{errors.connectionTableSelectionId}</FormHelperText>
             </FormControl>
 
-            {targetPreview && (
+            {multiSelectEnabled && selectedOptions.length > 1 && (
+              <Typography variant="body2" color="text.secondary">
+                Target tables will be created for each selected source table using the same schedule settings.
+              </Typography>
+            )}
+
+            {!multiSelectEnabled && targetPreview && (
               <Typography variant="body2" color="text.secondary">
                 Target table will be <strong>{targetPreview}</strong>
               </Typography>

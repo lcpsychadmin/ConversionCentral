@@ -213,3 +213,7 @@ export const syncDatabricksClusterPolicies = async (): Promise<DatabricksCluster
   );
   return response.data.map(mapClusterPolicy);
 };
+
+export const deleteDatabricksSettings = async (id: string): Promise<void> => {
+  await client.delete(`/databricks/settings/${id}`);
+};

@@ -33,7 +33,7 @@ export const useProcessAreas = () => {
 
   const createMutation = useMutation(createProcessArea, {
     onSuccess: () => {
-      toast.showSuccess('Product team created.');
+      toast.showSuccess('Process area created.');
       invalidate();
     },
     onError: (error) => {
@@ -45,7 +45,7 @@ export const useProcessAreas = () => {
     ({ id, input }: { id: string; input: Partial<ProcessAreaInput> }) => updateProcessArea(id, input),
     {
       onSuccess: () => {
-        toast.showSuccess('Product team updated.');
+        toast.showSuccess('Process area updated.');
         invalidate();
       },
       onError: (error) => {
@@ -56,7 +56,7 @@ export const useProcessAreas = () => {
 
   const deleteMutation = useMutation(deleteProcessArea, {
     onSuccess: () => {
-      toast.showSuccess('Product team deleted.');
+      toast.showSuccess('Process area deleted.');
       invalidate();
     },
     onError: (error) => {

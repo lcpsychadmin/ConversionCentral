@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Iterable, Sequence, Set
@@ -15,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.services.databricks_sql import DatabricksConnectionParams, build_sqlalchemy_url
 from app.database import SessionLocal
 from app.models import (
+    ConnectionTableSelection,
     DataDefinition,
     DataDefinitionTable,
     DataObject,
@@ -39,6 +41,39 @@ _PROJECT_KEY_PREFIX = "system:"
 _CONNECTION_ID_PREFIX = "conn:"
 _TABLE_GROUP_ID_PREFIX = "group:"
 _TABLE_ID_PREFIX = "selection:"
+
+
+_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _sanitize_part(value: str | None, *, default: str | None = None) -> str | None:
+    if not value:
+        return default
+    sanitized = _SANITIZE_PATTERN.sub("_", value.strip()).strip("_")
+    normalized = sanitized.lower()
+    if normalized:
+        return normalized
+    return default
+
+
+def _ingestion_schema_name(connection: SystemConnection) -> str | None:
+    system = getattr(connection, "system", None)
+    candidates = (
+        getattr(system, "name", None),
+        getattr(system, "physical_name", None),
+    )
+    for candidate in candidates:
+        normalized = _sanitize_part(candidate)
+        if normalized:
+            return normalized
+    return None
+
+
+def _ingestion_table_name(selection: ConnectionTableSelection) -> str:
+    schema_part = _sanitize_part(getattr(selection, "schema_name", None) or "default", default="segment")
+    table_part = _sanitize_part(getattr(selection, "table_name", None) or "table", default="segment")
+    parts = [part for part in (schema_part, table_part) if part]
+    return "_".join(parts) if parts else "segment"
 
 
 @dataclass(frozen=True)
@@ -106,6 +141,7 @@ def _tables_for_connection(
         return ()
 
     group_id = build_table_group_id(connection.id, data_object_id)
+    ingestion_schema = _ingestion_schema_name(connection)
 
     def _build_tables(filter_keys: Set["DefinitionTableKey"] | None) -> list[TableSeed]:
         result: list[TableSeed] = []
@@ -114,8 +150,8 @@ def _tables_for_connection(
                 selection.schema_name, selection.table_name, filter_keys
             ):
                 continue
-            schema = selection.schema_name.strip() if selection.schema_name else None
-            table_name = selection.table_name.strip() if selection.table_name else selection.table_name
+            schema = ingestion_schema or (selection.schema_name.strip() if selection.schema_name else None)
+            table_name = _ingestion_table_name(selection)
             result.append(
                 TableSeed(
                     table_id=build_table_id(selection.id, data_object_id),

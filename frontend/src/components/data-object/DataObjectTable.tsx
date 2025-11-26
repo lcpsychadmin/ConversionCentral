@@ -43,7 +43,7 @@ const buildColumns = (
     },
     {
       field: 'processAreaName',
-      headerName: 'Product Team',
+      headerName: 'Process Area',
       flex: 1,
       valueGetter: ({ row }) => row.processAreaName ?? 'Unassigned'
     },

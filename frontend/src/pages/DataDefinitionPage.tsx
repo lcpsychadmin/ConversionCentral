@@ -1071,7 +1071,7 @@ const DataDefinitionsPage = () => {
     : null;
 
   const processAreasErrorMessage = processAreasError
-    ? getErrorMessage(processAreasErrorDetails, 'Unable to load product teams.')
+    ? getErrorMessage(processAreasErrorDetails, 'Unable to load process areas.')
     : null;
 
   const legalRequirementsErrorMessage = legalRequirementsError
@@ -1195,7 +1195,7 @@ const DataDefinitionsPage = () => {
             fontSize: '1.05rem'
           }}
         >
-          Filter by Product Team, Data Object & System
+          Filter by Process Area, Data Object & Application
         </Typography>
         <Stack spacing={2}>
           <Autocomplete
@@ -1210,8 +1210,8 @@ const DataDefinitionsPage = () => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Product Team"
-                placeholder={processAreasLoading ? 'Loading…' : 'Select product team'}
+                label="Process Area"
+                placeholder={processAreasLoading ? 'Loading…' : 'Select process area'}
                 sx={filterInputStyles}
               />
             )}
@@ -1246,8 +1246,8 @@ const DataDefinitionsPage = () => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="System"
-                placeholder={systemOptions.length ? 'Select system' : 'No systems assigned'}
+                label="Application"
+                placeholder={systemOptions.length ? 'Select application' : 'No applications assigned'}
                 disabled={!selectedDataObject}
                 sx={filterInputStyles}
               />

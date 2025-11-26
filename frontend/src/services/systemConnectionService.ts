@@ -121,6 +121,14 @@ export const createSystemConnection = async (
     payload.use_databricks_managed_connection = input.useDatabricksManagedConnection;
   }
 
+  if (input.databricksCatalog !== undefined) {
+    payload.databricks_catalog = input.databricksCatalog;
+  }
+
+  if (input.databricksSchema !== undefined) {
+    payload.databricks_schema = input.databricksSchema;
+  }
+
   const response = await client.post<SystemConnectionResponse>('/system-connections', payload);
   return mapSystemConnection(response.data);
 };
@@ -139,7 +147,9 @@ export const updateSystemConnection = async (
     ...(input.notes !== undefined ? { notes: input.notes } : {}),
     ...(input.useDatabricksManagedConnection !== undefined
       ? { use_databricks_managed_connection: input.useDatabricksManagedConnection }
-      : {})
+      : {}),
+    ...(input.databricksCatalog !== undefined ? { databricks_catalog: input.databricksCatalog } : {}),
+    ...(input.databricksSchema !== undefined ? { databricks_schema: input.databricksSchema } : {})
   });
   return mapSystemConnection(response.data);
 };

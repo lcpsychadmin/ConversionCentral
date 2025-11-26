@@ -28,6 +28,7 @@ interface DataObjectFormProps {
 }
 
 const DEFAULT_STATUS_OPTIONS = ['draft', 'active', 'archived'];
+const MANAGED_DATABRICKS_PHYSICAL_NAME = 'databricks_warehouse';
 
 const sanitize = (value?: string | null) => (value ?? '');
 
@@ -48,16 +49,24 @@ const DataObjectForm = ({
   processAreas,
   systems
 }: DataObjectFormProps) => {
+  const applicationOptions = useMemo(
+    () => systems.filter((system) => system.physicalName !== MANAGED_DATABRICKS_PHYSICAL_NAME),
+    [systems]
+  );
+
   const initialSnapshot = useMemo<DataObjectFormValues>(() => {
     const defaultProcessArea = processAreas[0]?.id ?? '';
+    const allowedSystems = (initialValues?.systems ?? []).filter((system) =>
+      applicationOptions.some((option) => option.id === system.id)
+    );
     return {
       name: sanitize(initialValues?.name),
       description: sanitize(initialValues?.description),
       status: initialValues?.status ?? 'draft',
       processAreaId: initialValues?.processAreaId ?? defaultProcessArea,
-      systemIds: initialValues?.systems?.map((system) => system.id) ?? []
+      systemIds: allowedSystems.map((system) => system.id)
     };
-  }, [initialValues, processAreas]);
+  }, [initialValues, processAreas, applicationOptions]);
 
   const [values, setValues] = useState<DataObjectFormValues>(initialSnapshot);
   const [errors, setErrors] = useState<{ name?: string; processAreaId?: string }>({});
@@ -92,7 +101,7 @@ const DataObjectForm = ({
     const nextErrors: { name?: string; processAreaId?: string } = {};
 
     if (!values.processAreaId) {
-      nextErrors.processAreaId = 'Product team is required';
+      nextErrors.processAreaId = 'Process area is required';
     }
 
     if (!trimmedName) {
@@ -124,6 +133,7 @@ const DataObjectForm = ({
   }, [values, initialSnapshot]);
 
   const noProcessAreas = processAreas.length === 0;
+  const noApplications = applicationOptions.length === 0;
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
@@ -133,7 +143,7 @@ const DataObjectForm = ({
           <Stack spacing={2} mt={1}>
             {noProcessAreas && (
               <Alert severity="warning">
-                Create a product team before adding data objects. Once available, you can assign the data object to it here.
+                Create a process area before adding data objects. Once available, you can assign the data object to it here.
               </Alert>
             )}
             <TextField
@@ -159,7 +169,7 @@ const DataObjectForm = ({
             />
             <TextField
               select
-              label="Product Team"
+              label="Process Area"
               fullWidth
               required
               id="data-object-process-area"
@@ -167,7 +177,7 @@ const DataObjectForm = ({
               value={values.processAreaId ?? ''}
               onChange={handleChange('processAreaId')}
               error={!!errors.processAreaId}
-              helperText={errors.processAreaId ?? 'Select the product team that owns this data object.'}
+              helperText={errors.processAreaId ?? 'Select the process area that owns this data object.'}
               disabled={noProcessAreas}
             >
               {processAreas.map((area) => (
@@ -193,17 +203,18 @@ const DataObjectForm = ({
             </TextField>
             <Autocomplete
               multiple
-              options={systems}
+              options={applicationOptions}
               disableCloseOnSelect
               getOptionLabel={(option) => option.name}
               isOptionEqualToValue={(option, value) => option.id === value?.id}
-              value={systems.filter((system) => values.systemIds.includes(system.id))}
+              value={applicationOptions.filter((system) => values.systemIds.includes(system.id))}
               onChange={handleSystemsChange}
+              disabled={noApplications}
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Systems"
-                  placeholder={systems.length === 0 ? 'No systems available' : 'Select systems'}
+                  label="Applications"
+                  placeholder={noApplications ? 'No applications available' : 'Select applications'}
                 />
               )}
             />

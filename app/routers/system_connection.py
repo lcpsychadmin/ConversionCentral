@@ -136,12 +136,17 @@ def create_system_connection(
 
     raw_payload = payload.dict()
     use_managed = raw_payload.pop("use_databricks_managed_connection", False)
+    catalog_override = raw_payload.pop("databricks_catalog", None)
+    schema_override = raw_payload.pop("databricks_schema", None)
     ingestion_explicit = "ingestion_enabled" in payload.__fields_set__
     data = _normalize_payload(raw_payload)
 
     if use_managed:
         try:
-            connection_string = get_managed_databricks_connection_string()
+            connection_string = get_managed_databricks_connection_string(
+                catalog_override=catalog_override,
+                schema_override=schema_override,
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         data["connection_type"] = SystemConnectionType.JDBC.value
@@ -256,13 +261,18 @@ def update_system_connection(
 
     raw_payload = payload.dict(exclude_unset=True)
     use_managed = raw_payload.pop("use_databricks_managed_connection", None)
+    catalog_override = raw_payload.pop("databricks_catalog", None)
+    schema_override = raw_payload.pop("databricks_schema", None)
     ingestion_explicit = "ingestion_enabled" in raw_payload
     update_data = _normalize_payload(raw_payload)
     _ensure_system_exists(update_data.get("system_id"), db)
 
     if use_managed:
         try:
-            connection_string = get_managed_databricks_connection_string()
+            connection_string = get_managed_databricks_connection_string(
+                catalog_override=catalog_override,
+                schema_override=schema_override,
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         update_data["connection_type"] = SystemConnectionType.JDBC.value

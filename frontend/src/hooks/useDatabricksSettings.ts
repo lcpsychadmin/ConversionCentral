@@ -8,6 +8,7 @@ import {
   syncDatabricksClusterPolicies,
   testDatabricksSettings,
   updateDatabricksSettings,
+  deleteDatabricksSettings,
 } from '../services/databricksSettingsService';
 import {
   DatabricksClusterPolicy,
@@ -84,6 +85,14 @@ export const useDatabricksSettings = () => {
     onError: (error: unknown) => toast.showError(getErrorMessage(error)),
   });
 
+  const deleteMutation = useMutation(deleteDatabricksSettings, {
+    onSuccess: () => {
+      toast.showSuccess('Databricks connection deleted.');
+      invalidate();
+    },
+    onError: (error: unknown) => toast.showError(getErrorMessage(error)),
+  });
+
   return {
     settingsQuery,
     policiesQuery,
@@ -91,9 +100,11 @@ export const useDatabricksSettings = () => {
     updateSettings: updateMutation.mutateAsync,
     testSettings: testMutation.mutateAsync,
     syncPolicies: syncPoliciesMutation.mutateAsync,
+    deleteSettings: deleteMutation.mutateAsync,
     creating: createMutation.isLoading,
     updating: updateMutation.isLoading,
     testing: testMutation.isLoading,
     syncingPolicies: syncPoliciesMutation.isLoading,
+    deleting: deleteMutation.isLoading,
   };
 };

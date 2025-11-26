@@ -16,7 +16,6 @@ import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
 import ReportingDesignerPage from '@pages/ReportingDesignerPage';
 import ReportingCatalogPage from '@pages/ReportingCatalogPage';
-import ApplicationDatabaseSetupPage from '@pages/ApplicationDatabaseSetupPage';
 import CompanySettingsPage from '@pages/CompanySettingsPage';
 import LegalRequirementsPage from '@pages/LegalRequirementsPage';
 import SecurityClassificationsPage from '@pages/SecurityClassificationsPage';
@@ -31,7 +30,6 @@ import DataQualityTestSuiteDefinitionPage from '@pages/DataQualityTestSuiteDefin
 import DataQualitySettingsPage from '@pages/DataQualitySettingsPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
-import { ApplicationDatabaseGuard } from '@routes/guards/ApplicationDatabaseGuard';
 
 const Loader = () => (
   <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
@@ -57,9 +55,7 @@ const router = createBrowserRouter([
         path: '/',
         element: (
           <ProtectedRoute>
-            <ApplicationDatabaseGuard>
-              <MainLayout />
-            </ApplicationDatabaseGuard>
+            <MainLayout />
           </ProtectedRoute>
         ),
         children: [
@@ -73,13 +69,11 @@ const router = createBrowserRouter([
           { path: 'data-configuration/source-systems', element: <SourceSystemsPage /> },
           { path: 'data-configuration/source-catalog', element: <Navigate to="/data-configuration/source-systems" replace /> },
           { path: 'data-configuration/ingestion-schedules', element: <IngestionSchedulesPage /> },
-          { path: 'data-configuration/application-database', element: <ApplicationDatabaseSetupPage /> },
           { path: 'data-configuration/data-warehouse', element: <DataWarehouseSettingsPage /> },
           { path: 'data-configuration/upload-data', element: <UploadDataPage /> },
           { path: 'data-configuration/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
           { path: 'application-settings/connections', element: <Navigate to="/data-configuration/source-systems" replace /> },
           { path: 'application-settings/ingestion-schedules', element: <Navigate to="/data-configuration/ingestion-schedules" replace /> },
-          { path: 'application-settings/application-database', element: <Navigate to="/data-configuration/application-database" replace /> },
           { path: 'application-settings/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
           { path: 'application-settings/company', element: <CompanySettingsPage /> },
           { path: 'application-settings/legal-requirements', element: <LegalRequirementsPage /> },

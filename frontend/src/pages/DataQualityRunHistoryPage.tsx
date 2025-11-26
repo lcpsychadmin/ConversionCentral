@@ -633,10 +633,10 @@ const DataQualityRunHistoryPage = () => {
           <Grid container spacing={3}>
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
-                <InputLabel id="dq-run-product-team-label">Product Team</InputLabel>
+                <InputLabel id="dq-run-product-team-label">Process Area</InputLabel>
                 <Select
                   labelId="dq-run-product-team-label"
-                  label="Product Team"
+                  label="Process Area"
                   value={selectedProductTeamId ?? ''}
                   onChange={handleProductTeamChange}
                   disabled={datasetQuery.isLoading || !datasetQuery.data?.length}
@@ -816,7 +816,7 @@ const DataQualityRunHistoryPage = () => {
 
           <Box>
             <Typography variant="body2" color="text.secondary">
-              Product team description: {selectedProductTeam?.description ?? '—'}
+              Process area description: {selectedProductTeam?.description ?? '—'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Data object description: {selectedDataObject?.description ?? '—'}

@@ -5,6 +5,11 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControlLabel,
   IconButton,
   MenuItem,
@@ -94,15 +99,18 @@ const DataWarehouseSettingsPage = () => {
     updateSettings,
     testSettings,
     syncPolicies,
+    deleteSettings,
     creating,
     updating,
     testing,
     syncingPolicies,
+    deleting,
   } = useDatabricksSettings();
 
   const { data: settings, isLoading, isFetching, isError, error } = settingsQuery;
   const [form, setForm] = useState<FormState>(emptyForm);
   const [clearToken, setClearToken] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   useEffect(() => {
     if (isLoading) {
@@ -112,14 +120,16 @@ const DataWarehouseSettingsPage = () => {
     if (!settings) {
       setForm(emptyForm);
       setClearToken(false);
+      setDeleteDialogOpen(false);
       return;
     }
 
     setForm(mapSettingsToForm(settings));
     setClearToken(false);
+    setDeleteDialogOpen(false);
   }, [settings, isLoading]);
 
-  const busy = creating || updating;
+  const busy = creating || updating || deleting;
   const disableInputs = !canManage || busy;
   const trimValue = (value?: string | null) => value?.trim() ?? '';
   const effectiveToken = trimValue(form.accessToken);
@@ -138,6 +148,23 @@ const DataWarehouseSettingsPage = () => {
       return 'Databricks SQL is configured. Update credentials or connection details below.';
     }
     return 'Configure the Databricks SQL warehouse used for ingestion.';
+  }, [settings]);
+
+  const schemaTargets = useMemo(() => {
+    if (!settings) {
+      return [] as string[];
+    }
+    const unique = new Set<string>();
+    [settings.schemaName, settings.constructedSchema, settings.dataQualitySchema].forEach((value) => {
+      if (!value) {
+        return;
+      }
+      const normalized = value.trim();
+      if (normalized) {
+        unique.add(normalized);
+      }
+    });
+    return Array.from(unique);
   }, [settings]);
 
   const parseBatchRows = (value: string): number | null => {
@@ -337,6 +364,32 @@ const DataWarehouseSettingsPage = () => {
       await syncPolicies();
     } catch {
       /* errors handled via toast inside hook */
+    }
+  };
+
+  const openDeleteDialog = () => {
+    if (!settings) {
+      return;
+    }
+    setDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleting) {
+      return;
+    }
+    setDeleteDialogOpen(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!settings || deleting) {
+      return;
+    }
+    try {
+      await deleteSettings(settings.id);
+      setDeleteDialogOpen(false);
+    } catch {
+      /* toast surface handled elsewhere */
     }
   };
 
@@ -670,6 +723,23 @@ const DataWarehouseSettingsPage = () => {
         </Stack>
       </Paper>
 
+      {settings && canManage && (
+        <Box sx={{ maxWidth: 720 }}>
+          <Alert severity="warning" sx={{ mb: 1 }}>
+            Deleting the connection permanently removes managed schemas and metadata created by
+            Conversion Central. This cannot be undone.
+          </Alert>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={openDeleteDialog}
+            disabled={busy}
+          >
+            Delete Connection
+          </Button>
+        </Box>
+      )}
+
       {(isFetching || busy) && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
           <CircularProgress size={18} />
@@ -678,6 +748,42 @@ const DataWarehouseSettingsPage = () => {
           </Typography>
         </Box>
       )}
+
+      <Dialog open={deleteDialogOpen} onClose={closeDeleteDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Delete Databricks Connection</DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            This action will drop every schema configured for this warehouse and remove the managed
+            metadata connection. All data stored there will be permanently deleted.
+          </Alert>
+          <DialogContentText>
+            Conversion Central will issue <code>DROP SCHEMA ... CASCADE</code> against the schemas it
+            created. Make sure no external workloads depend on these schemas before proceeding.
+          </DialogContentText>
+          {schemaTargets.length > 0 && (
+            <Box component="div" sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Schemas scheduled for removal:
+              </Typography>
+              <Box component="ul" sx={{ pl: 3, m: 0 }}>
+                {schemaTargets.map((schema) => (
+                  <Typography component="li" key={schema} variant="body2">
+                    {schema}
+                  </Typography>
+                ))}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteDialog} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained" disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete Connection'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
