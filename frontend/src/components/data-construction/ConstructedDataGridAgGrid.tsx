@@ -276,10 +276,6 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
   );
   const headerBaseColor = useMemo(() => headerSurfaceColor, [headerSurfaceColor]);
   const headerColor = useMemo(() => headerTextColor, [headerTextColor]);
-  const headerBorderColor = useMemo(
-    () => alpha(headerSurfaceColor, isDarkMode ? 0.7 : 0.6),
-    [headerSurfaceColor, isDarkMode]
-  );
   const headerHoverColor = useMemo(
     () => lighten(headerSurfaceColor, isDarkMode ? 0.08 : 0.16),
     [headerSurfaceColor, isDarkMode]
@@ -465,6 +461,15 @@ const ConstructedDataGridAgGrid: React.FC<Props> = ({
     columnProp: string;
     columnLabel: string;
   } | null>(null);
+
+  const filterPopoverInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (filterPopoverState && filterPopoverInputRef.current) {
+      filterPopoverInputRef.current.focus();
+      filterPopoverInputRef.current.select();
+    }
+  }, [filterPopoverState]);
 
   const getValidationMeta = useCallback(
     (row: { id?: unknown; rowId?: unknown }, fieldName?: string | null) => {
@@ -2412,7 +2417,7 @@ ${error.message}`
           </Box>
         );
       }),
-    [dataRowCount, handleSelectAllChange, isAllSelected, isDarkMode, isIndeterminateSelection, theme]
+    [dataRowCount, handleSelectAllChange, headerColor, isAllSelected, isIndeterminateSelection]
   );
 
   const filterableHeaderTemplate = useCallback(
@@ -2914,7 +2919,7 @@ ${error.message}`
               {`Filter ${filterPopoverState.columnLabel}`}
             </Typography>
             <TextField
-              autoFocus
+              inputRef={filterPopoverInputRef}
               size="small"
               value={columnFilters[filterPopoverState.columnProp] ?? ''}
               onChange={(event) => handleFilterChange(filterPopoverState.columnProp, event.target.value)}
