@@ -317,90 +317,87 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
             .all()
         )
 
-    for system in systems:
-        if system.status and system.status.lower() != "active":
-            continue
-
-        data_object_links = [link for link in system.data_object_links if link.data_object is not None]
-
-        for link in data_object_links:
-            data_object = link.data_object
-            if data_object is None:
-                continue
-            if data_object.status and data_object.status.lower() == "archived":
+        for system in systems:
+            if system.status and system.status.lower() != "active":
                 continue
 
-            definitions = [
-                definition
-                for definition in data_object.data_definitions
-                if definition.system_id == system.id
-            ]
+            data_object_links = [link for link in system.data_object_links if link.data_object is not None]
 
-            if not definitions:
-                continue
-
-            definition_keys = create_definition_table_key_set(definitions)
-            connections: list[ConnectionSeed] = []
-
-            for connection in system.connections:
-                if not connection.active:
+            for link in data_object_links:
+                data_object = link.data_object
+                if not data_object or (data_object.status and data_object.status.lower() == "archived"):
                     continue
 
-                tables = _tables_for_connection(
-                    connection,
-                    data_object_id=data_object.id,
-                    table_keys=definition_keys,
-                )
+                definitions = [
+                    definition
+                    for definition in data_object.data_definitions
+                    if definition.system_id == system.id
+                ]
 
-                if not tables:
+                if not definitions:
                     continue
 
-                connection_id = build_connection_id(connection.id, data_object.id)
-                table_group_id = build_table_group_id(connection.id, data_object.id)
+                definition_keys = create_definition_table_key_set(definitions)
+                connections: list[ConnectionSeed] = []
 
-                table_groups = (
-                    TableGroupSeed(
-                        table_group_id=table_group_id,
-                        connection_id=connection_id,
-                        name=f"{data_object.name} Tables",
-                        description=data_object.description or system.description,
-                        tables=tables,
-                    ),
-                )
+                for connection in system.connections:
+                    if not connection.active:
+                        continue
 
-                connections.append(
-                    ConnectionSeed(
-                        connection_id=connection_id,
-                        project_key=build_project_key(system.id, data_object.id),
-                        system_id=str(system.id),
-                        name=_format_connection_name(
-                            system.name,
-                            data_object.name,
-                            connection.connection_type,
+                    tables = _tables_for_connection(
+                        connection,
+                        data_object_id=data_object.id,
+                        table_keys=definition_keys,
+                    )
+
+                    if not tables:
+                        continue
+
+                    connection_id = build_connection_id(connection.id, data_object.id)
+                    table_group_id = build_table_group_id(connection.id, data_object.id)
+
+                    table_groups = (
+                        TableGroupSeed(
+                            table_group_id=table_group_id,
+                            connection_id=connection_id,
+                            name=f"{data_object.name} Tables",
+                            description=data_object.description or system.description,
+                            tables=tables,
                         ),
-                        catalog=params.catalog,
-                        schema_name=params.schema_name,
-                        http_path=params.http_path,
-                        managed_credentials_ref=None,
-                        # Profiling should still consider the connection active even when ingestion is disabled.
-                        is_active=bool(connection.active),
-                        table_groups=table_groups,
                     )
-                )
 
-            if connections:
-                projects.append(
-                    ProjectSeed(
-                        project_key=build_project_key(system.id, data_object.id),
-                        name=f"{system.name} · {data_object.name}",
-                        description=data_object.description or system.description,
-                        sql_flavor="databricks-sql",
-                        connections=tuple(connections),
+                    connections.append(
+                        ConnectionSeed(
+                            connection_id=connection_id,
+                            project_key=build_project_key(system.id, data_object.id),
+                            system_id=str(system.id),
+                            name=_format_connection_name(
+                                system.name,
+                                data_object.name,
+                                connection.connection_type,
+                            ),
+                            catalog=params.catalog,
+                            schema_name=params.schema_name,
+                            http_path=params.http_path,
+                            managed_credentials_ref=None,
+                            # Profiling should still consider the connection active even when ingestion is disabled.
+                            is_active=bool(connection.active),
+                            table_groups=table_groups,
+                        )
                     )
-                )
+
+                if connections:
+                    projects.append(
+                        ProjectSeed(
+                            project_key=build_project_key(system.id, data_object.id),
+                            name=f"{system.name} · {data_object.name}",
+                            description=data_object.description or system.description,
+                            sql_flavor="databricks-sql",
+                            connections=tuple(connections),
+                        )
+                    )
 
     return DataQualitySeed(projects=tuple(projects))
-
 
 def _seed_metadata(connection, params: DatabricksConnectionParams, schema: str, seed: DataQualitySeed) -> None:
     if not seed.projects:

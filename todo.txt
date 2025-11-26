@@ -8,6 +8,7 @@ git add .
 git commit -m "Profiling Notebook Update"
 git push origin master
 
+
 Steps:
 1. After executing each task run lint and tests with the following commands:
 cd "c:\Users\jwesc\OneDrive\Documents\VSCode Workspace\ConversionCentral\frontend"; npm.cmd run lint
