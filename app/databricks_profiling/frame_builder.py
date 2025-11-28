@@ -673,12 +673,17 @@ class ProfilingPayloadFrameBuilder:
                 or self._stringify_value(entry.get("value"))
             )
             raw_value = entry.get("value")
-            if raw_value is None:
-                raw_value = label
+            display_value = raw_value if raw_value is not None else label
+            hash_source = {
+                "value": raw_value,
+                "label": label,
+                "lower": lower,
+                "upper": upper,
+            }
             append_row(
                 {
-                    "value": self._stringify_value(raw_value),
-                    "value_hash": self._hash_value(raw_value),
+                    "value": self._stringify_value(display_value),
+                    "value_hash": self._hash_value(hash_source),
                     "frequency": self._coerce_int(entry.get("count")),
                     "relative_freq": self._coerce_float(entry.get("percentage")),
                     "rank": self._coerce_int(entry.get("rank")),
@@ -702,13 +707,14 @@ class ProfilingPayloadFrameBuilder:
             return text.rstrip("0").rstrip(".") if "." in text else text
         return str(value)
 
-    def _hash_value(self, value: Any) -> str | None:
-        if value is None:
-            return None
+    def _hash_value(self, value: Any) -> str:
+        normalized = value
+        if normalized is None:
+            normalized = "__cc_null__"
         try:
-            serialized = json.dumps(value, sort_keys=True, ensure_ascii=False, default=self._json_default)
+            serialized = json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=self._json_default)
         except (TypeError, ValueError):
-            serialized = str(value)
+            serialized = str(normalized)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------------

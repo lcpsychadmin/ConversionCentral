@@ -83,6 +83,7 @@ def test_builder_emits_rows_for_payload():
     value_row = rows["profile_column_values_df"][0]
     assert value_row["column_name"] == "total"
     assert value_row["frequency"] == 5
+    assert value_row["value_hash"]
 
     table_row = rows["table_characteristics_df"][0]
     assert table_row["table_id"] == "tbl-1"
