@@ -119,7 +119,6 @@ def test_builder_computes_relative_frequency_when_missing_percentages():
                         "data_type": "string",
                         "general_type": "string",
                         "ordinal_position": 1,
-                        "row_count": 100,
                         "metrics": {
                             "row_count": 100,
                             "null_count": 0,

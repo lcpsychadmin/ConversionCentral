@@ -647,6 +647,11 @@ class ProfilingPayloadFrameBuilder:
             "generated_at": self._now,
         }
         rows: list[dict[str, Any]] = []
+        total_rows = row_count
+        if total_rows in (None, 0):
+            table_row_total = self._coerce_int(table_context.get("row_count"))
+            if table_row_total not in (None, 0):
+                total_rows = table_row_total
 
         def append_row(payload: dict[str, Any]) -> None:
             rows.append({**base_row, **payload})
@@ -660,7 +665,7 @@ class ProfilingPayloadFrameBuilder:
             frequency = self._coerce_int(entry.get("count"))
             relative_freq = self._coerce_float(entry.get("percentage"))
             if relative_freq is None:
-                relative_freq = self._compute_relative_frequency(frequency, row_count)
+                relative_freq = self._compute_relative_frequency(frequency, total_rows)
             append_row(
                 {
                     "value": self._stringify_value(raw_value),
@@ -694,7 +699,7 @@ class ProfilingPayloadFrameBuilder:
             frequency = self._coerce_int(entry.get("count"))
             relative_freq = self._coerce_float(entry.get("percentage"))
             if relative_freq is None:
-                relative_freq = self._compute_relative_frequency(frequency, row_count)
+                relative_freq = self._compute_relative_frequency(frequency, total_rows)
             append_row(
                 {
                     "value": self._stringify_value(display_value),
