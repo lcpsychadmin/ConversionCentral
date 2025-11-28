@@ -103,7 +103,7 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
 
     ensure_data_quality_metadata(params)
 
-    assert len(executed) == 37
+    assert len(executed) == 38
     assert executed[0] == "CREATE SCHEMA IF NOT EXISTS `sandbox`.`dq`"
     assert executed[1].startswith("CREATE TABLE IF NOT EXISTS `sandbox`.`dq`.`dq_projects`")
     assert "USING DELTA" in executed[1]
@@ -118,6 +118,7 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
     assert any("`dq_data_column_chars`" in statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_table_groups` ADD COLUMNS (profiling_job_id STRING)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (databricks_run_id STRING)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (payload_path STRING)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (table_count BIGINT)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (dq_score_profiling DOUBLE)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_data_table_chars` ADD COLUMNS (last_complete_profile_run_id STRING)" == statement for statement in executed)

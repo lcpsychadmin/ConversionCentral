@@ -14,6 +14,7 @@ from app.routers import (
 	constructed_data_validation_rule,
 	databricks_metadata,
 	data_quality,
+	data_quality_profiling_schedule,
 	data_quality_testgen,
 	legal_requirement,
 	role,
@@ -98,6 +99,7 @@ api_router.include_router(reporting.router)
 api_router.include_router(databricks_metadata.router)
 api_router.include_router(databricks_settings.router)
 api_router.include_router(data_quality.router)
+api_router.include_router(data_quality_profiling_schedule.router)
 api_router.include_router(data_quality_testgen.router)
 api_router.include_router(security_classification.router)
 api_router.include_router(sap_hana_settings.router)

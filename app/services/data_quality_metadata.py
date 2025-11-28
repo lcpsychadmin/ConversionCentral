@@ -244,6 +244,7 @@ def _upgrade_schema(execute, params: DatabricksConnectionParams, schema: str) ->
     statements = [
         (table_groups_table, "profiling_job_id STRING"),
         (profiles_table, "databricks_run_id STRING"),
+        (profiles_table, "payload_path STRING"),
         (profiles_table, "table_count BIGINT"),
         (profiles_table, "column_count BIGINT"),
         (profiles_table, "profile_mode STRING"),
@@ -797,6 +798,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "completed_at TIMESTAMP",
                     "row_count BIGINT",
                     "anomaly_count INT",
+                    "payload_path STRING",
                     "databricks_run_id STRING",
                 ],
             ),

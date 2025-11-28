@@ -91,9 +91,7 @@ const navItems: NavItem[] = [
       { label: 'Datasets', path: '/data-quality/datasets' },
       { label: 'Profiling Runs', path: '/data-quality/profiling-runs' },
       { label: 'Test Suites', path: '/data-quality/test-suites' },
-      { label: 'Test Library', path: '/data-quality/test-library' },
-      { label: 'Run History & Alerts', path: '/data-quality/run-history' },
-      { label: 'Settings', path: '/data-quality/settings' }
+      // Temporarily hide lower-priority areas while we focus on core workflows
     ]
   },
   // Project settings will be moved under Data Migration (see below)

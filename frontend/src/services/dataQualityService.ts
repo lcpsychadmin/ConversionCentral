@@ -21,10 +21,19 @@ import {
   DataQualityNumericProfileStats,
   DataQualityProfileAnomaly,
   DataQualityProfileRun,
+  DataQualityProfileRunDeleteResponse,
   DataQualityProfileRunEntry,
   DataQualityProfileRunListResponse,
+  DataQualityProfileRunResultResponse,
+  DataQualityProfileRunResultSummary,
   DataQualityProfileRunStartResponse,
   DataQualityProfileRunTableGroup,
+  DataQualityProfileTableEntry,
+  DataQualityProfileColumnEntry,
+  DataQualityProfileValueEntry,
+  DataQualityProfileAnomalyEntry,
+  DataQualityProfilingSchedule,
+  DataQualityProfilingScheduleInput,
   DataQualityProject,
   DataQualityTable,
   DataQualityTableGroup,
@@ -414,6 +423,89 @@ const mapProfileAnomaly = (
   severity: payload.severity,
   description: payload.description,
   detectedAt: payload.detected_at ?? null
+});
+
+const mapProfileResultValue = (
+  payload: DataQualityProfileValueEntry
+): DataQualityProfileValueEntry => ({
+  value: payload.value ?? null,
+  count: payload.count ?? null,
+  percentage: payload.percentage ?? null,
+  label: payload.label ?? null,
+  lower: payload.lower ?? null,
+  upper: payload.upper ?? null
+});
+
+const mapProfileResultAnomaly = (
+  payload: DataQualityProfileAnomalyEntry
+): DataQualityProfileAnomalyEntry => ({
+  anomalyTypeId: payload.anomalyTypeId ?? null,
+  severity: payload.severity ?? null,
+  likelihood: payload.likelihood ?? null,
+  detail: payload.detail ?? null,
+  piiRisk: payload.piiRisk ?? null,
+  dqDimension: payload.dqDimension ?? null,
+  columnName: payload.columnName ?? null,
+  detectedAt: payload.detectedAt ?? null
+});
+
+const mapProfileResultColumn = (
+  payload: DataQualityProfileColumnEntry
+): DataQualityProfileColumnEntry => ({
+  columnId: payload.columnId ?? null,
+  columnName: payload.columnName,
+  schemaName: payload.schemaName ?? null,
+  tableName: payload.tableName ?? null,
+  dataType: payload.dataType ?? null,
+  generalType: payload.generalType ?? null,
+  metrics: payload.metrics ?? {},
+  rowCount: payload.rowCount ?? null,
+  nullCount: payload.nullCount ?? null,
+  distinctCount: payload.distinctCount ?? null,
+  nonNullCount: payload.nonNullCount ?? null,
+  minValue: payload.minValue ?? null,
+  maxValue: payload.maxValue ?? null,
+  avgValue: payload.avgValue ?? null,
+  stddevValue: payload.stddevValue ?? null,
+  medianValue: payload.medianValue ?? null,
+  p95Value: payload.p95Value ?? null,
+  topValues: payload.topValues?.map(mapProfileResultValue) ?? [],
+  histogram: payload.histogram?.map(mapProfileResultValue) ?? [],
+  anomalies: payload.anomalies?.map(mapProfileResultAnomaly) ?? []
+});
+
+const mapProfileResultTable = (
+  payload: DataQualityProfileTableEntry
+): DataQualityProfileTableEntry => ({
+  tableId: payload.tableId ?? null,
+  tableGroupId: payload.tableGroupId ?? null,
+  schemaName: payload.schemaName ?? null,
+  tableName: payload.tableName ?? null,
+  metrics: payload.metrics ?? {},
+  columns: payload.columns?.map(mapProfileResultColumn) ?? [],
+  anomalies: payload.anomalies?.map(mapProfileResultAnomaly) ?? []
+});
+
+const mapProfileResultSummary = (
+  payload: DataQualityProfileRunResultSummary
+): DataQualityProfileRunResultSummary => ({
+  profileRunId: payload.profileRunId,
+  tableGroupId: payload.tableGroupId,
+  status: payload.status ?? null,
+  startedAt: payload.startedAt ?? null,
+  completedAt: payload.completedAt ?? null,
+  rowCount: payload.rowCount ?? null,
+  anomalyCount: payload.anomalyCount ?? null,
+  databricksRunId: payload.databricksRunId ?? null
+});
+
+const mapProfileRunResult = (
+  payload: DataQualityProfileRunResultResponse
+): DataQualityProfileRunResultResponse => ({
+  tableGroupId: payload.tableGroupId,
+  profileRunId: payload.profileRunId,
+  summary: mapProfileResultSummary(payload.summary),
+  tables: payload.tables?.map(mapProfileResultTable) ?? []
 });
 
 const mapColumnMetric = (
@@ -1034,6 +1126,33 @@ export const fetchProfileRunAnomalies = async (
   return response.data.map(mapProfileAnomaly);
 };
 
+export const fetchProfileRunResults = async (
+  profileRunId: string,
+  tableGroupId: string
+): Promise<DataQualityProfileRunResultResponse> => {
+  const response = await client.get<DataQualityProfileRunResultResponse>(
+    `/data-quality/profile-runs/${encodeURIComponent(profileRunId)}/results`,
+    {
+      params: { tableGroupId }
+    }
+  );
+  return mapProfileRunResult(response.data);
+};
+
+export const deleteProfileRuns = async (
+  profileRunIds: string[]
+): Promise<DataQualityProfileRunDeleteResponse> => {
+  const response = await client.delete<DataQualityProfileRunDeleteResponse>(
+    '/data-quality/profile-runs',
+    {
+      data: {
+        profileRunIds
+      }
+    }
+  );
+  return response.data;
+};
+
 export const fetchDataQualityColumnProfile = async (
   tableGroupId: string,
   columnName: string,
@@ -1112,10 +1231,7 @@ export const startProfileRun = async (
   tableGroupId: string
 ): Promise<DataQualityProfileRunStartResponse> => {
   const response = await client.post<TestGenProfileRunStartResponse>(
-    '/data-quality/testgen/profile-runs',
-    {
-      table_group_id: tableGroupId
-    }
+    `/data-quality/table-groups/${encodeURIComponent(tableGroupId)}/profile-runs`
   );
   return { profileRunId: response.data.profile_run_id };
 };
@@ -1341,4 +1457,26 @@ export const updateDataQualitySuiteTest = async (
 
 export const deleteDataQualitySuiteTest = async (testId: string): Promise<void> => {
   await client.delete(`/data-quality/testgen/tests/${encodeURIComponent(testId)}`);
+};
+
+export const fetchProfilingSchedules = async (): Promise<DataQualityProfilingSchedule[]> => {
+  const response = await client.get<DataQualityProfilingSchedule[]>('/data-quality/profiling-schedules');
+  return response.data;
+};
+
+export const createProfilingSchedule = async (
+  input: DataQualityProfilingScheduleInput
+): Promise<DataQualityProfilingSchedule> => {
+  const payload = {
+    tableGroupId: input.tableGroupId,
+    scheduleExpression: input.scheduleExpression,
+    timezone: input.timezone ?? 'UTC',
+    isActive: input.isActive ?? true
+  };
+  const response = await client.post<DataQualityProfilingSchedule>('/data-quality/profiling-schedules', payload);
+  return response.data;
+};
+
+export const deleteProfilingSchedule = async (profilingScheduleId: string): Promise<void> => {
+  await client.delete(`/data-quality/profiling-schedules/${profilingScheduleId}`);
 };

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import hashlib
 import json
 import math
 import uuid
@@ -19,6 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - only raised outside Databricks
 _FRAME_NAMES = (
     "profile_results_df",
     "profile_columns_df",
+    "profile_column_values_df",
     "profile_anomalies_df",
     "table_characteristics_df",
     "column_characteristics_df",
@@ -87,6 +89,28 @@ def _build_profile_columns_schema():  # pragma: no cover - simple struct definit
             T.StructField("max_date", T.DateType(), True),
             T.StructField("date_span_days", T.IntegerType(), True),
             T.StructField("metrics_json", T.StringType(), True),
+            T.StructField("generated_at", T.TimestampType(), True),
+        ]
+    )
+
+
+def _build_profile_column_values_schema():  # pragma: no cover - simple struct definition
+    if T is None:
+        raise RuntimeError("pyspark must be installed to build metadata frames.")
+    return T.StructType(
+        [
+            T.StructField("profile_run_id", T.StringType(), False),
+            T.StructField("schema_name", T.StringType(), True),
+            T.StructField("table_name", T.StringType(), True),
+            T.StructField("column_name", T.StringType(), True),
+            T.StructField("value", T.StringType(), True),
+            T.StructField("value_hash", T.StringType(), True),
+            T.StructField("frequency", T.LongType(), True),
+            T.StructField("relative_freq", T.DoubleType(), True),
+            T.StructField("rank", T.IntegerType(), True),
+            T.StructField("bucket_label", T.StringType(), True),
+            T.StructField("bucket_lower_bound", T.DoubleType(), True),
+            T.StructField("bucket_upper_bound", T.DoubleType(), True),
             T.StructField("generated_at", T.TimestampType(), True),
         ]
     )
@@ -178,12 +202,14 @@ def _build_column_characteristics_schema():  # pragma: no cover - simple struct 
 if T is not None:  # pragma: no branch - schema definitions happen once per interpreter session
     PROFILE_RESULTS_SCHEMA = _build_profile_results_schema()
     PROFILE_COLUMNS_SCHEMA = _build_profile_columns_schema()
+    PROFILE_COLUMN_VALUES_SCHEMA = _build_profile_column_values_schema()
     PROFILE_ANOMALIES_SCHEMA = _build_profile_anomalies_schema()
     TABLE_CHARACTERISTICS_SCHEMA = _build_table_characteristics_schema()
     COLUMN_CHARACTERISTICS_SCHEMA = _build_column_characteristics_schema()
 else:  # pragma: no cover - allows importing module without pyspark
     PROFILE_RESULTS_SCHEMA = None
     PROFILE_COLUMNS_SCHEMA = None
+    PROFILE_COLUMN_VALUES_SCHEMA = None
     PROFILE_ANOMALIES_SCHEMA = None
     TABLE_CHARACTERISTICS_SCHEMA = None
     COLUMN_CHARACTERISTICS_SCHEMA = None
@@ -234,6 +260,8 @@ class ProfilingPayloadFrameBuilder:
                 row_sets["profile_columns_df"].append(column_payload["profile_column_row"])
                 row_sets["profile_results_df"].append(column_payload["profile_result_row"])
                 row_sets["column_characteristics_df"].append(column_payload["column_characteristics_row"])
+                if column_payload["value_rows"]:
+                    row_sets["profile_column_values_df"].extend(column_payload["value_rows"])
                 if column_payload["anomaly_rows"]:
                     row_sets["profile_anomalies_df"].extend(column_payload["anomaly_rows"])
 
@@ -472,6 +500,12 @@ class ProfilingPayloadFrameBuilder:
         top_values_json = None
         if top_values or histogram:
             top_values_json = self._serialize_json({"top_values": top_values, "histogram": histogram})
+        value_rows = self._build_value_rows(
+            table_context,
+            column_name=column_name,
+            top_values=top_values,
+            histogram=histogram,
+        )
 
         metrics_json = self._serialize_json(
             column_entry.get("metrics_json")
@@ -583,9 +617,99 @@ class ProfilingPayloadFrameBuilder:
             "profile_result_row": profile_result_row,
             "column_characteristics_row": column_characteristics_row,
             "anomaly_rows": anomaly_rows,
+            "value_rows": value_rows,
             "row_count": row_count,
             "anomaly_count": len(anomaly_rows),
         }
+
+    def _build_value_rows(
+        self,
+        table_context: Mapping[str, Any],
+        *,
+        column_name: str,
+        top_values: Sequence[Mapping[str, Any]] | Sequence[Any],
+        histogram: Sequence[Mapping[str, Any]] | Sequence[Any],
+    ) -> list[dict[str, Any]]:
+        schema_name = table_context.get("schema_name")
+        table_name = table_context.get("table_name")
+        base_row = {
+            "profile_run_id": self._profile_run_id,
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "column_name": column_name,
+            "generated_at": self._now,
+        }
+        rows: list[dict[str, Any]] = []
+
+        def append_row(payload: dict[str, Any]) -> None:
+            rows.append({**base_row, **payload})
+
+        for index, entry in enumerate(top_values or [], start=1):
+            if not isinstance(entry, Mapping):
+                continue
+            raw_value = entry.get("value")
+            if raw_value is None:
+                raw_value = entry.get("label")
+            append_row(
+                {
+                    "value": self._stringify_value(raw_value),
+                    "value_hash": self._hash_value(raw_value),
+                    "frequency": self._coerce_int(entry.get("count")),
+                    "relative_freq": self._coerce_float(entry.get("percentage")),
+                    "rank": self._coerce_int(entry.get("rank")) or index,
+                    "bucket_label": None,
+                    "bucket_lower_bound": None,
+                    "bucket_upper_bound": None,
+                }
+            )
+
+        for entry in histogram or []:
+            if not isinstance(entry, Mapping):
+                continue
+            lower = self._coerce_float(entry.get("lower") or entry.get("bucket_lower") or entry.get("bucketLower"))
+            upper = self._coerce_float(entry.get("upper") or entry.get("bucket_upper") or entry.get("bucketUpper"))
+            label = (
+                self._first_text(entry, "label", "bucket_label", "bucketLabel")
+                or self._stringify_value(entry.get("value"))
+            )
+            raw_value = entry.get("value")
+            if raw_value is None:
+                raw_value = label
+            append_row(
+                {
+                    "value": self._stringify_value(raw_value),
+                    "value_hash": self._hash_value(raw_value),
+                    "frequency": self._coerce_int(entry.get("count")),
+                    "relative_freq": self._coerce_float(entry.get("percentage")),
+                    "rank": self._coerce_int(entry.get("rank")),
+                    "bucket_label": label,
+                    "bucket_lower_bound": lower,
+                    "bucket_upper_bound": upper,
+                }
+            )
+
+        return rows
+
+    def _stringify_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            text = format(value, "f")
+            return text.rstrip("0").rstrip(".") if "." in text else text
+        return str(value)
+
+    def _hash_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        try:
+            serialized = json.dumps(value, sort_keys=True, ensure_ascii=False, default=self._json_default)
+        except (TypeError, ValueError):
+            serialized = str(value)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------------
     # Anomaly helpers
@@ -880,6 +1004,9 @@ def build_metadata_frames(
     frames["profile_columns_df"] = spark_session.createDataFrame(
         row_sets["profile_columns_df"], schema=PROFILE_COLUMNS_SCHEMA
     )
+    frames["profile_column_values_df"] = spark_session.createDataFrame(
+        row_sets["profile_column_values_df"], schema=PROFILE_COLUMN_VALUES_SCHEMA
+    )
     frames["profile_anomalies_df"] = spark_session.createDataFrame(
         row_sets["profile_anomalies_df"], schema=PROFILE_ANOMALIES_SCHEMA
     )
@@ -897,6 +1024,7 @@ __all__ = [
     "build_metadata_frames",
     "PROFILE_RESULTS_SCHEMA",
     "PROFILE_COLUMNS_SCHEMA",
+    "PROFILE_COLUMN_VALUES_SCHEMA",
     "PROFILE_ANOMALIES_SCHEMA",
     "TABLE_CHARACTERISTICS_SCHEMA",
     "COLUMN_CHARACTERISTICS_SCHEMA",

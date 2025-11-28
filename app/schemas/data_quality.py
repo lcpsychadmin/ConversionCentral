@@ -198,6 +198,46 @@ class ProfileRunCompleteRequest(BaseModel):
     anomalies: List[ProfileAnomalyPayload] = Field(default_factory=list)
 
 
+class ProfilingScheduleBase(BaseModel):
+    table_group_id: str = Field(..., alias="tableGroupId")
+    schedule_expression: str = Field(..., alias="scheduleExpression")
+    timezone: Optional[str] = Field(default="UTC")
+    is_active: Optional[bool] = Field(default=True, alias="isActive")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class ProfilingScheduleCreateRequest(ProfilingScheduleBase):
+    pass
+
+
+class ProfilingScheduleRead(BaseModel):
+    profiling_schedule_id: UUID = Field(alias="profilingScheduleId")
+    table_group_id: str = Field(alias="tableGroupId")
+    table_group_name: Optional[str] = Field(default=None, alias="tableGroupName")
+    connection_id: Optional[UUID] = Field(default=None, alias="connectionId")
+    connection_name: Optional[str] = Field(default=None, alias="connectionName")
+    application_id: Optional[UUID] = Field(default=None, alias="applicationId")
+    application_name: Optional[str] = Field(default=None, alias="applicationName")
+    data_object_id: Optional[UUID] = Field(default=None, alias="dataObjectId")
+    data_object_name: Optional[str] = Field(default=None, alias="dataObjectName")
+    schedule_expression: str = Field(alias="scheduleExpression")
+    timezone: Optional[str] = None
+    is_active: bool = Field(alias="isActive")
+    last_profile_run_id: Optional[str] = Field(default=None, alias="lastProfileRunId")
+    last_run_status: Optional[str] = Field(default=None, alias="lastRunStatus")
+    last_run_started_at: Optional[datetime] = Field(default=None, alias="lastRunStartedAt")
+    last_run_completed_at: Optional[datetime] = Field(default=None, alias="lastRunCompletedAt")
+    last_run_error: Optional[str] = Field(default=None, alias="lastRunError")
+    total_runs: int = Field(alias="totalRuns")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 class TestRunStartRequest(BaseModel):
     project_key: str
     test_suite_key: Optional[str] = None
@@ -408,8 +448,11 @@ class DataQualityProfileRunEntry(BaseModel):
     data_object_name: Optional[str] = Field(default=None, alias="dataObjectName")
     application_id: Optional[UUID] = Field(default=None, alias="applicationId")
     application_name: Optional[str] = Field(default=None, alias="applicationName")
+    application_description: Optional[str] = Field(default=None, alias="applicationDescription")
     product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
     product_team_name: Optional[str] = Field(default=None, alias="productTeamName")
+    table_count: Optional[int] = Field(default=None, alias="tableCount")
+    field_count: Optional[int] = Field(default=None, alias="fieldCount")
     status: str
     started_at: Optional[datetime] = Field(default=None, alias="startedAt")
     completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
@@ -418,6 +461,7 @@ class DataQualityProfileRunEntry(BaseModel):
     anomaly_count: Optional[int] = Field(default=None, alias="anomalyCount")
     databricks_run_id: Optional[str] = Field(default=None, alias="databricksRunId")
     anomalies_by_severity: Dict[str, int] = Field(default_factory=dict, alias="anomaliesBySeverity")
+    profiling_score: Optional[float] = Field(default=None, alias="profilingScore")
 
     class Config:
         allow_population_by_field_name = True
@@ -434,8 +478,11 @@ class DataQualityProfileRunTableGroup(BaseModel):
     data_object_name: Optional[str] = Field(default=None, alias="dataObjectName")
     application_id: Optional[UUID] = Field(default=None, alias="applicationId")
     application_name: Optional[str] = Field(default=None, alias="applicationName")
+    application_description: Optional[str] = Field(default=None, alias="applicationDescription")
     product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
     product_team_name: Optional[str] = Field(default=None, alias="productTeamName")
+    table_count: Optional[int] = Field(default=None, alias="tableCount")
+    field_count: Optional[int] = Field(default=None, alias="fieldCount")
     profiling_job_id: Optional[str] = Field(default=None, alias="profilingJobId")
 
     class Config:
@@ -445,6 +492,109 @@ class DataQualityProfileRunTableGroup(BaseModel):
 class DataQualityProfileRunListResponse(BaseModel):
     runs: List[DataQualityProfileRunEntry]
     table_groups: List[DataQualityProfileRunTableGroup] = Field(default_factory=list, alias="tableGroups")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunDeleteRequest(BaseModel):
+    profile_run_ids: List[str] = Field(alias="profileRunIds", min_items=1)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunDeleteResponse(BaseModel):
+    deleted_count: int = Field(alias="deletedCount")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileAnomalyEntry(BaseModel):
+    anomaly_type_id: Optional[str] = Field(default=None, alias="anomalyTypeId")
+    severity: Optional[str] = None
+    likelihood: Optional[str] = None
+    detail: Optional[str] = None
+    pii_risk: Optional[str] = Field(default=None, alias="piiRisk")
+    dq_dimension: Optional[str] = Field(default=None, alias="dqDimension")
+    column_name: Optional[str] = Field(default=None, alias="columnName")
+    detected_at: Optional[str] = Field(default=None, alias="detectedAt")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileValueEntry(BaseModel):
+    value: Optional[Any] = None
+    count: Optional[int] = None
+    percentage: Optional[float] = None
+    label: Optional[str] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileColumnEntry(BaseModel):
+    column_id: Optional[str] = Field(default=None, alias="columnId")
+    column_name: str = Field(alias="columnName")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: Optional[str] = Field(default=None, alias="tableName")
+    data_type: Optional[str] = Field(default=None, alias="dataType")
+    general_type: Optional[str] = Field(default=None, alias="generalType")
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    row_count: Optional[int] = Field(default=None, alias="rowCount")
+    null_count: Optional[int] = Field(default=None, alias="nullCount")
+    distinct_count: Optional[int] = Field(default=None, alias="distinctCount")
+    non_null_count: Optional[int] = Field(default=None, alias="nonNullCount")
+    min_value: Optional[Any] = Field(default=None, alias="minValue")
+    max_value: Optional[Any] = Field(default=None, alias="maxValue")
+    avg_value: Optional[float] = Field(default=None, alias="avgValue")
+    stddev_value: Optional[float] = Field(default=None, alias="stddevValue")
+    median_value: Optional[float] = Field(default=None, alias="medianValue")
+    p95_value: Optional[float] = Field(default=None, alias="p95Value")
+    top_values: List[DataQualityProfileValueEntry] = Field(default_factory=list, alias="topValues")
+    histogram: List[DataQualityProfileValueEntry] = Field(default_factory=list)
+    anomalies: List[DataQualityProfileAnomalyEntry] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileTableEntry(BaseModel):
+    table_id: Optional[str] = Field(default=None, alias="tableId")
+    table_group_id: Optional[str] = Field(default=None, alias="tableGroupId")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: Optional[str] = Field(default=None, alias="tableName")
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    columns: List[DataQualityProfileColumnEntry] = Field(default_factory=list)
+    anomalies: List[DataQualityProfileAnomalyEntry] = Field(default_factory=list)
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunResultSummary(BaseModel):
+    profile_run_id: str = Field(alias="profileRunId")
+    table_group_id: str = Field(alias="tableGroupId")
+    status: Optional[str] = None
+    started_at: Optional[str] = Field(default=None, alias="startedAt")
+    completed_at: Optional[str] = Field(default=None, alias="completedAt")
+    row_count: Optional[int] = Field(default=None, alias="rowCount")
+    anomaly_count: Optional[int] = Field(default=None, alias="anomalyCount")
+    databricks_run_id: Optional[str] = Field(default=None, alias="databricksRunId")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityProfileRunResultResponse(BaseModel):
+    table_group_id: str = Field(alias="tableGroupId")
+    profile_run_id: str = Field(alias="profileRunId")
+    summary: DataQualityProfileRunResultSummary
+    tables: List[DataQualityProfileTableEntry]
 
     class Config:
         allow_population_by_field_name = True

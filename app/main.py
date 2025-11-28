@@ -9,6 +9,7 @@ from app.routers import api_router
 from app.services.databricks_bootstrap import ensure_databricks_connection
 from app.services.data_quality_provisioning import data_quality_provisioner
 from app.services.scheduled_ingestion import scheduled_ingestion_engine
+from app.services.scheduled_profiling import scheduled_profiling_engine
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -41,9 +42,11 @@ async def _run_startup_task(func, label: str) -> None:
 async def startup_scheduler() -> None:
     asyncio.create_task(_run_startup_task(ensure_databricks_connection, "Databricks bootstrap"))
     scheduled_ingestion_engine.start()
+    scheduled_profiling_engine.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_scheduler() -> None:
     scheduled_ingestion_engine.shutdown()
+    scheduled_profiling_engine.shutdown()
     data_quality_provisioner.shutdown()

@@ -68,6 +68,7 @@ def test_builder_emits_rows_for_payload():
 
     assert counts["profile_columns_df"] == 1
     assert counts["profile_results_df"] == 1
+    assert counts["profile_column_values_df"] == 1
     assert counts["profile_anomalies_df"] == 2  # one table anomaly + one column anomaly
 
     column_row = rows["profile_columns_df"][0]
@@ -78,6 +79,10 @@ def test_builder_emits_rows_for_payload():
     result_row = rows["profile_results_df"][0]
     assert result_row["table_name"] == "orders"
     assert result_row["top_values_json"] is not None
+
+    value_row = rows["profile_column_values_df"][0]
+    assert value_row["column_name"] == "total"
+    assert value_row["frequency"] == 5
 
     table_row = rows["table_characteristics_df"][0]
     assert table_row["table_id"] == "tbl-1"

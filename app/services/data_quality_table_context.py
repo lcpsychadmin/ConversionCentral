@@ -81,10 +81,9 @@ def _build_table_context(table_link: DataDefinitionTable) -> TableContext:
 
     table_group_id: str | None = None
     table_id: str | None = None
+    active_connections = [connection for connection in (system.connections or []) if connection.active]
 
-    for connection in system.connections or []:
-        if not connection.active:
-            continue
+    for connection in active_connections:
         for selection in connection.catalog_selections or []:
             if _matches_selection(
                 selection.schema_name,
@@ -100,13 +99,20 @@ def _build_table_context(table_link: DataDefinitionTable) -> TableContext:
             break
 
     if table_group_id is None:
-        first_connection = next((conn for conn in system.connections or [] if conn.active), None)
-        if first_connection is None:
+        if not active_connections:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 detail="No active system connection is available for this data definition table",
             )
-        table_group_id = build_table_group_id(first_connection.id, data_object_id)
+        if len(active_connections) > 1:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Multiple active system connections exist for this data definition table; "
+                    "add a catalog selection so profiling can determine the correct connection."
+                ),
+            )
+        table_group_id = build_table_group_id(active_connections[0].id, data_object_id)
 
     return TableContext(
         data_definition_table_id=table_link.id,

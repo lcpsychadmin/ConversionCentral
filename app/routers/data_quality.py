@@ -16,10 +16,14 @@ from app.schemas.data_quality import (
     DataQualityDatasetProfilingStatsResponse,
     DataQualityDatasetProductTeam,
     DataQualityDatasetTableContext,
+    DataQualityProfileRunDeleteRequest,
+    DataQualityProfileRunDeleteResponse,
     DataQualityProfileRunEntry,
     DataQualityProfileRunListResponse,
     DataQualityProfileRunTableGroup,
     DataQualityProfileRunSummary,
+    DataQualityProfileRunResultResponse,
+    ProfileRunStartResponse,
     TestGenProfileAnomaly,
 )
 from app.services.data_quality_keys import parse_connection_id, parse_table_group_id
@@ -224,6 +228,50 @@ def start_profile_runs_for_data_object(
     )
 
 
+@router.post(
+    "/table-groups/{table_group_id}/profile-runs",
+    response_model=ProfileRunStartResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_profile_run_for_table_group(
+    table_group_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    profiling_service: DataQualityProfilingService = Depends(get_profiling_service),
+) -> ProfileRunStartResponse:
+    callback_template = str(
+        request.url_for(
+            "complete_profile_run",
+            profile_run_id=CALLBACK_URL_PLACEHOLDER,
+        )
+    )
+
+    try:
+        prepared = profiling_service.prepare_profile_run(
+            table_group_id,
+            callback_url_template=callback_template,
+        )
+    except ProfilingTargetNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProfilingConfigurationError as exc:
+        logger.warning(
+            "Profiling configuration error for table_group_id=%s: %s",
+            table_group_id,
+            exc,
+        )
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except ProfilingServiceError as exc:  # pragma: no cover - defensive
+        logger.exception(
+            "Profiling service error for table_group_id=%s",
+            table_group_id,
+        )
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    background_tasks.add_task(_launch_profile_run_background, profiling_service, prepared)
+
+    return ProfileRunStartResponse(profile_run_id=prepared.profile_run_id)
+
+
 def _build_entity_maps(
     db: Session,
     *,
@@ -282,6 +330,7 @@ def list_profile_runs(
 
     connection_ids: set[UUID] = set()
     data_object_ids: set[UUID] = set()
+    table_group_ids: set[str] = set()
 
     for row in runs_raw:
         conn_uuid, obj_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
@@ -294,6 +343,8 @@ def list_profile_runs(
             connection_ids.add(conn_uuid)
         if obj_uuid:
             data_object_ids.add(obj_uuid)
+        if row.get("table_group_id"):
+            table_group_ids.add(row["table_group_id"])
 
     for row in group_rows:
         conn_uuid, obj_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
@@ -306,12 +357,32 @@ def list_profile_runs(
             connection_ids.add(conn_uuid)
         if obj_uuid:
             data_object_ids.add(obj_uuid)
+        if row.get("table_group_id"):
+            table_group_ids.add(row["table_group_id"])
 
     connections_map, data_objects_map = _build_entity_maps(
         db,
         connection_ids=connection_ids,
         data_object_ids=data_object_ids,
     )
+
+    table_group_counts: Dict[str, Dict[str, int]] = {}
+    if table_group_ids:
+        try:
+            table_characteristics = client.fetch_table_characteristics(table_group_ids=tuple(table_group_ids))
+        except TestGenClientError as exc:  # pragma: no cover - defensive
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        for entry in table_characteristics:
+            table_group = entry.get("table_group_id")
+            if not table_group:
+                continue
+            bucket = table_group_counts.setdefault(table_group, {"table_count": 0, "field_count": 0})
+            bucket["table_count"] += 1
+            try:
+                column_count = int(entry.get("column_count") or 0)
+            except (TypeError, ValueError):
+                column_count = 0
+            bucket["field_count"] += max(column_count, 0)
 
     reference_time = datetime.now(timezone.utc)
     runs_payload: List[DataQualityProfileRunEntry] = []
@@ -326,6 +397,7 @@ def list_profile_runs(
         data_object = data_objects_map.get(data_object_uuid)
         process_area: ProcessArea | None = data_object.process_area if data_object else None
         severity_counts = severity_map.get(profile_run_id, {}) if profile_run_id else {}
+        counts = table_group_counts.get(table_group or "", {})
 
         runs_payload.append(
             DataQualityProfileRunEntry(
@@ -340,8 +412,11 @@ def list_profile_runs(
                 data_object_name=data_object.name if data_object else None,
                 application_id=system.id if system else None,
                 application_name=system.name if system else None,
+                application_description=getattr(system, "description", None),
                 product_team_id=process_area.id if process_area else None,
                 product_team_name=process_area.name if process_area else None,
+                table_count=counts.get("table_count"),
+                field_count=counts.get("field_count"),
                 status=row.get("status") or "unknown",
                 started_at=row.get("started_at"),
                 completed_at=row.get("completed_at"),
@@ -355,6 +430,7 @@ def list_profile_runs(
                 anomaly_count=row.get("anomaly_count"),
                 databricks_run_id=row.get("databricks_run_id"),
                 anomalies_by_severity=severity_counts,
+                profiling_score=row.get("dq_score_profiling"),
             )
         )
 
@@ -367,6 +443,7 @@ def list_profile_runs(
         system: System | None = connection.system if connection else None
         data_object = data_objects_map.get(data_object_uuid)
         process_area: ProcessArea | None = data_object.process_area if data_object else None
+        counts = table_group_counts.get(table_group or "", {})
 
         table_group_payload.append(
             DataQualityProfileRunTableGroup(
@@ -380,8 +457,11 @@ def list_profile_runs(
                 data_object_name=data_object.name if data_object else None,
                 application_id=system.id if system else None,
                 application_name=system.name if system else None,
+                application_description=getattr(system, "description", None),
                 product_team_id=process_area.id if process_area else None,
                 product_team_name=process_area.name if process_area else None,
+                table_count=counts.get("table_count"),
+                field_count=counts.get("field_count"),
                 profiling_job_id=row.get("profiling_job_id"),
             )
         )
@@ -411,3 +491,36 @@ def get_profile_run_anomalies(
     except TestGenClientError as exc:  # pragma: no cover - defensive
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return anomalies
+
+
+@router.get(
+    "/profile-runs/{profile_run_id}/results",
+    response_model=DataQualityProfileRunResultResponse,
+)
+def get_profile_run_results(
+    profile_run_id: str,
+    table_group_id: str = Query(..., alias="tableGroupId"),
+    client: TestGenClient = Depends(get_testgen_client),
+) -> DataQualityProfileRunResultResponse:
+    try:
+        payload = client.export_profiling_payload(table_group_id, profile_run_id=profile_run_id)
+    except TestGenClientError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    if not payload:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Profiling results not found.")
+    return payload
+
+
+@router.delete(
+    "/profile-runs",
+    response_model=DataQualityProfileRunDeleteResponse,
+)
+def delete_profile_runs(
+    payload: DataQualityProfileRunDeleteRequest,
+    client: TestGenClient = Depends(get_testgen_client),
+) -> DataQualityProfileRunDeleteResponse:
+    try:
+        deleted = client.delete_profile_runs(payload.profile_run_ids)
+    except TestGenClientError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return DataQualityProfileRunDeleteResponse(deleted_count=deleted)

@@ -445,6 +445,8 @@ export interface DataQualityConnection {
 
 export interface DataQualityTableGroup {
   tableGroupId: string;
+  tableCount?: number | null;
+  fieldCount?: number | null;
   connectionId: string;
   name: string;
   description?: string | null;
@@ -453,6 +455,7 @@ export interface DataQualityTableGroup {
 }
 
 export interface DataQualityTable {
+  profilingScore?: number | null;
   tableId: string;
   tableGroupId: string;
   schemaName?: string | null;
@@ -468,6 +471,8 @@ export interface DataQualityProfileRun {
   completedAt?: string | null;
   rowCount?: number | null;
   anomalyCount?: number | null;
+  tableCount?: number | null;
+  fieldCount?: number | null;
   payloadPath?: string | null;
 }
 
@@ -483,8 +488,11 @@ export interface DataQualityProfileRunEntry {
   dataObjectName?: string | null;
   applicationId?: string | null;
   applicationName?: string | null;
+  applicationDescription?: string | null;
   productTeamId?: string | null;
   productTeamName?: string | null;
+  tableCount?: number | null;
+  fieldCount?: number | null;
   status: string;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -492,6 +500,7 @@ export interface DataQualityProfileRunEntry {
   rowCount?: number | null;
   anomalyCount?: number | null;
   payloadPath?: string | null;
+  profilingScore?: number | null;
   anomaliesBySeverity: Record<string, number>;
 }
 
@@ -506,13 +515,125 @@ export interface DataQualityProfileRunTableGroup {
   dataObjectName?: string | null;
   applicationId?: string | null;
   applicationName?: string | null;
+  applicationDescription?: string | null;
   productTeamId?: string | null;
   productTeamName?: string | null;
+  tableCount?: number | null;
+  fieldCount?: number | null;
 }
 
 export interface DataQualityProfileRunListResponse {
   runs: DataQualityProfileRunEntry[];
   tableGroups: DataQualityProfileRunTableGroup[];
+}
+
+export interface DataQualityProfileRunDeleteRequest {
+  profileRunIds: string[];
+}
+
+export interface DataQualityProfileRunDeleteResponse {
+  deletedCount: number;
+}
+
+export interface DataQualityProfileValueEntry {
+  value?: unknown;
+  count?: number | null;
+  percentage?: number | null;
+  label?: string | null;
+  lower?: number | null;
+  upper?: number | null;
+}
+
+export interface DataQualityProfileAnomalyEntry {
+  anomalyTypeId?: string | null;
+  severity?: string | null;
+  likelihood?: string | null;
+  detail?: string | null;
+  piiRisk?: string | null;
+  dqDimension?: string | null;
+  columnName?: string | null;
+  detectedAt?: string | null;
+}
+
+export interface DataQualityProfileColumnEntry {
+  columnId?: string | null;
+  columnName: string;
+  schemaName?: string | null;
+  tableName?: string | null;
+  dataType?: string | null;
+  generalType?: string | null;
+  metrics: Record<string, unknown>;
+  rowCount?: number | null;
+  nullCount?: number | null;
+  distinctCount?: number | null;
+  nonNullCount?: number | null;
+  minValue?: unknown;
+  maxValue?: unknown;
+  avgValue?: number | null;
+  stddevValue?: number | null;
+  medianValue?: number | null;
+  p95Value?: number | null;
+  topValues: DataQualityProfileValueEntry[];
+  histogram: DataQualityProfileValueEntry[];
+  anomalies: DataQualityProfileAnomalyEntry[];
+}
+
+export interface DataQualityProfileTableEntry {
+  tableId?: string | null;
+  tableGroupId?: string | null;
+  schemaName?: string | null;
+  tableName?: string | null;
+  metrics: Record<string, unknown>;
+  columns: DataQualityProfileColumnEntry[];
+  anomalies: DataQualityProfileAnomalyEntry[];
+}
+
+export interface DataQualityProfileRunResultSummary {
+  profileRunId: string;
+  tableGroupId: string;
+  status?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  rowCount?: number | null;
+  anomalyCount?: number | null;
+  databricksRunId?: string | null;
+}
+
+export interface DataQualityProfileRunResultResponse {
+  tableGroupId: string;
+  profileRunId: string;
+  summary: DataQualityProfileRunResultSummary;
+  tables: DataQualityProfileTableEntry[];
+}
+
+export interface DataQualityProfilingSchedule {
+  profilingScheduleId: string;
+  tableGroupId: string;
+  tableGroupName?: string | null;
+  connectionId?: string | null;
+  connectionName?: string | null;
+  applicationId?: string | null;
+  applicationName?: string | null;
+  dataObjectId?: string | null;
+  dataObjectName?: string | null;
+  scheduleExpression: string;
+  timezone?: string | null;
+  isActive: boolean;
+  lastProfileRunId?: string | null;
+  lastRunStatus?: string | null;
+  lastRunStartedAt?: string | null;
+  lastRunCompletedAt?: string | null;
+  lastRunError?: string | null;
+  totalRuns: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DataQualityProfilingScheduleInput {
+  tableGroupId: string;
+  scheduleExpression: string;
+  timezone?: string | null;
+  isActive?: boolean;
 }
 
 export interface DataQualityProfileAnomaly {

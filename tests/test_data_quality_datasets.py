@@ -304,6 +304,110 @@ def test_start_profile_runs_returns_400_when_no_active_connections(client, db_se
     assert stub.calls == []
 
 
+def test_start_profile_runs_skips_tables_when_connections_are_ambiguous(client, db_session):
+    product_team = ProcessArea(name="Product A", description="Team", status="active")
+    system = System(name="Billing", physical_name="billing", description="Billing system")
+    data_object = DataObject(name="Invoice", description="Invoices", status="active", process_area=product_team)
+    definition = DataDefinition(data_object=data_object, system=system, description="Primary definition")
+
+    matched_table = Table(
+        system=system,
+        name="invoices",
+        physical_name="raw.invoices",
+        schema_name="finance",
+        description="Invoices table",
+        table_type="base",
+    )
+    unmatched_table = Table(
+        system=system,
+        name="invoices_backup",
+        physical_name="raw.invoices_backup",
+        schema_name="archive",
+        description="Archive table",
+        table_type="base",
+    )
+
+    matched_link = DataDefinitionTable(
+        data_definition=definition,
+        table=matched_table,
+        alias="Invoices",
+        description="Primary invoices table",
+        load_order=1,
+    )
+    unmatched_link = DataDefinitionTable(
+        data_definition=definition,
+        table=unmatched_table,
+        alias="Archive",
+        description="Archive invoices table",
+        load_order=2,
+    )
+
+    connection_primary = SystemConnection(
+        system=system,
+        connection_type="jdbc",
+        connection_string="jdbc://primary",
+        auth_method="username_password",
+        active=True,
+        ingestion_enabled=True,
+    )
+    primary_selection = ConnectionTableSelection(
+        system_connection=connection_primary,
+        schema_name="finance",
+        table_name="invoices",
+    )
+
+    connection_secondary = SystemConnection(
+        system=system,
+        connection_type="jdbc",
+        connection_string="jdbc://secondary",
+        auth_method="username_password",
+        active=True,
+        ingestion_enabled=True,
+    )
+    secondary_selection = ConnectionTableSelection(
+        system_connection=connection_secondary,
+        schema_name="other",
+        table_name="external",
+    )
+
+    db_session.add_all(
+        [
+            product_team,
+            system,
+            data_object,
+            definition,
+            matched_table,
+            unmatched_table,
+            matched_link,
+            unmatched_link,
+            connection_primary,
+            connection_secondary,
+            primary_selection,
+            secondary_selection,
+        ]
+    )
+    db_session.commit()
+
+    stub = StubProfilingService()
+
+    with override_profiling_service(stub):
+        response = client.post(f"/data-quality/datasets/{data_object.id}/profile-runs")
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["requestedTableCount"] == 2
+    assert payload["targetedTableGroupCount"] == 1
+    assert payload["skippedTableIds"] == [str(unmatched_link.id)]
+    expected_group = build_table_group_id(connection_primary.id, data_object.id)
+    expected_run_id = f"profile-run-{stub.sequence}"
+    assert payload["profileRuns"] == [
+        {
+            "tableGroupId": expected_group,
+            "profileRunId": expected_run_id,
+        }
+    ]
+
+
 def test_get_table_context_returns_table_group(client, db_session):
     context = _seed_dataset_context(db_session)
     expected_group = build_table_group_id(context["connection"].id, context["data_object_id"])

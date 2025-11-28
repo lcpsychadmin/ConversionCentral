@@ -659,6 +659,7 @@ class TestGenClient:
                 p.completed_at,
                 p.row_count,
                 p.anomaly_count,
+                p.dq_score_profiling,
                 p.databricks_run_id,
                 g.name AS table_group_name,
                 g.description AS table_group_description,
@@ -827,6 +828,43 @@ class TestGenClient:
 
     def list_profile_run_anomalies(self, profile_run_id: str) -> list[dict[str, Any]]:
         return self._fetch_profile_anomalies(profile_run_id, None)
+
+    def delete_profile_runs(self, profile_run_ids: Sequence[str]) -> int:
+        normalized = tuple(sorted({(run_id or "").strip() for run_id in profile_run_ids if (run_id or "").strip()}))
+        if not normalized:
+            return 0
+
+        detail_tables = (
+            "dq_profile_anomaly_results",
+            "dq_profile_anomalies",
+            "dq_profile_results",
+            "dq_profile_column_values",
+            "dq_profile_columns",
+            "dq_profile_operations",
+        )
+
+        statements = [
+            text(
+                f"DELETE FROM {_format_table(self._params.catalog, self._schema, table_name)} "
+                "WHERE profile_run_id IN :profile_run_ids"
+            ).bindparams(bindparam("profile_run_ids", expanding=True))
+            for table_name in detail_tables
+        ]
+
+        profiles_table = _format_table(self._params.catalog, self._schema, "dq_profiles")
+        delete_profiles_statement = text(
+            f"DELETE FROM {profiles_table} WHERE profile_run_id IN :profile_run_ids"
+        ).bindparams(bindparam("profile_run_ids", expanding=True))
+
+        try:
+            with self._get_engine().begin() as connection:
+                for statement in statements:
+                    connection.execute(statement, {"profile_run_ids": normalized})
+                result = connection.execute(delete_profiles_statement, {"profile_run_ids": normalized})
+                return int(result.rowcount or 0)
+        except SQLAlchemyError as exc:  # pragma: no cover - defensive
+            logger.error("Failed to delete profiling runs: %s", exc)
+            raise TestGenClientError(str(exc)) from exc
 
     def recent_test_runs(self, project_key: str, *, limit: int = 20) -> list[dict[str, Any]]:
         test_runs_table = _format_table(self._params.catalog, self._schema, "dq_test_runs")

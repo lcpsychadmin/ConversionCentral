@@ -553,6 +553,12 @@ class DataObject(Base, TimestampMixin):
         back_populates="data_object",
         passive_deletes=True,
     )
+    profiling_schedules: Mapped[list["DataQualityProfilingSchedule"]] = relationship(
+        "DataQualityProfilingSchedule",
+        back_populates="data_object",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 
@@ -1516,6 +1522,12 @@ class SystemConnection(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    profiling_schedules: Mapped[list["DataQualityProfilingSchedule"]] = relationship(
+        "DataQualityProfilingSchedule",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ConnectionTableSelection(Base, TimestampMixin):
@@ -1759,7 +1771,55 @@ class IngestionSchedule(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    sap_hana_setting: Mapped["SapHanaSetting | None"] = relationship("SapHanaSetting")
+
+
+class DataQualityProfilingSchedule(Base, TimestampMixin):
+    __tablename__ = "data_quality_profiling_schedules"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "table_group_id",
+            "schedule_expression",
+            "timezone",
+            name="uq_dq_profiling_schedule_identity",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        "profiling_schedule_id",
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    table_group_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    table_group_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("system_connections.system_connection_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    data_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("data_objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    schedule_expression: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_profile_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    last_run_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    connection: Mapped[SystemConnection | None] = relationship(
+        "SystemConnection",
+        back_populates="profiling_schedules",
+    )
+    data_object: Mapped[DataObject | None] = relationship(
+        "DataObject",
+        back_populates="profiling_schedules",
+    )
 
 
 class IngestionRun(Base, TimestampMixin):

@@ -24,6 +24,7 @@ import DataQualityOverviewPage from '@pages/DataQualityOverviewPage';
 import DataQualityDatasetsPage from '@pages/DataQualityDatasetsPage';
 import DataQualityRunHistoryPage from '@pages/DataQualityRunHistoryPage';
 import DataQualityProfilingRunsPage from '@pages/DataQualityProfilingRunsPage';
+import DataQualityProfileRunResultsPage from '@pages/DataQualityProfileRunResultsPage';
 import DataQualityTestLibraryPage from '@pages/DataQualityTestLibraryPage';
 import DataQualityTestSuitesPage from '@pages/DataQualityTestSuitesPage';
 import DataQualityTestSuiteDefinitionPage from '@pages/DataQualityTestSuiteDefinitionPage';
@@ -86,6 +87,7 @@ const router = createBrowserRouter([
           { path: 'data-quality', element: <DataQualityOverviewPage /> },
           { path: 'data-quality/datasets', element: <DataQualityDatasetsPage /> },
           { path: 'data-quality/profiling-runs', element: <DataQualityProfilingRunsPage /> },
+          { path: 'data-quality/profiling-runs/:profileRunId/results', element: <DataQualityProfileRunResultsPage /> },
           { path: 'data-quality/test-suites', element: <DataQualityTestSuitesPage /> },
           { path: 'data-quality/test-suites/:testSuiteKey', element: <DataQualityTestSuiteDefinitionPage /> },
           { path: 'data-quality/test-library', element: <DataQualityTestLibraryPage /> },
