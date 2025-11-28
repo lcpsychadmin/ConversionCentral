@@ -496,7 +496,12 @@ class ProfilingPayloadFrameBuilder:
         percentiles_json = self._serialize_json(percentiles_payload) if percentiles_payload else None
 
         top_values = self._extract_sequence(column_entry, "top_values", "topValues")
+        if not top_values:
+            top_values = self._extract_sequence(metrics, "top_values", "topValues")
+
         histogram = self._extract_sequence(column_entry, "histogram", "value_distribution", "distribution")
+        if not histogram:
+            histogram = self._extract_sequence(metrics, "histogram", "value_distribution", "distribution")
         top_values_json = None
         if top_values or histogram:
             top_values_json = self._serialize_json({"top_values": top_values, "histogram": histogram})
