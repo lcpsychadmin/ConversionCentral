@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.databricks_profiling.frame_builder import ProfilingPayloadFrameBuilder
 
 
@@ -100,3 +102,49 @@ def test_builder_handles_payload_without_tables():
 
     assert all(count == 0 for count in counts.values())
     assert all(not data for data in rows.values())
+
+
+def test_builder_computes_relative_frequency_when_missing_percentages():
+    payload = {
+        "tables": [
+            {
+                "table_id": "tbl-2",
+                "table_group_id": "tg-2",
+                "schema_name": "analytics",
+                "table_name": "regions",
+                "columns": [
+                    {
+                        "column_id": "col-2",
+                        "column_name": "region",
+                        "data_type": "string",
+                        "general_type": "string",
+                        "ordinal_position": 1,
+                        "row_count": 100,
+                        "metrics": {
+                            "row_count": 100,
+                            "null_count": 0,
+                            "distinct_count": 5,
+                        },
+                        "top_values": [
+                            {"value": "North America", "count": 60},
+                        ],
+                        "histogram": [
+                            {"label": "0-50", "count": 40},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    builder = ProfilingPayloadFrameBuilder(payload, profile_run_id="run-456", table_group_id="tg-2")
+    rows, _ = builder.build_rows()
+
+    assert len(rows["profile_column_values_df"]) == 2
+    top_value_row = rows["profile_column_values_df"][0]
+    histogram_row = rows["profile_column_values_df"][1]
+
+    assert top_value_row["frequency"] == 60
+    assert top_value_row["relative_freq"] == pytest.approx(0.6)
+    assert histogram_row["frequency"] == 40
+    assert histogram_row["relative_freq"] == pytest.approx(0.4)

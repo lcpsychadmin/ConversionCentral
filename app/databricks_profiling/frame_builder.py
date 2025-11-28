@@ -510,6 +510,7 @@ class ProfilingPayloadFrameBuilder:
             column_name=column_name,
             top_values=top_values,
             histogram=histogram,
+            row_count=row_count,
         )
 
         metrics_json = self._serialize_json(
@@ -634,6 +635,7 @@ class ProfilingPayloadFrameBuilder:
         column_name: str,
         top_values: Sequence[Mapping[str, Any]] | Sequence[Any],
         histogram: Sequence[Mapping[str, Any]] | Sequence[Any],
+        row_count: int | None,
     ) -> list[dict[str, Any]]:
         schema_name = table_context.get("schema_name")
         table_name = table_context.get("table_name")
@@ -655,12 +657,16 @@ class ProfilingPayloadFrameBuilder:
             raw_value = entry.get("value")
             if raw_value is None:
                 raw_value = entry.get("label")
+            frequency = self._coerce_int(entry.get("count"))
+            relative_freq = self._coerce_float(entry.get("percentage"))
+            if relative_freq is None:
+                relative_freq = self._compute_relative_frequency(frequency, row_count)
             append_row(
                 {
                     "value": self._stringify_value(raw_value),
                     "value_hash": self._hash_value(raw_value),
-                    "frequency": self._coerce_int(entry.get("count")),
-                    "relative_freq": self._coerce_float(entry.get("percentage")),
+                    "frequency": frequency,
+                    "relative_freq": relative_freq,
                     "rank": self._coerce_int(entry.get("rank")) or index,
                     "bucket_label": None,
                     "bucket_lower_bound": None,
@@ -685,12 +691,16 @@ class ProfilingPayloadFrameBuilder:
                 "lower": lower,
                 "upper": upper,
             }
+            frequency = self._coerce_int(entry.get("count"))
+            relative_freq = self._coerce_float(entry.get("percentage"))
+            if relative_freq is None:
+                relative_freq = self._compute_relative_frequency(frequency, row_count)
             append_row(
                 {
                     "value": self._stringify_value(display_value),
                     "value_hash": self._hash_value(hash_source),
-                    "frequency": self._coerce_int(entry.get("count")),
-                    "relative_freq": self._coerce_float(entry.get("percentage")),
+                    "frequency": frequency,
+                    "relative_freq": relative_freq,
                     "rank": self._coerce_int(entry.get("rank")),
                     "bucket_label": label,
                     "bucket_lower_bound": lower,
@@ -721,6 +731,17 @@ class ProfilingPayloadFrameBuilder:
         except (TypeError, ValueError):
             serialized = str(normalized)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _compute_relative_frequency(self, count: int | None, total: int | None) -> float | None:
+        if count is None or total in (None, 0):
+            return None
+        try:
+            ratio = float(count) / float(total)
+        except (TypeError, ZeroDivisionError):
+            return None
+        if math.isnan(ratio) or math.isinf(ratio):
+            return None
+        return max(ratio, 0.0)
 
     # ------------------------------------------------------------------
     # Anomaly helpers

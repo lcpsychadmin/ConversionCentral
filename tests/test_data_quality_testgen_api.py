@@ -41,6 +41,7 @@ class StubTestGenClient:
         self.table_groups: list[dict[str, object]] = []
         self.table_group_overview: list[dict[str, object]] = []
         self.tables: list[dict[str, object]] = []
+        self.table_characteristics: list[dict[str, object]] = []
         self.profile_runs: list[dict[str, object]] = []
         self.profile_run_overview: list[dict[str, object]] = []
         self.test_runs: list[dict[str, object]] = []
@@ -84,6 +85,13 @@ class StubTestGenClient:
     def list_table_groups_with_connections(self):
         self.calls.append(("list_table_groups_with_connections",))
         return self.table_group_overview
+
+    def fetch_table_characteristics(self, *, table_group_ids: tuple[str, ...]):
+        self.calls.append(("fetch_table_characteristics", table_group_ids))
+        if not table_group_ids:
+            return []
+        allowed = set(table_group_ids)
+        return [row for row in self.table_characteristics if row.get("table_group_id") in allowed]
 
     def profile_run_anomaly_counts(self, profile_run_ids):
         self.calls.append(("profile_run_anomaly_counts", tuple(profile_run_ids)))
