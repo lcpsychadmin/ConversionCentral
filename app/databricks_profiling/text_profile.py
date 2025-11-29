@@ -152,12 +152,13 @@ def build_text_profile(
     dummy_pattern_condition = trimmed.rlike(r"^([\-.0x9z])\\1{1,}$")
     dummy_condition = dummy_literal_condition | dummy_pattern_condition
     includes_digits_condition = trimmed.rlike(r".*\\d.*")
-    parsed_timestamp = F.coalesce(
-        F.to_timestamp(trimmed),
-        F.to_timestamp(trimmed, "yyyy-MM-dd"),
-        F.to_timestamp(trimmed, "MM/dd/yyyy"),
-        F.to_timestamp(trimmed, "yyyy/MM/dd"),
+    try_timestamp_exprs = (
+        "try_to_timestamp(trim(value))",
+        "try_to_timestamp(trim(value), 'yyyy-MM-dd')",
+        "try_to_timestamp(trim(value), 'MM/dd/yyyy')",
+        "try_to_timestamp(trim(value), 'yyyy/MM/dd')",
     )
+    parsed_timestamp = F.coalesce(*[F.expr(expr) for expr in try_timestamp_exprs])
     blank_count = whitespace_count = numeric_only_count = 0
     zero_count = quoted_count = leading_space_count = 0
     embedded_space_count = upper_case_count = lower_case_count = 0
