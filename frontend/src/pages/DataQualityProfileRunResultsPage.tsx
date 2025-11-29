@@ -28,7 +28,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from 'react-query';
 
 import PageHeader from '@components/common/PageHeader';
-import { TextProfileSummary } from '@components/data-quality/ColumnProfilePanel';
 import { fetchProfileRunResults } from '@services/dataQualityService';
 import {
   DataQualityProfileColumnEntry,
@@ -426,6 +425,7 @@ const DataQualityProfileRunResultsPage = () => {
       { label: 'Standard pattern match', value: textProfileStats.standardPatternMatches }
     ].filter((metric) => metric.value !== null && metric.value !== undefined);
   }, [textProfileStats]);
+  const textFrequentPatterns = useMemo(() => textProfile?.frequentPatterns ?? [], [textProfile]);
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -805,6 +805,42 @@ const DataQualityProfileRunResultsPage = () => {
                       </Typography>
                     )}
 
+                    {textFrequentPatterns.length ? (
+                      <Stack spacing={1.25}>
+                        <Divider />
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          Frequent patterns
+                        </Typography>
+                        <Stack spacing={0.75}>
+                          {textFrequentPatterns.slice(0, 6).map((pattern, idx) => (
+                            <Stack
+                              key={`${pattern.label ?? 'pattern'}-${idx}`}
+                              direction="row"
+                              justifyContent="space-between"
+                              spacing={2}
+                              alignItems="center"
+                            >
+                              <Typography
+                                variant="body2"
+                                fontFamily="monospace"
+                                sx={{ flex: 1, pr: 2 }}
+                                noWrap
+                                title={pattern.label ?? undefined}
+                              >
+                                {pattern.label ?? 'Pattern'}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {formatStatValue(pattern.count)}
+                                {pattern.percentage !== null && pattern.percentage !== undefined
+                                  ? ` (${formatPercentageDisplay(pattern.percentage)})`
+                                  : ''}
+                              </Typography>
+                            </Stack>
+                          ))}
+                        </Stack>
+                      </Stack>
+                    ) : null}
+
                     {(textValueDetailMetrics.length || textLengthMetrics.length) ? (
                       <Stack spacing={2}>
                         {textValueDetailMetrics.length ? (
@@ -918,8 +954,6 @@ const DataQualityProfileRunResultsPage = () => {
                 )}
               </Stack>
             </Paper>
-
-            {textProfile ? <TextProfileSummary profile={textProfile} /> : null}
 
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" fontWeight={700} gutterBottom>
