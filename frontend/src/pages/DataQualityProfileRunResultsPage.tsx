@@ -805,43 +805,7 @@ const DataQualityProfileRunResultsPage = () => {
                       </Typography>
                     )}
 
-                    {textFrequentPatterns.length ? (
-                      <Stack spacing={1.25}>
-                        <Divider />
-                        <Typography variant="subtitle2" fontWeight={600}>
-                          Frequent patterns
-                        </Typography>
-                        <Stack spacing={0.75}>
-                          {textFrequentPatterns.slice(0, 6).map((pattern, idx) => (
-                            <Stack
-                              key={`${pattern.label ?? 'pattern'}-${idx}`}
-                              direction="row"
-                              justifyContent="space-between"
-                              spacing={2}
-                              alignItems="center"
-                            >
-                              <Typography
-                                variant="body2"
-                                fontFamily="monospace"
-                                sx={{ flex: 1, pr: 2 }}
-                                noWrap
-                                title={pattern.label ?? undefined}
-                              >
-                                {pattern.label ?? 'Pattern'}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {formatStatValue(pattern.count)}
-                                {pattern.percentage !== null && pattern.percentage !== undefined
-                                  ? ` (${formatPercentageDisplay(pattern.percentage)})`
-                                  : ''}
-                              </Typography>
-                            </Stack>
-                          ))}
-                        </Stack>
-                      </Stack>
-                    ) : null}
-
-                    {(textValueDetailMetrics.length || textLengthMetrics.length) ? (
+                    {(textValueDetailMetrics.length || textLengthMetrics.length || textFrequentPatterns.length) ? (
                       <Stack spacing={2}>
                         {textValueDetailMetrics.length ? (
                           <>
@@ -886,6 +850,43 @@ const DataQualityProfileRunResultsPage = () => {
                                   </Grid>
                                 ))}
                               </Grid>
+                            </Box>
+                          </>
+                        ) : null}
+                        {textFrequentPatterns.length ? (
+                          <>
+                            <Divider />
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                Frequent patterns
+                              </Typography>
+                              <Stack spacing={0.75}>
+                                {textFrequentPatterns.slice(0, 6).map((pattern, idx) => (
+                                  <Stack
+                                    key={`${pattern.label ?? 'pattern'}-${idx}`}
+                                    direction="row"
+                                    justifyContent="space-between"
+                                    spacing={2}
+                                    alignItems="center"
+                                  >
+                                    <Typography
+                                      variant="body2"
+                                      fontFamily="monospace"
+                                      sx={{ flex: 1, pr: 2 }}
+                                      noWrap
+                                      title={pattern.label ?? undefined}
+                                    >
+                                      {pattern.label ?? 'Pattern'}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {formatStatValue(pattern.count)}
+                                      {pattern.percentage !== null && pattern.percentage !== undefined
+                                        ? ` (${formatPercentageDisplay(pattern.percentage)})`
+                                        : ''}
+                                    </Typography>
+                                  </Stack>
+                                ))}
+                              </Stack>
                             </Box>
                           </>
                         ) : null}
