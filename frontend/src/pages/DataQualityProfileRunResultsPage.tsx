@@ -30,6 +30,7 @@ import { useQuery } from 'react-query';
 import PageHeader from '@components/common/PageHeader';
 import { fetchProfileRunResults } from '@services/dataQualityService';
 import {
+  DataQualityNumericDistributionBar,
   DataQualityProfileColumnEntry,
   DataQualityProfileRunResultResponse,
   DataQualityProfileTableEntry,
@@ -95,6 +96,17 @@ const formatPercentageDisplay = (value?: number | null, fractionDigits = 1) => {
 
 const clampToRange = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
+};
+
+const normalizeDistributionKey = (value?: string | null): 'nonZero' | 'zero' | 'null' => {
+  const normalized = (value ?? '').toLowerCase();
+  if (normalized.includes('zero')) {
+    return 'zero';
+  }
+  if (normalized.includes('null')) {
+    return 'null';
+  }
+  return 'nonZero';
 };
 
 const NUMERIC_DISTRIBUTION_COLORS: Record<'nonZero' | 'zero' | 'null', string> = {
@@ -522,7 +534,7 @@ const DataQualityProfileRunResultsPage = () => {
       zero: null,
       null: null
     };
-    (numericProfile?.distributionBars ?? []).forEach((entry) => {
+    (numericProfile?.distributionBars ?? []).forEach((entry: DataQualityNumericDistributionBar) => {
       const key = normalizeDistributionKey(entry.key);
       counts[key] = normalizeNumber(entry.count ?? null);
       percentages[key] = typeof entry.percentage === 'number' ? clampToRange(entry.percentage, 0, 1) : null;
