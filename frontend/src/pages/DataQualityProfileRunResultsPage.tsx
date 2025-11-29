@@ -355,6 +355,37 @@ const DataQualityProfileRunResultsPage = () => {
   );
   const textProfile = useMemo(() => selectedColumn?.textProfile ?? null, [selectedColumn]);
   const textProfileStats = textProfile?.stats ?? null;
+  const textSummaryMetrics = useMemo(() => {
+    if (!textProfileStats && !selectedColumn) {
+      return [] as Array<{ label: string; value: string; annotation?: string }>;
+    }
+    const recordCount = textProfileStats?.recordCount ?? selectedColumn?.rowCount ?? null;
+    const valueCount = textProfileStats?.valueCount ?? selectedColumn?.nonNullCount ?? null;
+    const zeroLength = textProfileStats?.zeroLengthCount ?? 0;
+    const dummyValues = textProfileStats?.dummyValueCount ?? 0;
+    const derivedActual =
+      valueCount !== null && valueCount !== undefined
+        ? Math.max(valueCount - zeroLength - dummyValues, 0)
+        : null;
+    const actualValues = textProfileStats?.actualValueCount ?? derivedActual;
+    const distinctValues = selectedColumn?.distinctCount ?? null;
+    const duplicateCount = textProfileStats?.duplicateCount ?? null;
+    const duplicateAnnotation =
+      typeof textProfileStats?.duplicatePercentage === 'number'
+        ? formatPercentageDisplay(textProfileStats.duplicatePercentage)
+        : undefined;
+    return [
+      { label: 'Record count', value: formatStatValue(recordCount) },
+      { label: 'Value count', value: formatStatValue(valueCount) },
+      { label: 'Actual values', value: formatStatValue(actualValues) },
+      { label: 'Distinct values', value: formatStatValue(distinctValues) },
+      {
+        label: 'Duplicate values',
+        value: formatStatValue(duplicateCount),
+        annotation: duplicateAnnotation
+      }
+    ];
+  }, [selectedColumn, textProfileStats]);
   const breakdownSections = useMemo(
     () => {
       if (!textProfileStats) {
@@ -403,12 +434,14 @@ const DataQualityProfileRunResultsPage = () => {
       return [] as Array<{ label: string; value?: number | null }>;
     }
     return [
-      { label: 'Includes digits', value: textProfileStats.numericOnlyCount },
+      { label: 'Includes digits', value: textProfileStats.includesDigitCount },
       { label: 'Quoted values', value: textProfileStats.quotedCount },
+      { label: 'Numeric values', value: textProfileStats.numericOnlyCount },
       { label: 'Leading spaces', value: textProfileStats.leadingSpaceCount },
       { label: 'Zero values', value: textProfileStats.zeroCount },
       { label: 'Embedded spaces', value: textProfileStats.embeddedSpaceCount },
-      { label: 'Average embedded spaces', value: textProfileStats.averageEmbeddedSpaces }
+      { label: 'Date values', value: textProfileStats.dateValueCount },
+      { label: 'Avg. embedded spaces', value: textProfileStats.averageEmbeddedSpaces }
     ].filter((metric) => metric.value !== null && metric.value !== undefined);
   }, [textProfileStats]);
   const textLengthMetrics = useMemo(() => {
@@ -421,11 +454,24 @@ const DataQualityProfileRunResultsPage = () => {
       { label: 'Average length', value: textProfileStats.avgLength },
       { label: 'Minimum text', value: textProfileStats.minText },
       { label: 'Maximum text', value: textProfileStats.maxText },
-      { label: 'Distinct patterns', value: textProfileStats.distinctPatterns },
-      { label: 'Standard pattern match', value: textProfileStats.standardPatternMatches }
+      { label: 'Standard pattern match', value: textProfileStats.standardPatternMatches },
+      { label: 'Distinct patterns', value: textProfileStats.distinctPatterns }
     ].filter((metric) => metric.value !== null && metric.value !== undefined);
   }, [textProfileStats]);
   const textFrequentPatterns = useMemo(() => textProfile?.frequentPatterns ?? [], [textProfile]);
+  const textMissingDetailMetrics = useMemo(() => {
+    if (!textProfileStats && !selectedColumn) {
+      return [] as Array<{ label: string; value?: number | null }>;
+    }
+    return [
+      {
+        label: 'Null',
+        value: textProfileStats?.nullValueCount ?? selectedColumn?.nullCount ?? null
+      },
+      { label: 'Zero length', value: textProfileStats?.zeroLengthCount ?? null },
+      { label: 'Dummy values', value: textProfileStats?.dummyValueCount ?? null }
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+  }, [selectedColumn, textProfileStats]);
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -671,46 +717,40 @@ const DataQualityProfileRunResultsPage = () => {
 
                 {textProfile && textProfileStats ? (
                   <Stack spacing={2.5}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
-                      <Stack spacing={0.5}>
-                        <Typography variant="caption" color="text.secondary">
-                          Record count
-                        </Typography>
-                        <Typography variant="h6">{formatStatValue(textProfileStats.recordCount ?? selectedColumn?.rowCount)}</Typography>
-                      </Stack>
-                      <Stack spacing={0.5}>
-                        <Typography variant="caption" color="text.secondary">
-                          Value count
-                        </Typography>
-                        <Typography variant="h6">{formatStatValue(textProfileStats.valueCount ?? selectedColumn?.nonNullCount)}</Typography>
-                      </Stack>
-                      <Stack spacing={0.5}>
-                        <Typography variant="caption" color="text.secondary">
-                          Missing values
-                        </Typography>
-                        <Typography variant="h6">
-                          {formatStatValue(textProfileStats.missingCount)}
-                          <Box component="span" sx={{ ml: 0.75 }}>
-                            <Typography component="span" variant="body2" color="text.secondary">
-                              {formatPercentageDisplay(textProfileStats.missingPercentage)}
+                    {textSummaryMetrics.length ? (
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
+                        {textSummaryMetrics.map((metric) => (
+                          <Stack spacing={0.5} key={metric.label}>
+                            <Typography variant="caption" color="text.secondary">
+                              {metric.label}
                             </Typography>
-                          </Box>
-                        </Typography>
-                      </Stack>
-                      <Stack spacing={0.5}>
-                        <Typography variant="caption" color="text.secondary">
-                          Duplicate values
-                        </Typography>
-                        <Typography variant="h6">
-                          {formatStatValue(textProfileStats.duplicateCount)}
-                          <Box component="span" sx={{ ml: 0.75 }}>
-                            <Typography component="span" variant="body2" color="text.secondary">
-                              {formatPercentageDisplay(textProfileStats.duplicatePercentage)}
+                            <Typography variant="h6">
+                              {metric.value}
+                              {metric.annotation ? (
+                                <Box component="span" sx={{ ml: 0.75 }}>
+                                  <Typography component="span" variant="body2" color="text.secondary">
+                                    {metric.annotation}
+                                  </Typography>
+                                </Box>
+                              ) : null}
                             </Typography>
-                          </Box>
-                        </Typography>
+                          </Stack>
+                        ))}
                       </Stack>
-                    </Stack>
+                    ) : null}
+
+                    {textMissingDetailMetrics.length ? (
+                      <Grid container spacing={2}>
+                        {textMissingDetailMetrics.map((metric) => (
+                          <Grid item xs={12} sm={4} key={metric.label}>
+                            <Typography variant="caption" color="text.secondary">
+                              {metric.label}
+                            </Typography>
+                            <Typography variant="subtitle2">{formatStatValue(metric.value)}</Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : null}
 
                     {breakdownSections.length ? (
                       <Stack spacing={2}>

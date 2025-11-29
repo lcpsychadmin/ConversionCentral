@@ -735,15 +735,21 @@ export interface DataQualityTextCaseBucket {
 export interface DataQualityTextProfileStats {
   recordCount?: number | null;
   valueCount?: number | null;
+  actualValueCount?: number | null;
+  nullValueCount?: number | null;
+  zeroLengthCount?: number | null;
+  dummyValueCount?: number | null;
   missingCount?: number | null;
   missingPercentage?: number | null;
   duplicateCount?: number | null;
   duplicatePercentage?: number | null;
   zeroCount?: number | null;
   numericOnlyCount?: number | null;
+  includesDigitCount?: number | null;
   quotedCount?: number | null;
   leadingSpaceCount?: number | null;
   embeddedSpaceCount?: number | null;
+  dateValueCount?: number | null;
   averageEmbeddedSpaces?: number | null;
   minLength?: number | null;
   maxLength?: number | null;

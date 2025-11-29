@@ -50,6 +50,39 @@ def _shape_pattern(value: str | None) -> str | None:
     return "".join(result) if result else None
 
 
+_DUMMY_LITERAL_VALUES = (
+    "blank",
+    "error",
+    "missing",
+    "tbd",
+    "n/a",
+    "na",
+    "#na",
+    "none",
+    "null",
+    "unknown",
+    "(blank)",
+    "(error)",
+    "(missing)",
+    "(tbd)",
+    "(n/a)",
+    "(#na)",
+    "(none)",
+    "(null)",
+    "(unknown)",
+    "[blank]",
+    "[error]",
+    "[missing]",
+    "[tbd]",
+    "[n/a]",
+    "[#na]",
+    "[none]",
+    "[null]",
+    "[unknown]",
+    ".",
+    "?",
+)
+
 _PATTERN_UDF = None
 if F is not None and T is not None:  # pragma: no cover - executed inside Databricks only
     _PATTERN_UDF = F.udf(_shape_pattern, T.StringType())
@@ -111,13 +144,25 @@ def build_text_profile(
     value_col = F.col("value")
     non_null_df = value_df.where(value_col.isNotNull())
     trimmed = F.trim(value_col)
+    lower_trimmed = F.lower(trimmed)
     letters_only = F.regexp_replace(value_col, "[^A-Za-z]", "")
     digits_only = F.regexp_replace(trimmed, "[^0-9]", "")
     space_count = F.length(value_col) - F.length(F.regexp_replace(value_col, "\\s", ""))
+    dummy_literal_condition = lower_trimmed.isin(*_DUMMY_LITERAL_VALUES)
+    dummy_pattern_condition = trimmed.rlike(r"^([\-.0x9z])\\1{1,}$")
+    dummy_condition = dummy_literal_condition | dummy_pattern_condition
+    includes_digits_condition = trimmed.rlike(r".*\\d.*")
+    parsed_timestamp = F.coalesce(
+        F.to_timestamp(trimmed),
+        F.to_timestamp(trimmed, "yyyy-MM-dd"),
+        F.to_timestamp(trimmed, "MM/dd/yyyy"),
+        F.to_timestamp(trimmed, "yyyy/MM/dd"),
+    )
     blank_count = whitespace_count = numeric_only_count = 0
     zero_count = quoted_count = leading_space_count = 0
     embedded_space_count = upper_case_count = lower_case_count = 0
-    non_alpha_count = 0
+    non_alpha_count = dummy_value_count = includes_digit_count = 0
+    date_value_count = 0
     space_total = 0.0
     if value_count > 0:
         aggregates = non_null_df.agg(
@@ -133,6 +178,9 @@ def build_text_profile(
             F.sum(F.when(value_col.rlike(r"^\\s+"), 1).otherwise(0)).alias("leading_space_count"),
             F.sum(F.when(space_count > 0, 1).otherwise(0)).alias("embedded_space_count"),
             F.sum(space_count).alias("space_total"),
+            F.sum(F.when(dummy_condition, 1).otherwise(0)).alias("dummy_value_count"),
+            F.sum(F.when(includes_digits_condition, 1).otherwise(0)).alias("includes_digit_count"),
+            F.sum(F.when(parsed_timestamp.isNotNull(), 1).otherwise(0)).alias("date_value_count"),
             F.sum(
                 F.when(
                     (F.length(letters_only) > 0)
@@ -160,11 +208,15 @@ def build_text_profile(
         leading_space_count = _as_int(aggregates["leading_space_count"])
         embedded_space_count = _as_int(aggregates["embedded_space_count"])
         space_total = _as_float(aggregates["space_total"])
+        dummy_value_count = _as_int(aggregates["dummy_value_count"])
+        includes_digit_count = _as_int(aggregates["includes_digit_count"])
+        date_value_count = _as_int(aggregates["date_value_count"])
         upper_case_count = _as_int(aggregates["upper_case_count"])
         lower_case_count = _as_int(aggregates["lower_case_count"])
         non_alpha_count = _as_int(aggregates["non_alpha_count"])
 
-    missing_count = total_nulls + blank_count + whitespace_count
+    zero_length_count = blank_count + whitespace_count
+    missing_count = total_nulls + zero_length_count + dummy_value_count
     duplicate_rows = 0
     if value_count > 0:
         duplicates_row = (
@@ -172,7 +224,7 @@ def build_text_profile(
             .groupBy("value")
             .agg(F.count("*").alias("count"))
             .where(F.col("count") > 1)
-            .agg(F.sum("count").alias("duplicate_rows"))
+            .agg(F.sum(F.col("count") - 1).alias("duplicate_rows"))
             .collect()[0]
         )
         duplicate_rows = _as_int(duplicates_row["duplicate_rows"]) if duplicates_row["duplicate_rows"] is not None else 0
@@ -225,18 +277,26 @@ def build_text_profile(
                 }
             )
 
+    actual_value_count = max(value_count - zero_length_count - dummy_value_count, 0)
+
     stats = {
         "record_count": total_rows,
         "value_count": value_count,
+        "actual_value_count": actual_value_count,
+        "null_value_count": total_nulls,
+        "zero_length_count": zero_length_count,
+        "dummy_value_count": dummy_value_count,
         "missing_count": missing_count,
         "missing_percentage": _safe_ratio(missing_count, total_rows),
         "duplicate_count": duplicate_rows,
         "duplicate_percentage": _safe_ratio(duplicate_rows, value_count),
         "zero_count": zero_count,
         "numeric_only_count": numeric_only_count,
+        "includes_digit_count": includes_digit_count,
         "quoted_count": quoted_count,
         "leading_space_count": leading_space_count,
         "embedded_space_count": embedded_space_count,
+        "date_value_count": date_value_count,
         "average_embedded_spaces": _safe_ratio(space_total, value_count),
         "min_length": min_length,
         "max_length": max_length,
@@ -249,11 +309,11 @@ def build_text_profile(
 
     missing_breakdown = []
     if total_nulls:
-        missing_breakdown.append(_stat_entry("Null values", total_nulls, total_rows))
-    if blank_count:
-        missing_breakdown.append(_stat_entry("Blank values", blank_count, total_rows))
-    if whitespace_count:
-        missing_breakdown.append(_stat_entry("Whitespace only", whitespace_count, total_rows))
+        missing_breakdown.append(_stat_entry("Null", total_nulls, total_rows))
+    if zero_length_count:
+        missing_breakdown.append(_stat_entry("Zero length", zero_length_count, total_rows))
+    if dummy_value_count:
+        missing_breakdown.append(_stat_entry("Dummy values", dummy_value_count, total_rows))
 
     duplicate_breakdown = []
     if value_count:
@@ -262,13 +322,13 @@ def build_text_profile(
 
     case_breakdown = []
     if upper_case_count:
-        case_breakdown.append(_stat_entry("Uppercase", upper_case_count, value_count))
+        case_breakdown.append(_stat_entry("Upper Case", upper_case_count, value_count))
     if lower_case_count:
-        case_breakdown.append(_stat_entry("Lowercase", lower_case_count, value_count))
+        case_breakdown.append(_stat_entry("Lower Case", lower_case_count, value_count))
     if mixed_case_count:
-        case_breakdown.append(_stat_entry("Mixed case", mixed_case_count, value_count))
+        case_breakdown.append(_stat_entry("Mixed Case", mixed_case_count, value_count))
     if non_alpha_count:
-        case_breakdown.append(_stat_entry("No alphabetic characters", non_alpha_count, value_count))
+        case_breakdown.append(_stat_entry("Non Alpha", non_alpha_count, value_count))
 
     text_profile = {
         "stats": stats,
