@@ -109,62 +109,60 @@ def build_text_profile(
 
     value_df = df.select(F.col(column).alias("value"))
     value_col = F.col("value")
+    non_null_df = value_df.where(value_col.isNotNull())
     trimmed = F.trim(value_col)
     letters_only = F.regexp_replace(value_col, "[^A-Za-z]", "")
     digits_only = F.regexp_replace(trimmed, "[^0-9]", "")
     space_count = F.length(value_col) - F.length(F.regexp_replace(value_col, "\\s", ""))
-    non_null_condition = value_col.isNotNull()
+    blank_count = whitespace_count = numeric_only_count = 0
+    zero_count = quoted_count = leading_space_count = 0
+    embedded_space_count = upper_case_count = lower_case_count = 0
+    non_alpha_count = 0
+    space_total = 0.0
+    if value_count > 0:
+        aggregates = non_null_df.agg(
+            F.sum(F.when(F.length(value_col) == 0, 1).otherwise(0)).alias("blank_count"),
+            F.sum(
+                F.when((F.length(trimmed) == 0) & (F.length(value_col) > 0), 1).otherwise(0)
+            ).alias("whitespace_count"),
+            F.sum(F.when((F.length(trimmed) > 0) & (digits_only == trimmed), 1).otherwise(0)).alias(
+                "numeric_only_count"
+            ),
+            F.sum(F.when(F.upper(trimmed) == "0", 1).otherwise(0)).alias("zero_count"),
+            F.sum(F.when(trimmed.rlike(r"^(['\"]).*\\1$"), 1).otherwise(0)).alias("quoted_count"),
+            F.sum(F.when(value_col.rlike(r"^\\s+"), 1).otherwise(0)).alias("leading_space_count"),
+            F.sum(F.when(space_count > 0, 1).otherwise(0)).alias("embedded_space_count"),
+            F.sum(space_count).alias("space_total"),
+            F.sum(
+                F.when(
+                    (F.length(letters_only) > 0)
+                    & (letters_only == F.upper(letters_only))
+                    & (letters_only != F.lower(letters_only)),
+                    1,
+                ).otherwise(0)
+            ).alias("upper_case_count"),
+            F.sum(
+                F.when(
+                    (F.length(letters_only) > 0)
+                    & (letters_only == F.lower(letters_only))
+                    & (letters_only != F.upper(letters_only)),
+                    1,
+                ).otherwise(0)
+            ).alias("lower_case_count"),
+            F.sum(F.when(F.length(letters_only) == 0, 1).otherwise(0)).alias("non_alpha_count"),
+        ).collect()[0]
 
-    aggregates = value_df.agg(
-        F.sum(F.when(non_null_condition & (F.length(value_col) == 0), 1).otherwise(0)).alias("blank_count"),
-        F.sum(
-            F.when(
-                non_null_condition & (F.length(trimmed) == 0) & (F.length(value_col) > 0),
-                1,
-            ).otherwise(0)
-        ).alias("whitespace_count"),
-        F.sum(
-            F.when(non_null_condition & (F.length(trimmed) > 0) & (digits_only == trimmed), 1).otherwise(0)
-        ).alias("numeric_only_count"),
-        F.sum(F.when(non_null_condition & F.upper(trimmed) == "0", 1).otherwise(0)).alias("zero_count"),
-        F.sum(
-            F.when(non_null_condition & trimmed.rlike(r"^(['\"]).*\\1$"), 1).otherwise(0)
-        ).alias("quoted_count"),
-        F.sum(F.when(non_null_condition & value_col.rlike(r"^\\s+"), 1).otherwise(0)).alias("leading_space_count"),
-        F.sum(F.when(non_null_condition & (space_count > 0), 1).otherwise(0)).alias("embedded_space_count"),
-        F.sum(F.when(non_null_condition, space_count).otherwise(0)).alias("space_total"),
-        F.sum(
-            F.when(
-                non_null_condition
-                & (F.length(letters_only) > 0)
-                & (letters_only == F.upper(letters_only))
-                & (letters_only != F.lower(letters_only)),
-                1,
-            ).otherwise(0)
-        ).alias("upper_case_count"),
-        F.sum(
-            F.when(
-                non_null_condition
-                & (F.length(letters_only) > 0)
-                & (letters_only == F.lower(letters_only))
-                & (letters_only != F.upper(letters_only)),
-                1,
-            ).otherwise(0)
-        ).alias("lower_case_count"),
-        F.sum(F.when(non_null_condition & (F.length(letters_only) == 0), 1).otherwise(0)).alias("non_alpha_count"),
-    ).collect()[0]
-
-    blank_count = _as_int(aggregates["blank_count"])
-    whitespace_count = _as_int(aggregates["whitespace_count"])
-    numeric_only_count = _as_int(aggregates["numeric_only_count"])
-    zero_count = _as_int(aggregates["zero_count"])
-    quoted_count = _as_int(aggregates["quoted_count"])
-    leading_space_count = _as_int(aggregates["leading_space_count"])
-    embedded_space_count = _as_int(aggregates["embedded_space_count"])
-    space_total = _as_float(aggregates["space_total"])
-    upper_case_count = _as_int(aggregates["upper_case_count"])
-    lower_case_count = _as_int(aggregates["lower_case_count"])
-    non_alpha_count = _as_int(aggregates["non_alpha_count"])
+        blank_count = _as_int(aggregates["blank_count"])
+        whitespace_count = _as_int(aggregates["whitespace_count"])
+        numeric_only_count = _as_int(aggregates["numeric_only_count"])
+        zero_count = _as_int(aggregates["zero_count"])
+        quoted_count = _as_int(aggregates["quoted_count"])
+        leading_space_count = _as_int(aggregates["leading_space_count"])
+        embedded_space_count = _as_int(aggregates["embedded_space_count"])
+        space_total = _as_float(aggregates["space_total"])
+        upper_case_count = _as_int(aggregates["upper_case_count"])
+        lower_case_count = _as_int(aggregates["lower_case_count"])
+        non_alpha_count = _as_int(aggregates["non_alpha_count"])
 
     missing_count = total_nulls + blank_count + whitespace_count
     duplicate_rows = 0
