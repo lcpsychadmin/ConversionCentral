@@ -238,7 +238,7 @@ const NumericProfile = ({ profile }: { profile: DataQualityNumericColumnProfile 
   );
 };
 
-const TextProfile = ({ profile }: { profile: DataQualityTextColumnProfile }) => {
+export const TextProfileSummary = ({ profile }: { profile: DataQualityTextColumnProfile }) => {
   const stats = profile.stats;
   const missing = profile.missingBreakdown ?? [];
   const duplicate = profile.duplicateBreakdown ?? [];
@@ -495,7 +495,7 @@ const ColumnProfilePanel = ({
 
           {layout.characteristics ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
+              <Typography variant="h6" fontWeight={700} gutterBottom>
                 Column Characteristics
               </Typography>
               <Grid container spacing={2}>
@@ -558,7 +558,7 @@ const ColumnProfilePanel = ({
           ) : null}
 
           {layout.numericProfile ? <NumericProfile profile={layout.numericProfile} /> : null}
-          {layout.textProfile ? <TextProfile profile={layout.textProfile} /> : null}
+          {layout.textProfile ? <TextProfileSummary profile={layout.textProfile} /> : null}
         </Stack>
       ) : null}
 

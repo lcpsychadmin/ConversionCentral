@@ -459,6 +459,7 @@ const mapProfileResultColumn = (
   dataType: payload.dataType ?? null,
   generalType: payload.generalType ?? null,
   metrics: payload.metrics ?? {},
+  textProfile: payload.textProfile ?? null,
   rowCount: payload.rowCount ?? null,
   nullCount: payload.nullCount ?? null,
   distinctCount: payload.distinctCount ?? null,

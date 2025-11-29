@@ -537,6 +537,53 @@ class DataQualityProfileValueEntry(BaseModel):
         allow_population_by_field_name = True
 
 
+class DataQualityTextProfileStat(BaseModel):
+    label: str
+    count: Optional[int] = None
+    percentage: Optional[float] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityTextProfileStats(BaseModel):
+    record_count: Optional[int] = Field(default=None, alias="recordCount")
+    value_count: Optional[int] = Field(default=None, alias="valueCount")
+    missing_count: Optional[int] = Field(default=None, alias="missingCount")
+    missing_percentage: Optional[float] = Field(default=None, alias="missingPercentage")
+    duplicate_count: Optional[int] = Field(default=None, alias="duplicateCount")
+    duplicate_percentage: Optional[float] = Field(default=None, alias="duplicatePercentage")
+    zero_count: Optional[int] = Field(default=None, alias="zeroCount")
+    numeric_only_count: Optional[int] = Field(default=None, alias="numericOnlyCount")
+    quoted_count: Optional[int] = Field(default=None, alias="quotedCount")
+    leading_space_count: Optional[int] = Field(default=None, alias="leadingSpaceCount")
+    embedded_space_count: Optional[int] = Field(default=None, alias="embeddedSpaceCount")
+    average_embedded_spaces: Optional[float] = Field(default=None, alias="averageEmbeddedSpaces")
+    min_length: Optional[int] = Field(default=None, alias="minLength")
+    max_length: Optional[int] = Field(default=None, alias="maxLength")
+    avg_length: Optional[float] = Field(default=None, alias="avgLength")
+    min_text: Optional[str] = Field(default=None, alias="minText")
+    max_text: Optional[str] = Field(default=None, alias="maxText")
+    distinct_patterns: Optional[int] = Field(default=None, alias="distinctPatterns")
+    standard_pattern_matches: Optional[int] = Field(default=None, alias="standardPatternMatches")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityTextColumnProfile(BaseModel):
+    stats: Optional[DataQualityTextProfileStats] = None
+    missing_breakdown: List[DataQualityTextProfileStat] = Field(default_factory=list, alias="missingBreakdown")
+    duplicate_breakdown: List[DataQualityTextProfileStat] = Field(default_factory=list, alias="duplicateBreakdown")
+    case_breakdown: List[DataQualityTextProfileStat] = Field(default_factory=list, alias="caseBreakdown")
+    frequent_patterns: List[DataQualityTextProfileStat] = Field(default_factory=list, alias="frequentPatterns")
+    length_histogram: List[DataQualityProfileValueEntry] = Field(default_factory=list, alias="lengthHistogram")
+    top_values: List[DataQualityProfileValueEntry] = Field(default_factory=list, alias="topValues")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 class DataQualityProfileColumnEntry(BaseModel):
     column_id: Optional[str] = Field(default=None, alias="columnId")
     column_name: str = Field(alias="columnName")
@@ -558,6 +605,7 @@ class DataQualityProfileColumnEntry(BaseModel):
     top_values: List[DataQualityProfileValueEntry] = Field(default_factory=list, alias="topValues")
     histogram: List[DataQualityProfileValueEntry] = Field(default_factory=list)
     anomalies: List[DataQualityProfileAnomalyEntry] = Field(default_factory=list)
+    text_profile: Optional[DataQualityTextColumnProfile] = Field(default=None, alias="textProfile")
 
     class Config:
         allow_population_by_field_name = True

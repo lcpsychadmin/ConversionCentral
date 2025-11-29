@@ -27,6 +27,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from 'react-query';
 
 import PageHeader from '@components/common/PageHeader';
+import { TextProfileSummary } from '@components/data-quality/ColumnProfilePanel';
 import { fetchProfileRunResults } from '@services/dataQualityService';
 import {
   DataQualityProfileColumnEntry,
@@ -44,6 +45,19 @@ const formatDateTime = (value?: string | null) => {
     return '—';
   }
   return parsed.toLocaleString();
+};
+
+const normalizeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
 };
 
 const formatNumber = (value?: number | null) => {
@@ -116,6 +130,22 @@ const pickMetricString = (
     }
     const normalized = String(value).trim();
     if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+};
+
+const pickMetricNumber = (
+  metrics: Record<string, unknown> | undefined,
+  keys: string[]
+): number | null => {
+  if (!metrics) {
+    return null;
+  }
+  for (const key of keys) {
+    const normalized = normalizeNumber(metrics[key]);
+    if (normalized !== null) {
       return normalized;
     }
   }
@@ -203,7 +233,57 @@ const DataQualityProfileRunResultsPage = () => {
     [selectedColumn]
   );
 
-  const topValues = useMemo(() => selectedColumn?.topValues ?? [], [selectedColumn]);
+  const valueDistributionTotal = useMemo(() => {
+    const direct = normalizeNumber(selectedColumn?.rowCount ?? null);
+    if (direct !== null && direct > 0) {
+      return direct;
+    }
+    const columnMetricTotal = pickMetricNumber(selectedColumn?.metrics, [
+      'rowCount',
+      'row_count',
+      'record_count',
+      'rowCountEstimate',
+      'non_null_count'
+    ]);
+    if (columnMetricTotal !== null && columnMetricTotal > 0) {
+      return columnMetricTotal;
+    }
+    const tableMetricTotal = pickMetricNumber(selectedTable?.metrics, [
+      'rowCount',
+      'row_count',
+      'record_count'
+    ]);
+    if (tableMetricTotal !== null && tableMetricTotal > 0) {
+      return tableMetricTotal;
+    }
+    return null;
+  }, [selectedColumn, selectedTable]);
+
+  const topValues = useMemo(() => {
+    const entries = selectedColumn?.topValues ?? [];
+    if (!entries.length) {
+      return [] as DataQualityProfileValueEntry[];
+    }
+    if (!valueDistributionTotal || valueDistributionTotal <= 0) {
+      return entries;
+    }
+    let appliedFallback = false;
+    const normalizedEntries = entries.map((entry) => {
+      if (typeof entry.percentage === 'number') {
+        return entry;
+      }
+      const count = normalizeNumber(entry.count ?? null);
+      if (count === null || count < 0) {
+        return entry;
+      }
+      appliedFallback = true;
+      return {
+        ...entry,
+        percentage: count / valueDistributionTotal
+      };
+    });
+    return appliedFallback ? normalizedEntries : entries;
+  }, [selectedColumn, valueDistributionTotal]);
   const distributionStats = useMemo(
     () => [
       { label: 'Row count', value: formatNumber(selectedColumn?.rowCount) },
@@ -241,6 +321,7 @@ const DataQualityProfileRunResultsPage = () => {
     () => columnMetrics.filter(([key]) => !CHARACTERISTIC_METRIC_KEYS.has(key)),
     [columnMetrics]
   );
+  const textProfile = useMemo(() => selectedColumn?.textProfile ?? null, [selectedColumn]);
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -319,11 +400,11 @@ const DataQualityProfileRunResultsPage = () => {
                     <Typography variant="h5" fontWeight={700}>
                       {headerTitle}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {summary?.databricksRunId
-                        ? `Databricks run ${summary.databricksRunId}`
-                        : `Run ID: ${profileRunId ?? '—'}`}
-                    </Typography>
+                    {summary?.databricksRunId ? (
+                      <Typography variant="body2" color="text.secondary">
+                        Databricks run {summary.databricksRunId}
+                      </Typography>
+                    ) : null}
                   </Stack>
                   <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap>
                     <Stack spacing={0.5}>
@@ -428,7 +509,7 @@ const DataQualityProfileRunResultsPage = () => {
               {selectedColumn ? (
                 <Stack spacing={2}>
                   <Box>
-                    <Typography variant="overline" color="text.secondary">
+                    <Typography variant="h6" fontWeight={700} gutterBottom>
                       Column characteristics
                     </Typography>
                     <Typography variant="h5" fontWeight={700}>
@@ -548,6 +629,8 @@ const DataQualityProfileRunResultsPage = () => {
                 )}
               </Stack>
             </Paper>
+
+            {textProfile ? <TextProfileSummary profile={textProfile} /> : null}
 
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" fontWeight={700} gutterBottom>

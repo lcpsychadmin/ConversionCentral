@@ -563,6 +563,7 @@ export interface DataQualityProfileColumnEntry {
   dataType?: string | null;
   generalType?: string | null;
   metrics: Record<string, unknown>;
+  textProfile?: DataQualityTextColumnProfile | null;
   rowCount?: number | null;
   nullCount?: number | null;
   distinctCount?: number | null;

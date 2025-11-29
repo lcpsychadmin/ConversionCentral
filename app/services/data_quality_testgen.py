@@ -1555,6 +1555,9 @@ class TestGenClient:
         }
         if metrics:
             entry["metrics"] = metrics
+        text_profile_payload = metrics.get("text_profile") if metrics else None
+        if isinstance(text_profile_payload, Mapping):
+            entry["text_profile"] = text_profile_payload
         for key in (
             "row_count",
             "null_count",
