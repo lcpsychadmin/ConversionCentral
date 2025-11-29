@@ -10,6 +10,7 @@ import {
   DialogTitle,
   Divider,
   Grid,
+  LinearProgress,
   List,
   ListItemButton,
   ListItemText,
@@ -65,6 +66,32 @@ const formatNumber = (value?: number | null) => {
     return '—';
   }
   return value.toLocaleString();
+};
+
+const formatStatValue = (value?: unknown) => {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value)
+      ? value.toLocaleString()
+      : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  return String(value);
+};
+
+const toPercentageValue = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(value * 100, 100));
+};
+
+const formatPercentageDisplay = (value?: number | null, fractionDigits = 1) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '—';
+  }
+  return `${(value * 100).toFixed(fractionDigits)}%`;
 };
 
 const getTableKey = (table: DataQualityProfileTableEntry): string => {
@@ -284,6 +311,12 @@ const DataQualityProfileRunResultsPage = () => {
     });
     return appliedFallback ? normalizedEntries : entries;
   }, [selectedColumn, valueDistributionTotal]);
+  const topValueMaxCount = useMemo(() => {
+    return topValues.reduce((max, entry) => {
+      const count = normalizeNumber(entry.count ?? null) ?? 0;
+      return count > max ? count : max;
+    }, 0);
+  }, [topValues]);
   const distributionStats = useMemo(
     () => [
       { label: 'Row count', value: formatNumber(selectedColumn?.rowCount) },
@@ -322,6 +355,77 @@ const DataQualityProfileRunResultsPage = () => {
     [columnMetrics]
   );
   const textProfile = useMemo(() => selectedColumn?.textProfile ?? null, [selectedColumn]);
+  const textProfileStats = textProfile?.stats ?? null;
+  const breakdownSections = useMemo(
+    () => {
+      if (!textProfileStats) {
+        return [] as Array<{
+          key: string;
+          title: string;
+          total?: number | null;
+          percentage?: number | null;
+          entries: Array<{ label: string; count?: number | null; percentage?: number | null }>;
+          color: 'success' | 'warning' | 'secondary';
+        }>;
+      }
+      return [
+        {
+          key: 'missing',
+          title: 'Missing values',
+          total: textProfileStats.missingCount,
+          percentage: textProfileStats.missingPercentage,
+          entries: textProfile?.missingBreakdown ?? [],
+          color: 'success' as const
+        },
+        {
+          key: 'duplicates',
+          title: 'Duplicate values',
+          total: textProfileStats.duplicateCount,
+          percentage: textProfileStats.duplicatePercentage,
+          entries: textProfile?.duplicateBreakdown ?? [],
+          color: 'warning' as const
+        },
+        {
+          key: 'case',
+          title: 'Case distribution',
+          total: textProfileStats.valueCount,
+          percentage: null,
+          entries: textProfile?.caseBreakdown ?? [],
+          color: 'secondary' as const
+        }
+      ].filter((section) =>
+        Boolean(section.total || section.percentage || section.entries.length)
+      );
+    },
+    [textProfile, textProfileStats]
+  );
+  const textValueDetailMetrics = useMemo(() => {
+    if (!textProfileStats) {
+      return [] as Array<{ label: string; value?: number | null }>;
+    }
+    return [
+      { label: 'Includes digits', value: textProfileStats.numericOnlyCount },
+      { label: 'Quoted values', value: textProfileStats.quotedCount },
+      { label: 'Leading spaces', value: textProfileStats.leadingSpaceCount },
+      { label: 'Zero values', value: textProfileStats.zeroCount },
+      { label: 'Embedded spaces', value: textProfileStats.embeddedSpaceCount },
+      { label: 'Average embedded spaces', value: textProfileStats.averageEmbeddedSpaces }
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+  }, [textProfileStats]);
+  const textLengthMetrics = useMemo(() => {
+    if (!textProfileStats) {
+      return [] as Array<{ label: string; value?: number | string | null }>;
+    }
+    return [
+      { label: 'Minimum length', value: textProfileStats.minLength },
+      { label: 'Maximum length', value: textProfileStats.maxLength },
+      { label: 'Average length', value: textProfileStats.avgLength },
+      { label: 'Minimum text', value: textProfileStats.minText },
+      { label: 'Maximum text', value: textProfileStats.maxText },
+      { label: 'Distinct patterns', value: textProfileStats.distinctPatterns },
+      { label: 'Standard pattern match', value: textProfileStats.standardPatternMatches }
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+  }, [textProfileStats]);
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -555,77 +659,262 @@ const DataQualityProfileRunResultsPage = () => {
             </Paper>
 
             <Paper sx={{ p: 3 }}>
-              <Stack spacing={2}>
+              <Stack spacing={2.5}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="h6" fontWeight={700}>
                     Value distribution
                   </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={handleOpenValuePreview}
-                  >
-                    View unique values
+                  <Button variant="outlined" size="small" onClick={handleOpenValuePreview}>
+                    Data preview
                   </Button>
                 </Stack>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
-                  {distributionStats.map((stat) => (
-                    <Stack key={stat.label} spacing={0.5}>
-                      <Typography variant="caption" color="text.secondary">
-                        {stat.label}
-                      </Typography>
-                      <Typography variant="h6">{stat.value}</Typography>
-                    </Stack>
-                  ))}
-                </Stack>
-                {filteredColumnMetrics.length ? (
-                  <>
-                    <Divider />
-                    <Stack spacing={1}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Additional metrics
-                      </Typography>
-                      <Stack spacing={0.75}>
-                        {filteredColumnMetrics.map(([key, value]) => (
-                          <Stack key={key} direction="row" justifyContent="space-between" spacing={2}>
-                            <Typography variant="body2" color="text.secondary">
-                              {key}
+
+                {textProfile && textProfileStats ? (
+                  <Stack spacing={2.5}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
+                      <Stack spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Record count
+                        </Typography>
+                        <Typography variant="h6">{formatStatValue(textProfileStats.recordCount ?? selectedColumn?.rowCount)}</Typography>
+                      </Stack>
+                      <Stack spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Value count
+                        </Typography>
+                        <Typography variant="h6">{formatStatValue(textProfileStats.valueCount ?? selectedColumn?.nonNullCount)}</Typography>
+                      </Stack>
+                      <Stack spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Missing values
+                        </Typography>
+                        <Typography variant="h6">
+                          {formatStatValue(textProfileStats.missingCount)}
+                          <Box component="span" sx={{ ml: 0.75 }}>
+                            <Typography component="span" variant="body2" color="text.secondary">
+                              {formatPercentageDisplay(textProfileStats.missingPercentage)}
                             </Typography>
-                            <Typography variant="body2" fontWeight={600}>
-                              {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                          </Box>
+                        </Typography>
+                      </Stack>
+                      <Stack spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Duplicate values
+                        </Typography>
+                        <Typography variant="h6">
+                          {formatStatValue(textProfileStats.duplicateCount)}
+                          <Box component="span" sx={{ ml: 0.75 }}>
+                            <Typography component="span" variant="body2" color="text.secondary">
+                              {formatPercentageDisplay(textProfileStats.duplicatePercentage)}
                             </Typography>
-                          </Stack>
-                        ))}
+                          </Box>
+                        </Typography>
                       </Stack>
                     </Stack>
-                  </>
-                ) : null}
-                <Divider />
-                {!topValues.length ? (
-                  <Typography variant="body2" color="text.secondary">
-                    This column did not include value samples.
-                  </Typography>
+
+                    {breakdownSections.length ? (
+                      <Stack spacing={2}>
+                        {breakdownSections.map((section) => (
+                          <Box key={section.key}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography variant="subtitle2" fontWeight={600}>
+                                {section.title}
+                              </Typography>
+                              {section.key !== 'case' ? (
+                                <Typography variant="body2" color="text.secondary">
+                                  {formatStatValue(section.total)}{' '}
+                                  {section.percentage !== null && section.percentage !== undefined
+                                    ? `(${formatPercentageDisplay(section.percentage)})`
+                                    : ''}
+                                </Typography>
+                              ) : null}
+                            </Stack>
+                            <LinearProgress
+                              variant="determinate"
+                              value={section.key === 'case' ? 100 : toPercentageValue(section.percentage)}
+                              color={section.color}
+                              sx={{ mt: 0.75, height: 8, borderRadius: 999, bgcolor: 'action.hover' }}
+                            />
+                            {section.entries.length ? (
+                              <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1} sx={{ mt: 1 }}>
+                                {section.entries.map((entry) => (
+                                  <Chip
+                                    key={`${section.key}-${entry.label}`}
+                                    size="small"
+                                    label={`${entry.label}: ${formatStatValue(entry.count)}${
+                                      entry.percentage !== null && entry.percentage !== undefined
+                                        ? ` (${formatPercentageDisplay(entry.percentage)})`
+                                        : ''
+                                    }`}
+                                  />
+                                ))}
+                              </Stack>
+                            ) : null}
+                          </Box>
+                        ))}
+                      </Stack>
+                    ) : null}
+
+                    {topValues.length ? (
+                      <Stack spacing={1.25}>
+                        <Divider />
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          Frequent values
+                        </Typography>
+                        <Stack spacing={1.25}>
+                          {topValues.slice(0, 8).map((entry, index) => {
+                            const normalizedCount = normalizeNumber(entry.count ?? null) ?? 0;
+                            const share = typeof entry.percentage === 'number'
+                              ? entry.percentage
+                              : valueDistributionTotal && valueDistributionTotal > 0
+                              ? normalizedCount / valueDistributionTotal
+                              : topValueMaxCount > 0
+                              ? normalizedCount / topValueMaxCount
+                              : 0;
+                            const shareDisplay = Number.isFinite(share) ? share : null;
+                            return (
+                              <Box key={`${renderValueLabel(entry)}-${index}`}>
+                                <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="center">
+                                  <Typography
+                                    variant="body2"
+                                    noWrap
+                                    title={renderValueLabel(entry)}
+                                    sx={{ flex: 1, pr: 2 }}
+                                  >
+                                    {renderValueLabel(entry)}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {formatNumber(entry.count)}{' '}
+                                    {shareDisplay !== null ? `(${(shareDisplay * 100).toFixed(1)}%)` : ''}
+                                  </Typography>
+                                </Stack>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={toPercentageValue(shareDisplay)}
+                                  color="secondary"
+                                  sx={{ mt: 0.5, height: 6, borderRadius: 999, bgcolor: 'action.hover' }}
+                                />
+                              </Box>
+                            );
+                          })}
+                        </Stack>
+                      </Stack>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        This column did not include value samples.
+                      </Typography>
+                    )}
+
+                    {(textValueDetailMetrics.length || textLengthMetrics.length) ? (
+                      <Stack spacing={2}>
+                        {textValueDetailMetrics.length ? (
+                          <>
+                            <Divider />
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                Value characteristics
+                              </Typography>
+                              <Grid container spacing={2}>
+                                {textValueDetailMetrics.map((metric) => (
+                                  <Grid item xs={6} sm={4} md={3} key={metric.label}>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {metric.label}
+                                    </Typography>
+                                    <Typography variant="subtitle2">{formatStatValue(metric.value)}</Typography>
+                                  </Grid>
+                                ))}
+                              </Grid>
+                            </Box>
+                          </>
+                        ) : null}
+                        {textLengthMetrics.length ? (
+                          <>
+                            <Divider />
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                Length & pattern summary
+                              </Typography>
+                              <Grid container spacing={2}>
+                                {textLengthMetrics.map((metric) => (
+                                  <Grid item xs={6} sm={4} md={3} key={metric.label}>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {metric.label}
+                                    </Typography>
+                                    <Typography
+                                      variant="subtitle2"
+                                      noWrap={typeof metric.value === 'string'}
+                                      title={typeof metric.value === 'string' ? String(metric.value) : undefined}
+                                    >
+                                      {formatStatValue(metric.value)}
+                                    </Typography>
+                                  </Grid>
+                                ))}
+                              </Grid>
+                            </Box>
+                          </>
+                        ) : null}
+                      </Stack>
+                    ) : null}
+                  </Stack>
                 ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Value</TableCell>
-                        <TableCell align="right">Count</TableCell>
-                        <TableCell align="right">Percentage</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {topValues.slice(0, 5).map((entry, index) => (
-                        <TableRow key={`${renderValueLabel(entry)}-${index}`}>
-                          <TableCell>{renderValueLabel(entry)}</TableCell>
-                          <TableCell align="right">{formatNumber(entry.count)}</TableCell>
-                          <TableCell align="right">
-                            {typeof entry.percentage === 'number' ? `${(entry.percentage * 100).toFixed(1)}%` : '—'}
-                          </TableCell>
-                        </TableRow>
+                  <Stack spacing={2}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
+                      {distributionStats.map((stat) => (
+                        <Stack key={stat.label} spacing={0.5}>
+                          <Typography variant="caption" color="text.secondary">
+                            {stat.label}
+                          </Typography>
+                          <Typography variant="h6">{stat.value}</Typography>
+                        </Stack>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </Stack>
+                    {filteredColumnMetrics.length ? (
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle2" color="text.secondary">
+                          Additional metrics
+                        </Typography>
+                        <Stack spacing={0.75}>
+                          {filteredColumnMetrics.map(([key, value]) => (
+                            <Stack key={key} direction="row" justifyContent="space-between" spacing={2}>
+                              <Typography variant="body2" color="text.secondary">
+                                {key}
+                              </Typography>
+                              <Typography variant="body2" fontWeight={600}>
+                                {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                              </Typography>
+                            </Stack>
+                          ))}
+                        </Stack>
+                      </Stack>
+                    ) : null}
+                    <Divider />
+                    {!topValues.length ? (
+                      <Typography variant="body2" color="text.secondary">
+                        This column did not include value samples.
+                      </Typography>
+                    ) : (
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Value</TableCell>
+                            <TableCell align="right">Count</TableCell>
+                            <TableCell align="right">Percentage</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {topValues.slice(0, 5).map((entry, index) => (
+                            <TableRow key={`${renderValueLabel(entry)}-${index}`}>
+                              <TableCell>{renderValueLabel(entry)}</TableCell>
+                              <TableCell align="right">{formatNumber(entry.count)}</TableCell>
+                              <TableCell align="right">
+                                {typeof entry.percentage === 'number' ? `${(entry.percentage * 100).toFixed(1)}%` : '—'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </Stack>
                 )}
               </Stack>
             </Paper>
