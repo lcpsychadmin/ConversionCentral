@@ -93,6 +93,22 @@ const formatPercentageDisplay = (value?: number | null, fractionDigits = 1) => {
   return `${(value * 100).toFixed(fractionDigits)}%`;
 };
 
+const clampToRange = (value: number, min: number, max: number) => {
+  return Math.min(Math.max(value, min), max);
+};
+
+const NUMERIC_DISTRIBUTION_COLORS: Record<'nonZero' | 'zero' | 'null', string> = {
+  nonZero: 'primary.main',
+  zero: 'info.light',
+  null: 'warning.main'
+};
+
+const NUMERIC_DISTRIBUTION_LABELS: Record<'nonZero' | 'zero' | 'null', string> = {
+  nonZero: 'Non-Zero Values',
+  zero: 'Zero Values',
+  null: 'Null Values'
+};
+
 const getTableKey = (table: DataQualityProfileTableEntry): string => {
   if (table.tableId) {
     return table.tableId;
@@ -355,6 +371,8 @@ const DataQualityProfileRunResultsPage = () => {
   );
   const textProfile = useMemo(() => selectedColumn?.textProfile ?? null, [selectedColumn]);
   const textProfileStats = textProfile?.stats ?? null;
+  const numericProfile = useMemo(() => selectedColumn?.numericProfile ?? null, [selectedColumn]);
+  const numericProfileStats = numericProfile?.stats ?? null;
   const textSummaryMetrics = useMemo(() => {
     if (!textProfileStats && !selectedColumn) {
       return [] as Array<{ label: string; value: string; annotation?: string }>;
@@ -472,6 +490,170 @@ const DataQualityProfileRunResultsPage = () => {
       { label: 'Dummy values', value: textProfileStats?.dummyValueCount ?? null }
     ].filter((metric) => metric.value !== null && metric.value !== undefined);
   }, [selectedColumn, textProfileStats]);
+  const numericSummaryMetrics = useMemo(() => {
+    const recordCount = numericProfileStats?.recordCount ?? selectedColumn?.rowCount ?? null;
+    const valueCount = numericProfileStats?.valueCount ?? selectedColumn?.nonNullCount ?? null;
+    const distinctCount = numericProfileStats?.distinctCount ?? selectedColumn?.distinctCount ?? null;
+    return [
+      { label: 'Record Count', value: recordCount },
+      { label: 'Value Count', value: valueCount },
+      { label: 'Distinct Values', value: distinctCount },
+      { label: 'Average Value', value: numericProfileStats?.average ?? null },
+      { label: 'Standard Deviation', value: numericProfileStats?.stddev ?? null },
+      { label: 'Minimum Value', value: numericProfileStats?.minimum ?? null },
+      { label: 'Minimum Value > 0', value: numericProfileStats?.minimumPositive ?? null },
+      { label: 'Maximum Value', value: numericProfileStats?.maximum ?? null },
+      { label: '25th Percentile', value: numericProfileStats?.percentile25 ?? null },
+      { label: 'Median Value', value: numericProfileStats?.median ?? null },
+      { label: '75th Percentile', value: numericProfileStats?.percentile75 ?? null }
+    ];
+  }, [numericProfileStats, selectedColumn]);
+  const numericDistribution = useMemo(() => {
+    if (!numericProfile && !numericProfileStats && !selectedColumn) {
+      return null;
+    }
+    const counts: Record<'nonZero' | 'zero' | 'null', number | null> = {
+      nonZero: null,
+      zero: null,
+      null: null
+    };
+    const percentages: Record<'nonZero' | 'zero' | 'null', number | null> = {
+      nonZero: null,
+      zero: null,
+      null: null
+    };
+    (numericProfile?.distributionBars ?? []).forEach((entry) => {
+      const key = normalizeDistributionKey(entry.key);
+      counts[key] = normalizeNumber(entry.count ?? null);
+      percentages[key] = typeof entry.percentage === 'number' ? clampToRange(entry.percentage, 0, 1) : null;
+    });
+    if (counts.nonZero === null && counts.zero === null && counts.null === null && numericProfileStats) {
+      const zeroCount = normalizeNumber(numericProfileStats.zeroCount ?? null) ?? 0;
+      const nullCount =
+        normalizeNumber(numericProfileStats.nullCount ?? null) ??
+        normalizeNumber(selectedColumn?.nullCount ?? null) ??
+        0;
+      const valueCount = normalizeNumber(
+        numericProfileStats.valueCount ?? selectedColumn?.nonNullCount ?? null
+      );
+      counts.zero = zeroCount;
+      counts.null = nullCount;
+      counts.nonZero = valueCount !== null ? Math.max(valueCount - zeroCount, 0) : null;
+    }
+    const hasCounts = Object.values(counts).some(
+      (value) => value !== null && value !== undefined
+    );
+    if (!hasCounts) {
+      return null;
+    }
+    const totalCount =
+      (counts.nonZero ?? 0) + (counts.zero ?? 0) + (counts.null ?? 0);
+    const segments = (['nonZero', 'zero', 'null'] as const).map((key) => {
+      const count = counts[key];
+      const share =
+        percentages[key] !== null && percentages[key] !== undefined
+          ? (percentages[key] as number)
+          : totalCount > 0 && count !== null && count !== undefined
+          ? clampToRange(count / totalCount, 0, 1)
+          : 0;
+      return {
+        key,
+        label: NUMERIC_DISTRIBUTION_LABELS[key],
+        count,
+        percentage: share
+      };
+    });
+    return {
+      segments,
+      total: totalCount
+    };
+  }, [numericProfile, numericProfileStats, selectedColumn]);
+  const numericBoxPlot = numericProfile?.boxPlot ?? null;
+  const numericBoxPlotGeometry = useMemo(() => {
+    if (!numericBoxPlot || typeof numericBoxPlot.min !== 'number' || typeof numericBoxPlot.max !== 'number') {
+      return null;
+    }
+    const min = numericBoxPlot.min;
+    const max = numericBoxPlot.max;
+    const span = Math.abs(max - min) || 1;
+    const toPercent = (value?: number | null) => {
+      if (typeof value !== 'number' || Number.isNaN(value)) {
+        return null;
+      }
+      const normalized = (value - min) / span;
+      return clampToRange(normalized, 0, 1) * 100;
+    };
+    const clampValue = (value?: number | null, fallback?: number | null) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      return fallback ?? null;
+    };
+    const stdStart =
+      typeof numericBoxPlot.mean === 'number' && typeof numericBoxPlot.stdDev === 'number'
+        ? toPercent(numericBoxPlot.mean - numericBoxPlot.stdDev)
+        : null;
+    const stdEnd =
+      typeof numericBoxPlot.mean === 'number' && typeof numericBoxPlot.stdDev === 'number'
+        ? toPercent(numericBoxPlot.mean + numericBoxPlot.stdDev)
+        : null;
+    return {
+      values: {
+        min,
+        max,
+        p25: clampValue(numericBoxPlot.p25, min),
+        median: clampValue(numericBoxPlot.median, numericBoxPlot.p25 ?? numericBoxPlot.p75 ?? min),
+        p75: clampValue(numericBoxPlot.p75, max),
+        mean: numericBoxPlot.mean ?? null,
+        stdDev: numericBoxPlot.stdDev ?? null
+      },
+      percents: {
+        min: 0,
+        max: 100,
+        p25: toPercent(numericBoxPlot.p25 ?? min),
+        median: toPercent(numericBoxPlot.median ?? min),
+        p75: toPercent(numericBoxPlot.p75 ?? max),
+        mean: toPercent(numericBoxPlot.mean ?? null),
+        stdStart,
+        stdEnd
+      }
+    };
+  }, [numericBoxPlot]);
+  const valueSamplesTable = useMemo(() => {
+    if (!topValues.length) {
+      return (
+        <Typography variant="body2" color="text.secondary">
+          This column did not include value samples.
+        </Typography>
+      );
+    }
+    return (
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Value</TableCell>
+            <TableCell align="right">Count</TableCell>
+            <TableCell align="right">Percentage</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {topValues.slice(0, 5).map((entry, index) => (
+            <TableRow key={`${renderValueLabel(entry)}-${index}`}>
+              <TableCell>{renderValueLabel(entry)}</TableCell>
+              <TableCell align="right">{formatNumber(entry.count)}</TableCell>
+              <TableCell align="right">
+                {typeof entry.percentage === 'number' ? `${(entry.percentage * 100).toFixed(1)}%` : '—'}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }, [topValues]);
+  const hasTextProfile = Boolean(textProfile && textProfileStats);
+  const hasNumericProfile = !hasTextProfile && Boolean(
+    numericProfile && (numericProfileStats || numericDistribution || numericBoxPlot)
+  );
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -715,7 +897,7 @@ const DataQualityProfileRunResultsPage = () => {
                   </Button>
                 </Stack>
 
-                {textProfile && textProfileStats ? (
+                {hasTextProfile ? (
                   <Stack spacing={2.5}>
                     {textSummaryMetrics.length ? (
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
@@ -933,6 +1115,226 @@ const DataQualityProfileRunResultsPage = () => {
                       </Stack>
                     ) : null}
                   </Stack>
+                ) : hasNumericProfile ? (
+                  <Stack spacing={2.5}>
+                    {numericSummaryMetrics.length ? (
+                      <Grid container spacing={2}>
+                        {numericSummaryMetrics.map((metric) => (
+                          <Grid item xs={6} sm={4} md={3} key={metric.label}>
+                            <Typography variant="caption" color="text.secondary">
+                              {metric.label}
+                            </Typography>
+                            <Typography variant="subtitle2">{formatStatValue(metric.value)}</Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : null}
+
+                    {numericDistribution ? (
+                      <Box>
+                        <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                          Numeric distribution
+                        </Typography>
+                        <Stack spacing={1.5}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              height: 12,
+                              borderRadius: 999,
+                              overflow: 'hidden',
+                              bgcolor: 'action.hover'
+                            }}
+                          >
+                            {numericDistribution.segments.map((segment) => {
+                              const widthPercent = numericDistribution.total > 0
+                                ? toPercentageValue(segment.percentage)
+                                : 100 / numericDistribution.segments.length;
+                              return (
+                                <Box
+                                  key={segment.key}
+                                  sx={{
+                                    width: `${widthPercent}%`,
+                                    bgcolor: NUMERIC_DISTRIBUTION_COLORS[segment.key]
+                                  }}
+                                />
+                              );
+                            })}
+                          </Box>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
+                            {numericDistribution.segments.map((segment) => (
+                              <Typography key={segment.key} variant="body2" color="text.secondary">
+                                <Box component="span" fontWeight={600} color="text.primary">
+                                  {segment.label}:
+                                </Box>{' '}
+                                {formatStatValue(segment.count)}{' '}
+                                {segment.percentage !== null && segment.percentage !== undefined
+                                  ? `(${formatPercentageDisplay(segment.percentage)})`
+                                  : ''}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        </Stack>
+                      </Box>
+                    ) : null}
+
+                    {numericBoxPlotGeometry ? (
+                      <>
+                        <Divider />
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                            Distribution summary
+                          </Typography>
+                          <Box sx={{ position: 'relative', height: 80, mt: 2 }}>
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: 0,
+                                right: 0,
+                                height: 2,
+                                bgcolor: 'divider',
+                                transform: 'translateY(-50%)'
+                              }}
+                            />
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: `${numericBoxPlotGeometry.percents.min}%`,
+                                width: 2,
+                                height: 28,
+                                bgcolor: 'text.secondary',
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                            />
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: `${numericBoxPlotGeometry.percents.max}%`,
+                                width: 2,
+                                height: 28,
+                                bgcolor: 'text.secondary',
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                            />
+                            {numericBoxPlotGeometry.percents.p25 !== null &&
+                            numericBoxPlotGeometry.percents.p75 !== null ? (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: '50%',
+                                  left: `${numericBoxPlotGeometry.percents.p25}%`,
+                                  width: `${Math.max(
+                                    numericBoxPlotGeometry.percents.p75 - numericBoxPlotGeometry.percents.p25,
+                                    1
+                                  )}%`,
+                                  height: 24,
+                                  bgcolor: 'primary.light',
+                                  border: '1px solid',
+                                  borderColor: 'primary.main',
+                                  transform: 'translateY(-50%)'
+                                }}
+                              />
+                            ) : null}
+                            {numericBoxPlotGeometry.percents.median !== null ? (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: '50%',
+                                  left: `${numericBoxPlotGeometry.percents.median}%`,
+                                  width: 2,
+                                  height: 28,
+                                  bgcolor: 'primary.dark',
+                                  transform: 'translate(-50%, -50%)'
+                                }}
+                              />
+                            ) : null}
+                            {numericBoxPlotGeometry.percents.stdStart !== null &&
+                            numericBoxPlotGeometry.percents.stdEnd !== null ? (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: '25%',
+                                  left: `${numericBoxPlotGeometry.percents.stdStart}%`,
+                                  width: `${Math.max(
+                                    numericBoxPlotGeometry.percents.stdEnd - numericBoxPlotGeometry.percents.stdStart,
+                                    1
+                                  )}%`,
+                                  height: 2,
+                                  bgcolor: 'warning.main'
+                                }}
+                              />
+                            ) : null}
+                            {numericBoxPlotGeometry.percents.mean !== null ? (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: '25%',
+                                  left: `${numericBoxPlotGeometry.percents.mean}%`,
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: '50%',
+                                  bgcolor: 'warning.main',
+                                  transform: 'translate(-50%, -50%)'
+                                }}
+                              />
+                            ) : null}
+                          </Box>
+                          <Stack
+                            direction={{ xs: 'column', sm: 'row' }}
+                            spacing={2}
+                            flexWrap="wrap"
+                            useFlexGap
+                            sx={{ mt: 1.5 }}
+                          >
+                            {[
+                              { label: 'Min', value: numericBoxPlotGeometry.values.min },
+                              { label: 'P25', value: numericBoxPlotGeometry.values.p25 },
+                              { label: 'Median', value: numericBoxPlotGeometry.values.median },
+                              { label: 'P75', value: numericBoxPlotGeometry.values.p75 },
+                              { label: 'Max', value: numericBoxPlotGeometry.values.max }
+                            ].map((item) => (
+                              <Stack key={item.label} spacing={0.25} sx={{ minWidth: 80 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.label}
+                                </Typography>
+                                <Typography variant="subtitle2">{formatStatValue(item.value)}</Typography>
+                              </Stack>
+                            ))}
+                          </Stack>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Box sx={{ width: 32, height: 2, bgcolor: 'warning.main' }} />
+                              <Typography variant="caption" color="text.secondary">
+                                Average — Standard Deviation
+                              </Typography>
+                            </Stack>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Box sx={{ width: 32, height: 2, bgcolor: 'text.secondary', position: 'relative' }}>
+                                <Box sx={{ position: 'absolute', left: 0, width: 2, height: 8, bgcolor: 'text.secondary', top: -3 }} />
+                                <Box sx={{ position: 'absolute', right: 0, width: 2, height: 8, bgcolor: 'text.secondary', top: -3 }} />
+                              </Box>
+                              <Typography variant="caption" color="text.secondary">
+                                Minimum — Maximum
+                              </Typography>
+                            </Stack>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Box sx={{ width: 32, height: 12, borderRadius: 0.5, bgcolor: 'primary.light', border: '1px solid', borderColor: 'primary.main', position: 'relative' }}>
+                                <Box sx={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, bgcolor: 'primary.dark', transform: 'translateX(-50%)' }} />
+                              </Box>
+                              <Typography variant="caption" color="text.secondary">
+                                25th — Median — 75th Percentile
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        </Box>
+                      </>
+                    ) : null}
+
+                    <Divider />
+                    {valueSamplesTable}
+                  </Stack>
                 ) : (
                   <Stack spacing={2}>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
@@ -965,32 +1367,7 @@ const DataQualityProfileRunResultsPage = () => {
                       </Stack>
                     ) : null}
                     <Divider />
-                    {!topValues.length ? (
-                      <Typography variant="body2" color="text.secondary">
-                        This column did not include value samples.
-                      </Typography>
-                    ) : (
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Value</TableCell>
-                            <TableCell align="right">Count</TableCell>
-                            <TableCell align="right">Percentage</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {topValues.slice(0, 5).map((entry, index) => (
-                            <TableRow key={`${renderValueLabel(entry)}-${index}`}>
-                              <TableCell>{renderValueLabel(entry)}</TableCell>
-                              <TableCell align="right">{formatNumber(entry.count)}</TableCell>
-                              <TableCell align="right">
-                                {typeof entry.percentage === 'number' ? `${(entry.percentage * 100).toFixed(1)}%` : '—'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                    {valueSamplesTable}
                   </Stack>
                 )}
               </Stack>
