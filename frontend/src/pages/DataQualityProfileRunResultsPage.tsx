@@ -506,10 +506,14 @@ const DataQualityProfileRunResultsPage = () => {
     const recordCount = numericProfileStats?.recordCount ?? selectedColumn?.rowCount ?? null;
     const valueCount = numericProfileStats?.valueCount ?? selectedColumn?.nonNullCount ?? null;
     const distinctCount = numericProfileStats?.distinctCount ?? selectedColumn?.distinctCount ?? null;
-    return [
+    const nonNullValues = selectedColumn?.nonNullCount ?? numericProfileStats?.valueCount ?? null;
+    const primary = [
       { label: 'Record Count', value: recordCount },
       { label: 'Value Count', value: valueCount },
       { label: 'Distinct Values', value: distinctCount },
+      { label: 'Non-Null Values', value: nonNullValues }
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+    const detail = [
       { label: 'Average Value', value: numericProfileStats?.average ?? null },
       { label: 'Standard Deviation', value: numericProfileStats?.stddev ?? null },
       { label: 'Minimum Value', value: numericProfileStats?.minimum ?? null },
@@ -518,8 +522,11 @@ const DataQualityProfileRunResultsPage = () => {
       { label: '25th Percentile', value: numericProfileStats?.percentile25 ?? null },
       { label: 'Median Value', value: numericProfileStats?.median ?? null },
       { label: '75th Percentile', value: numericProfileStats?.percentile75 ?? null }
-    ];
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+    return { primary, detail };
   }, [numericProfileStats, selectedColumn]);
+  const numericPrimaryStats = numericSummaryMetrics.primary;
+  const numericDetailStats = numericSummaryMetrics.detail;
   const numericDistribution = useMemo(() => {
     if (!numericProfile && !numericProfileStats && !selectedColumn) {
       return null;
@@ -1128,24 +1135,29 @@ const DataQualityProfileRunResultsPage = () => {
                     ) : null}
                   </Stack>
                 ) : hasNumericProfile ? (
-                  <Stack spacing={2.5}>
-                    {numericSummaryMetrics.length ? (
-                      <Grid container spacing={2}>
-                        {numericSummaryMetrics.map((metric) => (
-                          <Grid item xs={6} sm={4} md={3} key={metric.label}>
-                            <Typography variant="caption" color="text.secondary">
+                  <Stack spacing={3}>
+                    {numericPrimaryStats.length ? (
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
+                        {numericPrimaryStats.map((metric) => (
+                          <Stack key={metric.label} spacing={0.25} minWidth={140}>
+                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.4 }}>
                               {metric.label}
                             </Typography>
-                            <Typography variant="subtitle2">{formatStatValue(metric.value)}</Typography>
-                          </Grid>
+                            <Typography variant="h6">{formatStatValue(metric.value)}</Typography>
+                          </Stack>
                         ))}
-                      </Grid>
+                      </Stack>
                     ) : null}
 
                     {numericDistribution ? (
                       <Box>
                         <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-                          Numeric distribution
+                          Numeric Distribution
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          {numericDistribution.segments
+                            .map((segment) => `${segment.label}: ${formatStatValue(segment.count)}`)
+                            .join(' | ')}
                         </Typography>
                         <Stack spacing={1.5}>
                           <Box
@@ -1178,10 +1190,9 @@ const DataQualityProfileRunResultsPage = () => {
                                 <Box component="span" fontWeight={600} color="text.primary">
                                   {segment.label}:
                                 </Box>{' '}
-                                {formatStatValue(segment.count)}{' '}
                                 {segment.percentage !== null && segment.percentage !== undefined
-                                  ? `(${formatPercentageDisplay(segment.percentage)})`
-                                  : ''}
+                                  ? formatPercentageDisplay(segment.percentage)
+                                  : '—'}
                               </Typography>
                             ))}
                           </Stack>
@@ -1189,12 +1200,28 @@ const DataQualityProfileRunResultsPage = () => {
                       </Box>
                     ) : null}
 
+                    {numericDetailStats.length ? (
+                      <>
+                        <Divider />
+                        <Grid container spacing={2}>
+                          {numericDetailStats.map((metric) => (
+                            <Grid item xs={6} sm={4} key={metric.label}>
+                              <Typography variant="caption" color="text.secondary">
+                                {metric.label}
+                              </Typography>
+                              <Typography variant="subtitle2">{formatStatValue(metric.value)}</Typography>
+                            </Grid>
+                          ))}
+                        </Grid>
+                      </>
+                    ) : null}
+
                     {numericBoxPlotGeometry ? (
                       <>
                         <Divider />
                         <Box>
                           <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-                            Distribution summary
+                            Distribution Summary
                           </Typography>
                           <Box sx={{ position: 'relative', height: 80, mt: 2 }}>
                             <Box
