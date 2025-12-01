@@ -505,15 +505,8 @@ const DataQualityProfileRunResultsPage = () => {
   const numericSummaryMetrics = useMemo(() => {
     const recordCount = numericProfileStats?.recordCount ?? selectedColumn?.rowCount ?? null;
     const valueCount = numericProfileStats?.valueCount ?? selectedColumn?.nonNullCount ?? null;
-    const distinctCount = numericProfileStats?.distinctCount ?? selectedColumn?.distinctCount ?? null;
-    const nonNullValues = selectedColumn?.nonNullCount ?? numericProfileStats?.valueCount ?? null;
-    const primary = [
-      { label: 'Record Count', value: recordCount },
-      { label: 'Value Count', value: valueCount },
-      { label: 'Distinct Values', value: distinctCount },
-      { label: 'Non-Null Values', value: nonNullValues }
-    ].filter((metric) => metric.value !== null && metric.value !== undefined);
-    const detail = [
+    const metricsGrid = [
+      { label: 'Distinct Values', value: numericProfileStats?.distinctCount ?? selectedColumn?.distinctCount ?? null },
       { label: 'Average Value', value: numericProfileStats?.average ?? null },
       { label: 'Standard Deviation', value: numericProfileStats?.stddev ?? null },
       { label: 'Minimum Value', value: numericProfileStats?.minimum ?? null },
@@ -523,10 +516,14 @@ const DataQualityProfileRunResultsPage = () => {
       { label: 'Median Value', value: numericProfileStats?.median ?? null },
       { label: '75th Percentile', value: numericProfileStats?.percentile75 ?? null }
     ].filter((metric) => metric.value !== null && metric.value !== undefined);
-    return { primary, detail };
+    const primary = [
+      { label: 'Record Count', value: recordCount },
+      { label: 'Value Count', value: valueCount }
+    ].filter((metric) => metric.value !== null && metric.value !== undefined);
+    return { primary, metricsGrid };
   }, [numericProfileStats, selectedColumn]);
   const numericPrimaryStats = numericSummaryMetrics.primary;
-  const numericDetailStats = numericSummaryMetrics.detail;
+  const numericDetailStats = numericSummaryMetrics.metricsGrid;
   const numericDistribution = useMemo(() => {
     if (!numericProfile && !numericProfileStats && !selectedColumn) {
       return null;
@@ -670,9 +667,11 @@ const DataQualityProfileRunResultsPage = () => {
     );
   }, [topValues]);
   const hasTextProfile = Boolean(textProfile && textProfileStats);
-  const hasNumericProfile = !hasTextProfile && Boolean(
+  const hasNumericProfile = Boolean(
     numericProfile && (numericProfileStats || numericDistribution || numericBoxPlot)
   );
+  const showNumericProfile = hasNumericProfile;
+  const showTextProfile = !showNumericProfile && hasTextProfile;
 
   const summary = resultsQuery.data?.summary;
   const headerTitle = tableGroupLabel ?? summary?.tableGroupId ?? 'Profiling results';
@@ -916,7 +915,7 @@ const DataQualityProfileRunResultsPage = () => {
                   </Button>
                 </Stack>
 
-                {hasTextProfile ? (
+                {showTextProfile ? (
                   <Stack spacing={2.5}>
                     {textSummaryMetrics.length ? (
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
@@ -1134,7 +1133,7 @@ const DataQualityProfileRunResultsPage = () => {
                       </Stack>
                     ) : null}
                   </Stack>
-                ) : hasNumericProfile ? (
+                ) : showNumericProfile ? (
                   <Stack spacing={3}>
                     {numericPrimaryStats.length ? (
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>

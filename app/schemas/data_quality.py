@@ -577,6 +577,62 @@ class DataQualityTextProfileStats(BaseModel):
         allow_population_by_field_name = True
 
 
+class DataQualityNumericDistributionBar(BaseModel):
+    key: Optional[str] = None
+    label: Optional[str] = None
+    count: Optional[int] = None
+    percentage: Optional[float] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityNumericBoxPlot(BaseModel):
+    min: Optional[float] = None
+    p25: Optional[float] = None
+    median: Optional[float] = None
+    p75: Optional[float] = None
+    max: Optional[float] = None
+    mean: Optional[float] = None
+    std_dev: Optional[float] = Field(default=None, alias="stdDev")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityNumericProfileStats(BaseModel):
+    record_count: Optional[int] = Field(default=None, alias="recordCount")
+    value_count: Optional[int] = Field(default=None, alias="valueCount")
+    distinct_count: Optional[int] = Field(default=None, alias="distinctCount")
+    average: Optional[float] = None
+    stddev: Optional[float] = None
+    minimum: Optional[float] = None
+    minimum_positive: Optional[float] = Field(default=None, alias="minimumPositive")
+    maximum: Optional[float] = None
+    percentile_25: Optional[float] = Field(default=None, alias="percentile25")
+    median: Optional[float] = None
+    percentile_75: Optional[float] = Field(default=None, alias="percentile75")
+    zero_count: Optional[int] = Field(default=None, alias="zeroCount")
+    null_count: Optional[int] = Field(default=None, alias="nullCount")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class DataQualityNumericColumnProfile(BaseModel):
+    stats: Optional[DataQualityNumericProfileStats] = None
+    distribution_bars: List[DataQualityNumericDistributionBar] = Field(
+        default_factory=list,
+        alias="distributionBars",
+    )
+    box_plot: Optional[DataQualityNumericBoxPlot] = Field(default=None, alias="boxPlot")
+    histogram: List[DataQualityProfileValueEntry] = Field(default_factory=list)
+    top_values: List[DataQualityProfileValueEntry] = Field(default_factory=list, alias="topValues")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 class DataQualityTextColumnProfile(BaseModel):
     stats: Optional[DataQualityTextProfileStats] = None
     missing_breakdown: List[DataQualityTextProfileStat] = Field(default_factory=list, alias="missingBreakdown")
@@ -612,6 +668,7 @@ class DataQualityProfileColumnEntry(BaseModel):
     histogram: List[DataQualityProfileValueEntry] = Field(default_factory=list)
     anomalies: List[DataQualityProfileAnomalyEntry] = Field(default_factory=list)
     text_profile: Optional[DataQualityTextColumnProfile] = Field(default=None, alias="textProfile")
+    numeric_profile: Optional[DataQualityNumericColumnProfile] = Field(default=None, alias="numericProfile")
 
     class Config:
         allow_population_by_field_name = True
