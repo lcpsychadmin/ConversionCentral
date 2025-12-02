@@ -305,7 +305,7 @@ def _build_entity_maps(
 @router.get("/profile-runs", response_model=DataQualityProfileRunListResponse)
 def list_profile_runs(
     table_group_id: str | None = Query(default=None, alias="tableGroupId"),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=500),
     include_groups: bool = Query(default=True, alias="includeGroups"),
     db: Session = Depends(get_db),
     client: TestGenClient = Depends(get_testgen_client),

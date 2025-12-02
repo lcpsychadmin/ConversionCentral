@@ -88,7 +88,7 @@ const navItems: NavItem[] = [
     icon: <FactCheckIcon />,
     children: [
       { label: 'Overview', path: '/data-quality' },
-      { label: 'Datasets', path: '/data-quality/datasets' },
+      { label: 'Data Catalog', path: '/data-quality/datasets' },
       { label: 'Profiling Runs', path: '/data-quality/profiling-runs' },
       { label: 'Test Suites', path: '/data-quality/test-suites' },
       // Temporarily hide lower-priority areas while we focus on core workflows

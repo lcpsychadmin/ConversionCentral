@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -472,7 +473,15 @@ def test_export_profiling_payload_builds_tables(monkeypatch, sample_params):
             "stddev_value": 1.5,
             "percentiles_json": "{\"p95\": 200}",
             "top_values_json": "",
-            "metrics_json": "{\"dq_dimension\": \"accuracy\"}",
+            "metrics_json": json.dumps(
+                {
+                    "dq_dimension": "accuracy",
+                    "zero_count": 12,
+                    "median_value": 40,
+                    "p25": 10,
+                    "p75": 80,
+                }
+            ),
         }
     ]
     value_rows = [
@@ -538,6 +547,12 @@ def test_export_profiling_payload_builds_tables(monkeypatch, sample_params):
     assert column_entry["column_name"] == "total"
     assert column_entry["top_values"][0]["value"] == "widget"
     assert column_entry["histogram"][0]["label"] == "0-10"
+    numeric_profile = column_entry.get("numeric_profile")
+    assert numeric_profile
+    assert numeric_profile["stats"]["record_count"] == 250
+    assert numeric_profile["stats"]["zero_count"] == 12
+    assert numeric_profile["distribution_bars"][0]["key"] == "nonZero"
+    assert numeric_profile["box_plot"]["max"] == pytest.approx(999.0)
     assert column_entry["anomalies"][0]["anomaly_type_id"] == "null_density"
     assert payload["tables"][0]["anomalies"][0]["anomaly_type_id"] == "table_notice"
 

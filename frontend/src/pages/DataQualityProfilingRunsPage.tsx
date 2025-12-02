@@ -243,22 +243,16 @@ const filterSchedules = (
 };
 
 const formatTableGroupLabel = (group: DataQualityProfileRunTableGroup): string => {
-  const context: string[] = [];
-  if (group.productTeamName) {
-    context.push(group.productTeamName);
+  const application = group.applicationName?.trim();
+  const definition =
+    group.tableGroupName?.trim() ??
+    group.dataObjectName?.trim() ??
+    group.connectionName?.trim() ??
+    group.tableGroupId;
+  if (application && definition) {
+    return `${application} · ${definition}`;
   }
-  if (group.applicationName) {
-    context.push(group.applicationName);
-  }
-  if (group.dataObjectName) {
-    context.push(group.dataObjectName);
-  }
-  if (group.connectionName) {
-    context.push(group.connectionName);
-  }
-  const baseLabel = group.tableGroupName ?? group.tableGroupId;
-  const shortCode = group.tableGroupId ? `#${group.tableGroupId.slice(-6)}` : null;
-  return [...context, baseLabel, shortCode].filter(Boolean).join(' · ');
+  return definition ?? application ?? group.tableGroupId;
 };
 
 const formatTableGroupDropdownLabel = (group: DataQualityProfileRunTableGroup): string => {

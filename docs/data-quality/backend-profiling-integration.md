@@ -64,3 +64,10 @@ Add read helpers to `TestGenClient`:
 ## Open Questions / Follow-ups
 - Do we need to expose `dq_profile_columns` via a bulk API (table-level summaries)? If so, add follow-up story after the column-profile endpoint is migrated.
 - Should we snapshot distributions over time or only keep the latest run per column? Current plan deletes/replaces per run ID, so retention is managed by `dq_profiles`. Adjust if historical trending becomes a requirement.
+
+## Verification Checklist
+1. **Sync anomaly definitions** – run `python scripts/download_datakitchen_anomaly_types.py` and commit the regenerated `docs/reference/datakitchen/anomaly_types_index.json` plus `app/constants/profile_anomaly_types.py`.
+2. **Apply schema + seed** – execute `alembic upgrade head` (or restart the backend container) so `dq_profile_anomaly_types` exists in every workspace with the refreshed rows.
+3. **Publish anomaly results** – after deploying the updated Databricks profiling notebook, execute a profiling run and confirm `dq_profile_anomaly_results` receives rows for the run (`SELECT * FROM dq_profile_anomaly_results WHERE profile_run_id = '<run-id>'`).
+4. **API smoke test** – call `GET /api/data-quality/profile-runs/{profileRunId}/results` and inspect the `anomalies` array on both the table and column entries; values should match the new rows.
+5. **UI validation** – reload the Data Catalog and Profiling Run detail pages to ensure anomaly counts, callouts, and chips display; capture screenshots for release notes.

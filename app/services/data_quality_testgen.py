@@ -91,6 +91,28 @@ _PROFILE_TABLE_DEFINITIONS = _table_definitions()
 _PROFILE_COLUMNS_DEFINITION = tuple(_PROFILE_TABLE_DEFINITIONS.get("dq_profile_columns", ()))
 _PROFILE_COLUMN_VALUES_DEFINITION = tuple(_PROFILE_TABLE_DEFINITIONS.get("dq_profile_column_values", ()))
 
+_NUMERIC_GENERAL_TYPES = {
+    "numeric",
+    "number",
+    "integer",
+    "int",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "decimal",
+    "double",
+    "float",
+    "real",
+    "long",
+    "short",
+}
+
+_NUMERIC_DISTRIBUTION_LABELS = {
+    "nonZero": "Non-zero values",
+    "zero": "Zero values",
+    "null": "Null values",
+}
+
 
 @dataclass(frozen=True)
 class ProfileAnomaly:
@@ -1602,7 +1624,165 @@ class TestGenClient:
                 if histogram:
                     entry["histogram"] = histogram
 
+        numeric_profile_payload = self._build_numeric_profile_payload(entry, metrics, row)
+        if numeric_profile_payload:
+            entry["numeric_profile"] = numeric_profile_payload
+
         return entry
+
+    def _build_numeric_profile_payload(
+        self,
+        entry: Mapping[str, Any],
+        metrics: Mapping[str, Any],
+        row: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        if not self._is_numeric_column(entry, row):
+            return None
+
+        stats, value_count, zero_count, null_count = self._extract_numeric_profile_stats(entry, metrics, row)
+        distribution_bars = self._build_numeric_distribution_bars(value_count, zero_count, null_count)
+        box_plot = self._build_numeric_box_plot(entry, metrics, row)
+        histogram = entry.get("histogram") or []
+        top_values = entry.get("top_values") or []
+
+        if not stats and not distribution_bars and box_plot is None and not histogram and not top_values:
+            return None
+
+        payload: dict[str, Any] = {}
+        if stats:
+            payload["stats"] = stats
+        if distribution_bars:
+            payload["distribution_bars"] = distribution_bars
+        if box_plot:
+            payload["box_plot"] = box_plot
+        if histogram:
+            payload["histogram"] = histogram
+        if top_values:
+            payload["top_values"] = top_values
+        return payload
+
+    def _is_numeric_column(self, entry: Mapping[str, Any], row: Mapping[str, Any]) -> bool:
+        general_type = (entry.get("general_type") or row.get("general_type") or "").strip().lower()
+        if general_type in _NUMERIC_GENERAL_TYPES:
+            return True
+        data_type = (entry.get("data_type") or row.get("data_type") or "").strip().lower()
+        if not data_type:
+            return False
+        return any(token in data_type for token in _NUMERIC_GENERAL_TYPES)
+
+    def _extract_numeric_profile_stats(
+        self,
+        entry: Mapping[str, Any],
+        metrics: Mapping[str, Any],
+        row: Mapping[str, Any],
+    ) -> tuple[dict[str, Any] | None, int | None, int | None, int | None]:
+        stats: dict[str, Any] = {}
+        record_count = self._coerce_int(metrics.get("row_count") or row.get("record_count"))
+        null_count = self._coerce_int(metrics.get("null_count") or row.get("null_count"))
+        value_count = self._coerce_int(metrics.get("non_null_count"))
+        if value_count is None and record_count is not None and null_count is not None:
+            value_count = max(record_count - null_count, 0)
+        distinct_count = self._coerce_int(metrics.get("distinct_count"))
+        average = self._coerce_float(metrics.get("avg_value") or entry.get("avg_value"))
+        stddev = self._coerce_float(metrics.get("stddev_value") or entry.get("stddev_value"))
+        minimum = self._coerce_float(entry.get("min_value") or metrics.get("min_value"))
+        maximum = self._coerce_float(entry.get("max_value") or metrics.get("max_value"))
+        minimum_positive = self._coerce_float(
+            metrics.get("minimum_positive")
+            or metrics.get("min_positive")
+            or metrics.get("min_positive_value")
+            or metrics.get("minimumPositive")
+            or metrics.get("minimum_positive_value")
+        )
+        percentile_25 = self._coerce_float(metrics.get("p25") or metrics.get("percentile_25"))
+        percentile_75 = self._coerce_float(metrics.get("p75") or metrics.get("percentile_75"))
+        median = self._coerce_float(metrics.get("median_value") or metrics.get("median") or metrics.get("p50"))
+        zero_count = self._coerce_int(metrics.get("zero_count") or metrics.get("zeros_count"))
+
+        if record_count is not None:
+            stats["record_count"] = record_count
+        if value_count is not None:
+            stats["value_count"] = value_count
+        if distinct_count is not None:
+            stats["distinct_count"] = distinct_count
+        if average is not None:
+            stats["average"] = average
+        if stddev is not None:
+            stats["stddev"] = stddev
+        if minimum is not None:
+            stats["minimum"] = minimum
+        if minimum_positive is not None:
+            stats["minimum_positive"] = minimum_positive
+        if maximum is not None:
+            stats["maximum"] = maximum
+        if percentile_25 is not None:
+            stats["percentile_25"] = percentile_25
+        if median is not None:
+            stats["median"] = median
+        if percentile_75 is not None:
+            stats["percentile_75"] = percentile_75
+        if zero_count is not None:
+            stats["zero_count"] = zero_count
+        if null_count is not None:
+            stats["null_count"] = null_count
+
+        return (stats or None, value_count, zero_count, null_count)
+
+    def _build_numeric_distribution_bars(
+        self,
+        value_count: int | None,
+        zero_count: int | None,
+        null_count: int | None,
+    ) -> list[dict[str, Any]]:
+        if value_count is None or zero_count is None:
+            return []
+
+        non_zero_count = max(value_count - zero_count, 0)
+        total = sum(count for count in (non_zero_count, zero_count, null_count) if count is not None)
+        if total <= 0:
+            total = None
+
+        bars: list[dict[str, Any]] = []
+        for key, count in ("nonZero", non_zero_count), ("zero", zero_count), ("null", null_count):
+            if count is None:
+                continue
+            percentage = self._safe_ratio(count, total) if total else None
+            bars.append(
+                {
+                    "key": key,
+                    "label": _NUMERIC_DISTRIBUTION_LABELS.get(key),
+                    "count": count,
+                    "percentage": percentage,
+                }
+            )
+        return bars
+
+    def _build_numeric_box_plot(
+        self,
+        entry: Mapping[str, Any],
+        metrics: Mapping[str, Any],
+        row: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        min_value = self._coerce_float(entry.get("min_value") or row.get("min_value"))
+        max_value = self._coerce_float(entry.get("max_value") or row.get("max_value"))
+        p25 = self._coerce_float(metrics.get("p25") or metrics.get("percentile_25"))
+        p75 = self._coerce_float(metrics.get("p75") or metrics.get("percentile_75"))
+        median = self._coerce_float(metrics.get("median_value") or metrics.get("median") or metrics.get("p50"))
+        mean = self._coerce_float(metrics.get("avg_value") or entry.get("avg_value"))
+        std_dev = self._coerce_float(metrics.get("stddev_value") or entry.get("stddev_value"))
+
+        if not any(value is not None for value in (min_value, max_value, p25, p75, median, mean, std_dev)):
+            return None
+
+        return {
+            "min": min_value,
+            "p25": p25,
+            "median": median,
+            "p75": p75,
+            "max": max_value,
+            "mean": mean,
+            "std_dev": std_dev,
+        }
 
     def _build_column_metrics_payload(self, row: Mapping[str, Any]) -> dict[str, Any]:
         metrics: dict[str, Any] = {}
@@ -1698,6 +1878,18 @@ class TestGenClient:
             return float(number)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _safe_ratio(numerator: int | float | None, denominator: int | float | None) -> float | None:
+        if numerator is None or denominator in (None, 0):
+            return None
+        try:
+            value = float(numerator) / float(denominator)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return max(value, 0.0)
 
     @staticmethod
     def _isoformat(value: Any) -> str | None:

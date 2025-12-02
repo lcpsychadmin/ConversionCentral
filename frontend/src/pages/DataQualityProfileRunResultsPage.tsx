@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -11,9 +11,6 @@ import {
   Divider,
   Grid,
   LinearProgress,
-  List,
-  ListItemButton,
-  ListItemText,
   Paper,
   Stack,
   Table,
@@ -24,10 +21,13 @@ import {
   Typography
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from 'react-query';
 
-import PageHeader from '@components/common/PageHeader';
 import { fetchProfileRunResults } from '@services/dataQualityService';
 import {
   DataQualityNumericDistributionBar,
@@ -37,7 +37,7 @@ import {
   DataQualityProfileValueEntry
 } from '@cc-types/data';
 
-const formatDateTime = (value?: string | null) => {
+export const formatDateTime = (value?: string | null) => {
   if (!value) {
     return '—';
   }
@@ -120,6 +120,12 @@ const NUMERIC_DISTRIBUTION_LABELS: Record<'nonZero' | 'zero' | 'null', string> =
   zero: 'Zero Values',
   null: 'Null Values'
 };
+
+const TABLE_NODE_PREFIX = 'table:';
+const COLUMN_NODE_PREFIX = 'column:';
+
+const buildTableNodeId = (tableKey: string) => `${TABLE_NODE_PREFIX}${tableKey}`;
+const buildColumnNodeId = (columnKey: string) => `${COLUMN_NODE_PREFIX}${columnKey}`;
 
 const getTableKey = (table: DataQualityProfileTableEntry): string => {
   if (table.tableId) {
@@ -206,16 +212,26 @@ const pickMetricNumber = (
   return null;
 };
 
-const DataQualityProfileRunResultsPage = () => {
-  const navigate = useNavigate();
-  const { profileRunId } = useParams<{ profileRunId: string }>();
-  const [searchParams] = useSearchParams();
-  const tableGroupId = searchParams.get('tableGroupId');
-  const tableGroupLabel = searchParams.get('tableGroupLabel');
+export interface ProfileRunResultsContainerProps {
+  profileRunId: string;
+  tableGroupId: string;
+  tableGroupLabel?: string | null;
+  onBack?: () => void;
+  showBackButton?: boolean;
+}
+
+export const ProfileRunResultsContainer = ({
+  profileRunId,
+  tableGroupId,
+  tableGroupLabel,
+  onBack,
+  showBackButton = true
+}: ProfileRunResultsContainerProps) => {
 
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
   const [selectedColumnKey, setSelectedColumnKey] = useState<string | null>(null);
   const [valuePreviewOpen, setValuePreviewOpen] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const queryEnabled = Boolean(profileRunId && tableGroupId);
 
@@ -229,6 +245,7 @@ const DataQualityProfileRunResultsPage = () => {
   );
 
   const tables = useMemo(() => resultsQuery.data?.tables ?? [], [resultsQuery.data]);
+  const totalColumnCount = useMemo(() => tables.reduce((count, table) => count + table.columns.length, 0), [tables]);
 
   useEffect(() => {
     if (!tables.length) {
@@ -244,12 +261,31 @@ const DataQualityProfileRunResultsPage = () => {
     });
   }, [tables]);
 
+  useEffect(() => {
+    setExpandedItems((current) => {
+      if (!current.length) {
+        return current;
+      }
+      const validIds = new Set(tables.map((table) => buildTableNodeId(getTableKey(table))));
+      const filtered = current.filter((itemId) => validIds.has(itemId));
+      return filtered.length === current.length ? current : filtered;
+    });
+  }, [tables]);
+
   const selectedTable = useMemo(() => {
     if (!selectedTableKey) {
       return tables[0] ?? null;
     }
     return tables.find((table) => getTableKey(table) === selectedTableKey) ?? tables[0] ?? null;
   }, [selectedTableKey, tables]);
+
+  useEffect(() => {
+    if (!selectedTableKey) {
+      return;
+    }
+    const nodeId = buildTableNodeId(selectedTableKey);
+    setExpandedItems((current) => (current.includes(nodeId) ? current : [...current, nodeId]));
+  }, [selectedTableKey]);
 
   const columns = useMemo(() => selectedTable?.columns ?? [], [selectedTable]);
 
@@ -276,6 +312,16 @@ const DataQualityProfileRunResultsPage = () => {
     }
     return columns.find((column) => getColumnKey(column) === selectedColumnKey) ?? columns[0];
   }, [columns, selectedColumnKey]);
+
+  const selectedTreeItemId = useMemo(() => {
+    if (selectedColumnKey) {
+      return buildColumnNodeId(selectedColumnKey);
+    }
+    if (selectedTableKey) {
+      return buildTableNodeId(selectedTableKey);
+    }
+    return null;
+  }, [selectedColumnKey, selectedTableKey]);
 
   const piiAnomalies = useMemo(
     () => (selectedColumn?.anomalies ?? []).filter((anomaly) => Boolean(anomaly.piiRisk)),
@@ -682,7 +728,9 @@ const DataQualityProfileRunResultsPage = () => {
   const headerSubtitle = headerSubtitleParts.length ? headerSubtitleParts.join(' • ') : undefined;
 
   const handleBack = () => {
-    navigate('/data-quality/profiling-runs');
+    if (onBack) {
+      onBack();
+    }
   };
 
   const handleTableSelect = (table: DataQualityProfileTableEntry) => {
@@ -691,6 +739,50 @@ const DataQualityProfileRunResultsPage = () => {
 
   const handleColumnSelect = (column: DataQualityProfileColumnEntry) => {
     setSelectedColumnKey(getColumnKey(column));
+  };
+
+  const handleTreeSelectionChange = (
+    _event: SyntheticEvent | null,
+    nodeIds: string | string[] | null
+  ) => {
+    const nextNodeId = Array.isArray(nodeIds) ? nodeIds[0] ?? null : nodeIds;
+    if (!nextNodeId) {
+      return;
+    }
+    if (nextNodeId.startsWith(TABLE_NODE_PREFIX)) {
+      const tableKey = nextNodeId.slice(TABLE_NODE_PREFIX.length);
+      const table = tables.find((entry) => getTableKey(entry) === tableKey);
+      if (table) {
+        handleTableSelect(table);
+      }
+      return;
+    }
+    if (nextNodeId.startsWith(COLUMN_NODE_PREFIX)) {
+      const columnKey = nextNodeId.slice(COLUMN_NODE_PREFIX.length);
+      for (const table of tables) {
+        const column = table.columns.find((entry) => getColumnKey(entry) === columnKey);
+        if (column) {
+          handleTableSelect(table);
+          handleColumnSelect(column);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleTreeExpandedChange = (
+    _event: SyntheticEvent | null,
+    itemIds: string[] | string | null
+  ) => {
+    if (Array.isArray(itemIds)) {
+      setExpandedItems(itemIds);
+      return;
+    }
+    if (itemIds) {
+      setExpandedItems([itemIds]);
+      return;
+    }
+    setExpandedItems([]);
   };
 
   const handleOpenValuePreview = () => setValuePreviewOpen(true);
@@ -704,20 +796,7 @@ const DataQualityProfileRunResultsPage = () => {
   };
 
   return (
-    <Box>
-      <PageHeader
-        title={headerTitle}
-        subtitle={headerSubtitle}
-        actions={
-          <Stack direction="row" spacing={1} alignItems="center">
-            {renderStatusChip()}
-            <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={handleBack}>
-              Back to runs
-            </Button>
-          </Stack>
-        }
-      />
-
+    <Stack spacing={3} sx={{ width: '100%' }}>
       {!queryEnabled ? (
         <Alert severity="warning">Missing profiling run identifiers. Please open this page from the profiling runs list.</Alert>
       ) : null}
@@ -738,118 +817,160 @@ const DataQualityProfileRunResultsPage = () => {
       ) : null}
 
       {resultsQuery.data ? (
-        <Grid container spacing={3} alignItems="stretch">
+        <Box sx={{ width: '100%', px: { xs: 0, sm: 3 }, boxSizing: 'border-box' }}>
+          <Grid container spacing={3} alignItems="stretch">
           <Grid item xs={12}>
             <Paper sx={{ p: 3 }}>
               <Stack spacing={2.5}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} justifyContent="space-between" alignItems={{ md: 'center' }}>
-                  <Stack spacing={0.75} flex={1}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={3}
+                  justifyContent="space-between"
+                  alignItems={{ md: 'center' }}
+                  flexWrap="wrap"
+                  useFlexGap
+                >
+                  <Stack spacing={0.75} flex={1} minWidth={240}>
                     <Typography variant="overline" color="text.secondary">
                       Table group
                     </Typography>
-                    <Typography variant="h5" fontWeight={700}>
+                    <Typography variant="h4" fontWeight={700}>
                       {headerTitle}
                     </Typography>
-                    {summary?.databricksRunId ? (
-                      <Typography variant="body2" color="text.secondary">
-                        Databricks run {summary.databricksRunId}
-                      </Typography>
-                    ) : null}
                   </Stack>
-                  <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap>
-                    <Stack spacing={0.5}>
-                      <Typography variant="caption" color="text.secondary">
-                        Rows profiled
-                      </Typography>
-                      <Typography variant="h6">{formatNumber(summary?.rowCount)}</Typography>
-                    </Stack>
-                    <Stack spacing={0.5}>
-                      <Typography variant="caption" color="text.secondary">
-                        Anomalies
-                      </Typography>
-                      <Typography variant="h6">{formatNumber(summary?.anomalyCount)}</Typography>
-                    </Stack>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    {renderStatusChip()}
+                    {showBackButton ? (
+                      <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={handleBack}>
+                        Back to runs
+                      </Button>
+                    ) : null}
                   </Stack>
                 </Stack>
                 <Divider />
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} flexWrap="wrap" useFlexGap>
                   <Stack spacing={0.5}>
                     <Typography variant="caption" color="text.secondary">
-                      Started at
+                      Rows profiled
                     </Typography>
-                    <Typography variant="body2">{formatDateTime(summary?.startedAt)}</Typography>
+                    <Typography variant="h6">{formatNumber(summary?.rowCount)}</Typography>
+                    {headerSubtitle ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {headerSubtitle}
+                      </Typography>
+                    ) : null}
                   </Stack>
                   <Stack spacing={0.5}>
                     <Typography variant="caption" color="text.secondary">
-                      Completed at
+                      Anomalies
                     </Typography>
-                    <Typography variant="body2">{formatDateTime(summary?.completedAt)}</Typography>
+                    <Typography variant="h6">{formatNumber(summary?.anomalyCount)}</Typography>
                   </Stack>
+                  {summary?.databricksRunId ? (
+                    <Stack spacing={0.5}>
+                      <Typography variant="caption" color="text.secondary">
+                        Databricks run
+                      </Typography>
+                      <Typography variant="body2">{summary.databricksRunId}</Typography>
+                    </Stack>
+                  ) : null}
                 </Stack>
               </Stack>
             </Paper>
           </Grid>
 
-          <Grid item xs={12} md={4} display="flex" flexDirection="column" gap={3}>
-            <Paper sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>
-                Tables ({tables.length})
-              </Typography>
+          <Grid item xs={12} md={4} display="flex" flexDirection="column">
+            <Paper sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column', minHeight: { md: 600 } }}>
+              <Stack spacing={0.5} sx={{ mb: 1 }}>
+                <Typography variant="h6" fontWeight={700}>
+                  Tables & columns
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {tables.length} table{tables.length === 1 ? '' : 's'} · {totalColumnCount} column
+                  {totalColumnCount === 1 ? '' : 's'}
+                </Typography>
+              </Stack>
+              <Divider sx={{ mb: 1.5 }} />
               {tables.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
                   No tables were returned for this profiling run.
                 </Typography>
               ) : (
-                <List dense sx={{ flex: 1, overflow: 'auto' }}>
+                <SimpleTreeView
+                  aria-label="Profiling tables and columns"
+                  expandedItems={expandedItems}
+                  onExpandedItemsChange={handleTreeExpandedChange}
+                  selectedItems={selectedTreeItemId}
+                  onSelectedItemsChange={handleTreeSelectionChange}
+                  slots={{ collapseIcon: ExpandMoreIcon, expandIcon: ChevronRightIcon }}
+                  sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}
+                >
                   {tables.map((table) => {
-                    const key = getTableKey(table);
+                    const tableKey = getTableKey(table);
+                    const tableNodeId = buildTableNodeId(tableKey);
+                    const columnCount = table.columns.length;
                     return (
-                      <ListItemButton
-                        key={key}
-                        selected={key === selectedTableKey}
-                        onClick={() => handleTableSelect(table)}
-                        sx={{ borderRadius: 1, mb: 0.5 }}
+                      <TreeItem
+                        key={tableNodeId}
+                        itemId={tableNodeId}
+                        label={
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                              >
+                                {describeTableLabel(table)}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {columnCount} column{columnCount === 1 ? '' : 's'}
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        }
                       >
-                        <ListItemText
-                          primary={describeTableLabel(table)}
-                          secondary={`${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`}
-                        />
-                      </ListItemButton>
+                        {columnCount ? (
+                          table.columns.map((column) => {
+                            const columnKey = getColumnKey(column);
+                            const columnNodeId = buildColumnNodeId(columnKey);
+                            const issueCount = column.anomalies?.length ?? 0;
+                            return (
+                              <TreeItem
+                                key={columnNodeId}
+                                itemId={columnNodeId}
+                                label={
+                                  <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                      <Typography
+                                        variant="body2"
+                                        sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                      >
+                                        {column.columnName}
+                                      </Typography>
+                                      {column.dataType ? (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {column.dataType}
+                                        </Typography>
+                                      ) : null}
+                                    </Box>
+                                    {issueCount ? <Chip label={issueCount} color="warning" size="small" /> : null}
+                                  </Stack>
+                                }
+                              />
+                            );
+                          })
+                        ) : (
+                          <TreeItem
+                            key={`${tableNodeId}::empty`}
+                            itemId={`${tableNodeId}::empty`}
+                            label={<Typography variant="caption" color="text.secondary">No columns were profiled.</Typography>}
+                            disabled
+                          />
+                        )}
+                      </TreeItem>
                     );
                   })}
-                </List>
-              )}
-            </Paper>
-
-            <Paper sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>
-                Columns ({columns.length})
-              </Typography>
-              {!columns.length ? (
-                <Typography variant="body2" color="text.secondary">
-                  Select a table to see its profiled columns.
-                </Typography>
-              ) : (
-                <List dense sx={{ flex: 1, overflow: 'auto' }}>
-                  {columns.map((column) => {
-                    const columnKey = getColumnKey(column);
-                    const issueCount = column.anomalies?.length ?? 0;
-                    return (
-                      <ListItemButton
-                        key={columnKey}
-                        selected={columnKey === selectedColumnKey}
-                        onClick={() => handleColumnSelect(column)}
-                        sx={{ alignItems: 'flex-start', borderRadius: 1, mb: 0.5 }}
-                      >
-                        <ListItemText
-                          primary={column.columnName}
-                          secondary={column.dataType ? column.dataType : undefined}
-                        />
-                        {issueCount ? <Chip label={issueCount} color="warning" size="small" /> : null}
-                      </ListItemButton>
-                    );
-                  })}
-                </List>
+                </SimpleTreeView>
               )}
             </Paper>
           </Grid>
@@ -1470,6 +1591,7 @@ const DataQualityProfileRunResultsPage = () => {
             </Paper>
           </Grid>
         </Grid>
+        </Box>
       ) : null}
 
       <Dialog open={valuePreviewOpen} onClose={handleCloseValuePreview} maxWidth="sm" fullWidth>
@@ -1503,7 +1625,29 @@ const DataQualityProfileRunResultsPage = () => {
           )}
         </DialogContent>
       </Dialog>
-    </Box>
+    </Stack>
+  );
+};
+
+const DataQualityProfileRunResultsPage = () => {
+  const navigate = useNavigate();
+  const { profileRunId } = useParams<{ profileRunId: string }>();
+  const [searchParams] = useSearchParams();
+  const tableGroupId = searchParams.get('tableGroupId');
+  const tableGroupLabel = searchParams.get('tableGroupLabel');
+
+  const handleBack = () => {
+    navigate('/data-quality/profiling-runs');
+  };
+
+  return (
+    <ProfileRunResultsContainer
+      profileRunId={profileRunId ?? ''}
+      tableGroupId={tableGroupId ?? ''}
+      tableGroupLabel={tableGroupLabel}
+      onBack={handleBack}
+      showBackButton
+    />
   );
 };
 
