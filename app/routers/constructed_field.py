@@ -3,19 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ConstructedField, ConstructedTable, DataDefinition, ExecutionContext, MockCycle, System
+from app.models import ConstructedField, ConstructedTable
 from app.schemas import (
     ConstructedFieldCreate,
     ConstructedFieldRead,
     ConstructedFieldUpdate,
-    SystemConnectionType,
-)
-from app.services.constructed_table_manager import (
-    ConstructedTableManagerError,
-    create_or_update_constructed_table,
 )
 from app.constants.audit_fields import AUDIT_FIELD_NAME_SET
 
@@ -45,75 +40,18 @@ def _ensure_constructed_table_exists(constructed_table_id: UUID, db: Session) ->
 
 
 def _sync_constructed_table_to_sql_server(
-    constructed_table: ConstructedTable, db: Session
+    constructed_table: ConstructedTable, _db: Session
 ) -> None:
+    """Legacy helper retained for compatibility.
+
+    SQL Server synchronization relied on per-system connection metadata that has
+    been removed from the platform. Rather than attempting a partial sync, log
+    a message so operators understand why nothing happens.
     """
-    Sync a constructed table to SQL Server by creating/updating it with current fields.
-    
-    Raises HTTPException on failure.
-    """
-    # Load the full tree: ExecutionContext -> MockCycle -> System with connections
-    constructed_table = db.query(ConstructedTable).options(
-        selectinload(ConstructedTable.execution_context).selectinload(
-            ExecutionContext.mock_cycle
-        ),
-        selectinload(ConstructedTable.fields),
-        selectinload(ConstructedTable.data_definition).selectinload(DataDefinition.system),
-    ).filter(ConstructedTable.id == constructed_table.id).one()
-
-    system = None
-    if constructed_table.data_definition and constructed_table.data_definition.system:
-        system = constructed_table.data_definition.system
-    elif constructed_table.execution_context and constructed_table.execution_context.mock_cycle:
-        system = getattr(constructed_table.execution_context.mock_cycle, "system", None)
-
-    if not system:
-        logger.info(
-            "Skipping SQL Server sync for constructed table %s due to missing system context",
-            constructed_table.id,
-        )
-        return
-
-    # Get the active SQL Server connection for this system
-    sql_server_connection = (
-        db.query(System)
-        .options(selectinload(System.connections))
-        .filter(System.id == system.id)
-        .one()
-        .connections
+    logger.info(
+        "SQL Server sync skipped for constructed table %s because system connections are no longer tracked.",
+        getattr(constructed_table, "id", constructed_table),
     )
-    
-    # Find active JDBC connection to SQL Server (mssql dialect)
-    sql_conn = None
-    for conn in sql_server_connection:
-        if (
-            conn.active
-            and conn.connection_type.lower() == "jdbc"
-            and "mssql" in conn.connection_string.lower()
-        ):
-            sql_conn = conn
-            break
-
-    if not sql_conn:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No active SQL Server connection found for this system",
-        )
-
-    try:
-        create_or_update_constructed_table(
-            connection_type=SystemConnectionType.JDBC,
-            connection_string=sql_conn.connection_string,
-            schema_name="dbo",  # Default schema
-            table_name=constructed_table.name,
-            fields=constructed_table.fields,
-        )
-    except ConstructedTableManagerError as exc:
-        logger.error(f"Failed to sync constructed table {constructed_table.id}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create/update table in SQL Server: {str(exc)}",
-        )
 
 
 @router.post("", response_model=ConstructedFieldRead, status_code=status.HTTP_201_CREATED)
@@ -187,7 +125,6 @@ def update_constructed_field(
 
     db.flush()
 
-    # Sync the entire table to SQL Server with all fields
     _sync_constructed_table_to_sql_server(constructed_table, db)
 
     db.commit()
@@ -201,11 +138,10 @@ def delete_constructed_field(
 ) -> None:
     constructed_field = _get_constructed_field_or_404(constructed_field_id, db)
     constructed_table = db.get(ConstructedTable, constructed_field.constructed_table_id)
-    
+
     db.delete(constructed_field)
     db.flush()
 
-    # Sync the entire table to SQL Server with remaining fields
     _sync_constructed_table_to_sql_server(constructed_table, db)
 
     db.commit()

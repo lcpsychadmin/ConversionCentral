@@ -1,6 +1,5 @@
-from http import HTTPStatus
 from uuid import UUID
-from typing import List
+from typing import List, Sequence
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.constants.audit_fields import AUDIT_FIELD_DEFINITIONS, AUDIT_FIELD_NAME_SET
 from app.database import get_db
 from app.models import (
+    ConnectionTableSelection,
     DataDefinition,
     DataDefinitionField,
     DataDefinitionRelationship,
@@ -16,11 +16,9 @@ from app.models import (
     DataObject,
     DataObjectSystem,
     Field,
-    ProcessArea,
     System,
-    Table,
     SystemConnection,
-    ConnectionTableSelection,
+    Table,
 )
 from app.schemas import (
     DataDefinitionCreate,
@@ -30,20 +28,14 @@ from app.schemas import (
     DataDefinitionRelationshipUpdate,
     DataDefinitionUpdate,
     TableRead,
-    SystemConnectionType,
 )
-from app.services.catalog_browser import (
-    fetch_source_table_columns,
-    fetch_connection_catalog,
-    ConnectionCatalogError,
-)
+from app.services.catalog_browser import ConnectionCatalogError, fetch_source_table_columns
 from app.services.data_construction_sync import (
     delete_constructed_tables_for_definition,
     sync_construction_tables_for_definition,
 )
 from app.services.table_filters import (
     connection_is_databricks,
-    table_is_constructed,
     table_is_databricks_eligible,
 )
 
@@ -58,7 +50,7 @@ def list_databricks_tables(db: Session = Depends(get_db)) -> List[TableRead]:
     tables = (
         db.query(Table)
         .options(
-            selectinload(Table.system).selectinload(System.connections),
+            selectinload(Table.system),
             selectinload(Table.definition_tables),
         )
         .order_by(Table.name.asc())
@@ -78,6 +70,10 @@ def _definition_query(db: Session):
             selectinload(DataDefinition.tables)
             .selectinload(DataDefinitionTable.fields)
             .selectinload(DataDefinitionField.field),
+            selectinload(DataDefinition.tables)
+            .selectinload(DataDefinitionTable.system_connection),
+            selectinload(DataDefinition.tables)
+            .selectinload(DataDefinitionTable.connection_table_selection),
             selectinload(DataDefinition.relationships)
             .selectinload(DataDefinitionRelationship.primary_field)
             .selectinload(DataDefinitionField.field),
@@ -235,6 +231,79 @@ def _to_payload_dict(payload):
     return payload
 
 
+def _extract_payload_value(payload: dict, snake_key: str, camel_key: str):
+    if snake_key in payload:
+        return payload.get(snake_key), True
+    if camel_key in payload:
+        return payload.get(camel_key), True
+    return None, False
+
+
+def _validate_selection_matches_table(selection: ConnectionTableSelection, table: Table) -> None:
+    selection_table = (selection.table_name or "").strip().lower()
+    table_name = ((table.physical_name or table.name) or "").strip().lower()
+    if selection_table and table_name and selection_table != table_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected catalog entry does not match the requested table.",
+        )
+
+    selection_schema = (selection.schema_name or "").strip().lower()
+    table_schema = (table.schema_name or "").strip().lower()
+    if selection_schema and table_schema and selection_schema != table_schema:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected catalog entry does not match the requested schema.",
+        )
+
+
+def _resolve_connection_assignment(
+    table_payload: dict,
+    table: Table,
+    db: Session,
+) -> tuple[UUID | None, UUID | None, bool, bool]:
+    selection_id, selection_present = _extract_payload_value(
+        table_payload,
+        "connection_table_selection_id",
+        "connectionTableSelectionId",
+    )
+    connection_id, connection_present = _extract_payload_value(
+        table_payload,
+        "system_connection_id",
+        "systemConnectionId",
+    )
+
+    if selection_id:
+        selection = db.get(ConnectionTableSelection, selection_id)
+        if not selection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Catalog selection not found.",
+            )
+        _validate_selection_matches_table(selection, table)
+        if not selection.system_connection_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Catalog selection is not linked to an active connection.",
+            )
+        connection_id = selection.system_connection_id
+        connection_present = True
+    elif selection_present and selection_id is None:
+        selection_id = None
+
+    if connection_id:
+        connection = db.get(SystemConnection, connection_id)
+        if not connection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="System connection not found.",
+            )
+    elif connection_present and connection_id is None:
+        connection_id = None
+
+    return connection_id, selection_id, (connection_present or selection_present), selection_present
+
+
 def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> None:
     seen_tables: set[UUID] = set()
     seen_load_orders: set[int] = set()
@@ -272,6 +341,13 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
                 detail="Table does not belong to the selected system.",
             )
 
+        (
+            connection_id,
+            selection_id,
+            _connection_specified,
+            _selection_specified,
+        ) = _resolve_connection_assignment(table_data, table, db)
+
         definition_table = DataDefinitionTable(
             data_definition_id=definition.id,
             table_id=table_id,
@@ -279,6 +355,8 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
             description=table_data.get("description"),
             load_order=load_order,
             is_construction=bool(table_data.get("is_construction", False)),
+            system_connection_id=connection_id,
+            connection_table_selection_id=selection_id,
         )
         db.add(definition_table)
         db.flush()
@@ -326,7 +404,7 @@ def _build_tables(definition: DataDefinition, tables_payload, db: Session) -> No
 
 def _update_tables_preserve_relationships(
     definition: DataDefinition, tables_payload, db: Session
-) -> None:
+) -> list[DataDefinitionTable]:
     seen_tables: set[UUID] = set()
     seen_load_orders: set[int] = set()
 
@@ -335,6 +413,7 @@ def _update_tables_preserve_relationships(
     }
 
     payload_table_ids: set[UUID] = set()
+    tables_to_remove: list[DataDefinitionTable] = []
 
     for table_payload in tables_payload:
         table_data = _to_payload_dict(table_payload)
@@ -393,6 +472,18 @@ def _update_tables_preserve_relationships(
             definition_table.is_construction = bool(table_data.get("is_construction", False))
             if definition_table.table is None:
                 definition_table.table = table
+
+        (
+            connection_id,
+            selection_id,
+            connection_specified,
+            selection_specified,
+        ) = _resolve_connection_assignment(table_data, table, db)
+
+        if connection_specified:
+            definition_table.system_connection_id = connection_id
+        if selection_specified:
+            definition_table.connection_table_selection_id = selection_id
 
         existing_fields_by_field_id: dict[UUID, DataDefinitionField] = {
             field.field_id: field for field in definition_table.fields
@@ -460,7 +551,27 @@ def _update_tables_preserve_relationships(
 
     for table in list(definition.tables):
         if table.table_id not in payload_table_ids:
-            db.delete(table)
+            table.is_construction = False
+            tables_to_remove.append(table)
+
+    return tables_to_remove
+
+
+def _delete_definition_tables(
+    tables_to_remove: Sequence[DataDefinitionTable], db: Session
+) -> None:
+    for table in tables_to_remove:
+        if table in db.deleted:
+            continue
+
+        if table.constructed_table and table.constructed_table not in db.deleted:
+            db.delete(table.constructed_table)
+
+        parent = table.data_definition
+        if parent and table in parent.tables:
+            parent.tables.remove(table)
+
+        db.delete(table)
 
 
 def _get_relationship_or_404(
@@ -717,34 +828,17 @@ def get_available_source_tables(
     if not system_ids:
         return []
     
-    # Get all system connections for these systems
-    connections = (
-        db.query(SystemConnection)
-        .filter(SystemConnection.system_id.in_(system_ids))
-        .all()
-    )
-
-    databricks_connections = [
-        connection for connection in connections if connection_is_databricks(connection)
+    # Get all system connections (some seed data omits explicit system links)
+    connections = db.query(SystemConnection).all()
+    scoped_connections = [
+        connection for connection in connections if connection.system_id in system_ids
     ]
-
-    if not databricks_connections:
-        logger.info(
-            "No Databricks connections linked to data object %s; falling back to global Databricks connections.",
-            data_object_id,
-        )
-        all_connections = db.query(SystemConnection).all()
-        databricks_connections = [
-            connection for connection in all_connections if connection_is_databricks(connection)
-        ]
-
-    connection_ids = [conn.id for conn in connections]
+    primary_connections = scoped_connections or connections
 
     allowed_tables: list[dict] = []
     seen_keys: set[tuple[str | None, str]] = set()
-    connection_map = {connection.id: connection for connection in connections}
-    selections_by_connection: dict[UUID, list[ConnectionTableSelection]] = {}
-    systems_with_known_tables: set[UUID] = set()
+
+    connection_ids = [connection.id for connection in primary_connections]
 
     if connection_ids:
         selections = (
@@ -754,11 +848,6 @@ def get_available_source_tables(
         )
 
         for selection in selections:
-            connection = connection_map.get(selection.system_connection_id)
-            if connection:
-                systems_with_known_tables.add(connection.system_id)
-                selections_by_connection.setdefault(selection.system_connection_id, []).append(selection)
-
             key = ((selection.schema_name or "").lower(), selection.table_name.lower())
             if key in seen_keys:
                 continue
@@ -773,119 +862,6 @@ def get_available_source_tables(
                     "estimatedRows": selection.estimated_rows,
                 }
             )
-
-    table_sources = (
-        db.query(Table)
-        .options(
-            selectinload(Table.system).selectinload(System.connections),
-            selectinload(Table.definition_tables),
-        )
-        .filter(Table.system_id.in_(system_ids))
-        .all()
-    )
-
-    for table in table_sources:
-        if table_is_constructed(table):
-            continue
-
-        schema_name = table.schema_name or ""
-        table_name = table.physical_name or table.name
-        key = (schema_name.lower(), (table_name or "").lower())
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        systems_with_known_tables.add(table.system_id)
-        allowed_tables.append(
-            {
-                "catalogName": getattr(table, "catalog_name", None),
-                "schemaName": schema_name,
-                "tableName": table_name,
-                "tableType": table.table_type,
-                "columnCount": None,
-                "estimatedRows": None,
-            }
-        )
-
-    databricks_system_ids = {connection.system_id for connection in databricks_connections}
-    if databricks_system_ids:
-        tables = (
-            db.query(Table)
-            .options(
-                selectinload(Table.system).selectinload(System.connections),
-                selectinload(Table.definition_tables),
-            )
-            .filter(Table.system_id.in_(databricks_system_ids))
-            .all()
-        )
-
-        for table in tables:
-            if not table_is_databricks_eligible(table):
-                continue
-
-            schema_name = table.schema_name or ""
-            table_name = table.physical_name or table.name
-            key = (schema_name.lower(), (table_name or "").lower())
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            systems_with_known_tables.add(table.system_id)
-            allowed_tables.append(
-                {
-                    "catalogName": getattr(table, "catalog_name", None),
-                    "schemaName": schema_name,
-                    "tableName": table_name,
-                    "tableType": table.table_type,
-                    "columnCount": None,
-                    "estimatedRows": None,
-                }
-            )
-
-    for connection in databricks_connections:
-        # Avoid re-browsing the catalog when manual selections or local tables already cover this system.
-        if selections_by_connection.get(connection.id):
-            continue
-        if connection.system_id in systems_with_known_tables:
-            continue
-
-        try:
-            catalog_tables = fetch_connection_catalog(
-                SystemConnectionType.JDBC,
-                connection.connection_string,
-            )
-        except ConnectionCatalogError as exc:
-            logger.warning(
-                "Unable to browse Databricks catalog for connection %s: %s",
-                connection.id,
-                exc,
-            )
-            continue
-
-        added_any = False
-        for item in catalog_tables:
-            table_name = (item.table_name or "").strip()
-            if not table_name:
-                continue
-
-            schema_name = (item.schema_name or "").strip()
-            key = (schema_name.lower(), table_name.lower())
-            if key in seen_keys:
-                continue
-
-            seen_keys.add(key)
-            added_any = True
-            allowed_tables.append(
-                {
-                    "catalogName": getattr(item, "catalog_name", None),
-                    "schemaName": schema_name,
-                    "tableName": table_name,
-                    "tableType": getattr(item, "table_type", None),
-                    "columnCount": getattr(item, "column_count", None),
-                    "estimatedRows": getattr(item, "estimated_rows", None),
-                }
-            )
-
-        if added_any:
-            systems_with_known_tables.add(connection.system_id)
 
     return allowed_tables
 
@@ -921,11 +897,7 @@ def get_source_table_columns(
         )
     
     # Get all system connections for these systems
-    connections = (
-        db.query(SystemConnection)
-        .filter(SystemConnection.system_id.in_(system_ids))
-        .all()
-    )
+    connections = db.query(SystemConnection).all()
 
     if not connections:
         raise HTTPException(
@@ -1041,11 +1013,15 @@ def update_data_definition(
     if "description" in update_data:
         definition.description = update_data["description"]
 
+    tables_to_remove: list[DataDefinitionTable] = []
     if "tables" in update_data:
-        _update_tables_preserve_relationships(definition, update_data["tables"], db)
+        tables_to_remove = _update_tables_preserve_relationships(
+            definition, update_data["tables"], db
+        )
 
     db.flush()
     sync_construction_tables_for_definition(definition.id, db)
+    _delete_definition_tables(tables_to_remove, db)
     db.commit()
     return _get_definition_or_404(definition.id, db)
 

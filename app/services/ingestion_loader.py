@@ -538,8 +538,6 @@ class SparkTableLoader(BaseTableLoader):
         rows: Sequence[MutableMapping[str, object]],
         column_name: str,
     ):
-        import pyspark.sql.types as T  # pragma: no cover - imported lazily
-
         mapped = self._map_sqlalchemy_to_spark(sqlalchemy_type)
         if mapped is not None:
             return mapped

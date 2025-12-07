@@ -30,7 +30,6 @@ from app.schemas import (
     TestGenTestRun,
     TestGenTestSuite,
     TestResultBatchRequest,
-    TestResultPayload,
     TestRunCompleteRequest,
     TestRunStartRequest,
     TestRunStartResponse,
@@ -41,6 +40,8 @@ from app.schemas import (
     TestDefinitionUpdateRequest,
     DataQualityTestType,
 )
+from app.services.data_quality_backend import LOCAL_BACKEND, get_metadata_backend
+from app.services.data_quality_local_client import LocalTestGenClient
 from app.services.data_quality_testgen import (
     AlertRecord,
     ProfileAnomaly,
@@ -69,13 +70,20 @@ def _ensure_schema(schema: str | None) -> str:
 
 
 def get_testgen_client() -> Generator[TestGenClient, None, None]:
-    params = get_ingestion_connection_params()
-    schema = _ensure_schema(params.data_quality_schema)
-    client = TestGenClient(params, schema=schema)
+    backend = get_metadata_backend()
+    if backend == LOCAL_BACKEND:
+        client: TestGenClient = LocalTestGenClient()
+    else:
+        params = get_ingestion_connection_params()
+        schema = _ensure_schema(params.data_quality_schema)
+        client = TestGenClient(params, schema=schema)
     try:
         yield client
     finally:
-        client.close()
+        try:
+            client.close()
+        except Exception:  # pragma: no cover - defensive guard
+            pass
 
 
 def _invoke(call: Callable[[], object]):

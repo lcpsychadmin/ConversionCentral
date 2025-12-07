@@ -153,16 +153,14 @@ def test_reporting_tables_filters_to_databricks(client: TestClient, db_session: 
     db_session.add(databricks_table)
     db_session.flush()
 
-    db_session.add(
-        SystemConnection(
-            system_id=databricks_system.id,
-            connection_type="jdbc",
-            connection_string="jdbc:databricks://workspace.cloud.databricks.com:443/default",
-            auth_method="username_password",
-            active=True,
-            ingestion_enabled=True,
-        )
+    databricks_connection = SystemConnection(
+        connection_type="jdbc",
+        connection_string="jdbc:databricks://workspace.cloud.databricks.com:443/default",
+        auth_method="username_password",
+        active=True,
+        system=databricks_system,
     )
+    db_session.add(databricks_connection)
 
     legacy_system = System(
         name="Legacy Warehouse",
@@ -182,16 +180,14 @@ def test_reporting_tables_filters_to_databricks(client: TestClient, db_session: 
     db_session.add(legacy_table)
     db_session.flush()
 
-    db_session.add(
-        SystemConnection(
-            system_id=legacy_system.id,
-            connection_type="jdbc",
-            connection_string="jdbc:postgresql://localhost:5432/warehouse",
-            auth_method="username_password",
-            active=True,
-            ingestion_enabled=True,
-        )
+    legacy_connection = SystemConnection(
+        connection_type="jdbc",
+        connection_string="jdbc:postgresql://localhost:5432/warehouse",
+        auth_method="username_password",
+        active=True,
+        system=legacy_system,
     )
+    db_session.add(legacy_connection)
 
     managed_system = System(
         name="Managed Source",

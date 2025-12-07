@@ -31,15 +31,16 @@ def _create_system(db: Session) -> System:
     return system
 
 
-def _create_connection(db: Session, system: System) -> SystemConnection:
+def _create_connection(db: Session, system: System | None = None) -> SystemConnection:
     connection = SystemConnection(
         id=uuid4(),
-        system_id=system.id,
         connection_type=SystemConnectionType.JDBC.value,
         connection_string="jdbc:postgresql://localhost:5432/example",
         auth_method="username_password",
         active=True,
     )
+    if system is not None:
+        connection.system = system
     db.add(connection)
     db.flush()
     return connection
@@ -245,7 +246,8 @@ def test_unselect_catalog_table_triggers_cascade(
         id=uuid4(),
         data_definition_id=data_definition.id,
         table_id=table.id,
-        is_construction=False,
+            is_construction=False,
+            system_connection_id=connection.id,
     )
 
     report_definition = {
@@ -363,6 +365,54 @@ def test_catalog_preview_returns_data(
     }
 
 
+def test_catalog_observability_plan_returns_categories(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    system = _create_system(db_session)
+    connection = _create_connection(db_session, system)
+
+    selection = ConnectionTableSelection(
+        system_connection_id=connection.id,
+        schema_name="public",
+        table_name="customers",
+        table_type="table",
+        column_count=12,
+        estimated_rows=1250,
+        last_seen_at=datetime.now(timezone.utc),
+    )
+    db_session.add(selection)
+    db_session.commit()
+
+    response = client.get(f"/system-connections/{connection.id}/catalog/observability")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["system_connection_id"] == str(connection.id)
+    assert payload["table_count"] == 1
+    assert payload["connection_name"] == connection.display_name
+    assert payload["tables"]
+
+    table_entry = payload["tables"][0]
+    assert table_entry["schema_name"] == "public"
+    assert table_entry["table_name"] == "customers"
+    assert table_entry["column_count"] == 12
+    assert table_entry["estimated_rows"] == 1250
+
+    category_names = {category["name"] for category in table_entry["categories"]}
+    assert category_names == {
+        "Structural Metrics",
+        "Schema & Evolution Metrics",
+        "Operational Metrics",
+        "Governance & Compliance Metrics",
+    }
+
+    structural = next(cat for cat in table_entry["categories"] if cat["name"] == "Structural Metrics")
+    assert structural["cadence"].lower().startswith("daily")
+    row_metric = next(metric for metric in structural["metrics"] if metric["name"] == "Row count trend")
+    assert "~1,250" in (row_metric["baseline"] or "")
+
+
 def test_connection_delete_triggers_catalog_cleanup(
     client: TestClient,
     db_session: Session,
@@ -394,7 +444,8 @@ def test_connection_delete_triggers_catalog_cleanup(
         id=uuid4(),
         data_definition_id=data_definition.id,
         table_id=table.id,
-        is_construction=False,
+            is_construction=False,
+            system_connection_id=connection.id,
     )
 
     selection = ConnectionTableSelection(

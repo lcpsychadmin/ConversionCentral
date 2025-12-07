@@ -58,7 +58,6 @@ class ProfilingTarget:
     schema_name: str | None
     http_path: str | None
     project_key: str | None
-    system_id: str | None
     profiling_job_id: int | None
     is_active: bool
 
@@ -91,6 +90,8 @@ class DataQualityProfilingService:
     ) -> None:
         self._client = client
         self._settings = settings or get_settings()
+        execution_setting = getattr(self._settings, "profiling_execution_mode", None)
+        self._execution_mode = (execution_setting or "databricks").strip().lower()
         self._jobs_client = jobs_client
         self._workspace_client: DatabricksWorkspaceClient | None = workspace_client
         self._ingestion_params: DatabricksConnectionParams | None = None
@@ -131,6 +132,15 @@ class DataQualityProfilingService:
         )
 
     def launch_prepared_profile_run(self, prepared: PreparedProfileRun) -> ProfilingLaunchResult:
+        if self._execution_mode == "local":
+            from app.services.local_profiling_runner import local_profiling_runner
+
+            try:
+                return local_profiling_runner.enqueue(prepared)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self._mark_run_failed(prepared.profile_run_id)
+                raise ProfilingServiceError(str(exc)) from exc
+
         job_id = self._ensure_job(prepared.target)
 
         try:
@@ -181,7 +191,6 @@ class DataQualityProfilingService:
             schema_name=details.get("schema_name"),
             http_path=details.get("http_path"),
             project_key=details.get("project_key"),
-            system_id=details.get("system_id"),
             profiling_job_id=profiling_job_id,
             is_active=is_active,
         )

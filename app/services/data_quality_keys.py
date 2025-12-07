@@ -7,7 +7,13 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import DataDefinition, DataDefinitionTable, DataObjectSystem, Table
+from app.models import (
+    ConnectionTableSelection,
+    DataDefinition,
+    DataDefinitionTable,
+    DataObjectSystem,
+    Table,
+)
 
 _PROJECT_PREFIX = "system:"
 _DATA_OBJECT_PREFIX = "object:"
@@ -99,21 +105,36 @@ def project_keys_for_table(db: Session, table_id: Optional[UUID | str]) -> Set[s
 
 def project_keys_for_table_selection(
     db: Session,
-    system_id: Optional[UUID | str],
-    schema_name: Optional[str],
-    table_name: Optional[str],
+    selection: Optional[ConnectionTableSelection],
 ) -> Set[str]:
-    if not system_id or not table_name:
+    if selection is None:
         return set()
 
-    normalized_table = table_name.strip().lower()
-    normalized_schema = (schema_name or "").strip().lower()
+    stmt = (
+        select(DataDefinition.system_id, DataDefinition.data_object_id)
+        .join(DataDefinitionTable, DataDefinitionTable.data_definition_id == DataDefinition.id)
+        .where(DataDefinitionTable.connection_table_selection_id == selection.id)
+    )
+
+    keys: Set[str] = set()
+    for sys_id, data_object_id in db.execute(stmt):
+        if sys_id and data_object_id:
+            keys.add(build_project_key(sys_id, data_object_id))
+
+    if keys:
+        return keys
+
+    # Fallback for legacy definitions that have not yet been linked to selections.
+    normalized_table = (selection.table_name or "").strip().lower()
+    normalized_schema = (selection.schema_name or "").strip().lower()
+
+    if not normalized_table:
+        return set()
 
     stmt = (
         select(DataDefinition.system_id, DataDefinition.data_object_id)
         .join(DataDefinitionTable, DataDefinitionTable.data_definition_id == DataDefinition.id)
         .join(Table, Table.id == DataDefinitionTable.table_id)
-        .where(DataDefinition.system_id == system_id)
         .where(
             or_(
                 func.lower(Table.physical_name) == normalized_table,
@@ -126,14 +147,12 @@ def project_keys_for_table_selection(
         stmt = stmt.where(func.lower(func.coalesce(Table.schema_name, "")) == normalized_schema)
 
     stmt = stmt.distinct()
-
-    keys: Set[str] = set()
     for sys_id, data_object_id in db.execute(stmt):
         if sys_id and data_object_id:
             keys.add(build_project_key(sys_id, data_object_id))
 
-    if not keys:
-        keys = project_keys_for_system(db, system_id)
+    if keys:
+        return keys
 
     return keys
 

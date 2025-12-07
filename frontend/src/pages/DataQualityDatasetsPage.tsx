@@ -108,7 +108,18 @@ const DataQualityDatasetsPage = () => {
     });
     const lookup = new Map<string, DataQualityProfileRunEntry>();
     sorted.forEach((run) => {
-      if (!lookup.has(run.tableGroupId)) {
+      const existing = lookup.get(run.tableGroupId);
+      if (existing?.status?.toLowerCase() === 'completed') {
+        return;
+      }
+
+      const isCompleted = run.status?.toLowerCase() === 'completed';
+      if (isCompleted) {
+        lookup.set(run.tableGroupId, run);
+        return;
+      }
+
+      if (!existing) {
         lookup.set(run.tableGroupId, run);
       }
     });

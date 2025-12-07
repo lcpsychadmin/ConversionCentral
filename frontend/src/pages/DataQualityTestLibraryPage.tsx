@@ -178,7 +178,7 @@ const DataQualityTestLibraryPage = () => {
       ) : (
         <Paper elevation={0} sx={{ p: 3 }}>
           <Typography color="text.secondary">
-            No TestGen projects configured yet. Configure Databricks settings and synchronize source
+            No TestGen projects configured yet. Synchronize source
             systems to begin generating tests.
           </Typography>
         </Paper>

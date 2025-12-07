@@ -8,6 +8,7 @@ from app.ingestion.engine import get_ingestion_engine, reset_ingestion_engine
 from app.models import (
     ConstructedField,
     ConstructedTable,
+    ConnectionTableSelection,
     DataDefinition,
     DataDefinitionTable,
     DataObject,
@@ -230,9 +231,14 @@ def test_preview_collapses_multiple_databricks_connections(db_session, monkeypat
 
     remote_system = System(name="Demo_Data", physical_name="demo_data")
     remote_connection = SystemConnection(
-        system=remote_system,
         connection_type=SystemConnectionType.JDBC,
         connection_string="jdbc:databricks://example.cloud.databricks.com:443/default",
+    )
+    remote_selection = ConnectionTableSelection(
+        system_connection=remote_connection,
+        schema_name="",
+        table_name="demo_customers",
+        table_type="table",
     )
     remote_table = Table(
         system=remote_system,
@@ -270,6 +276,7 @@ def test_preview_collapses_multiple_databricks_connections(db_session, monkeypat
             remote_system,
             remote_connection,
             remote_table,
+            remote_selection,
             remote_join_field,
             remote_status_field,
         ]
@@ -434,11 +441,6 @@ def test_preview_falls_back_to_managed_for_databricks_like_schema(db_session, mo
     process_area = ProcessArea(name="Sales")
     data_object = DataObject(process_area=process_area, name="Web Sales", description="Fallback test")
     system = System(name="Demo Data", physical_name="demo_data")
-    connection = SystemConnection(
-        system=system,
-        connection_type=SystemConnectionType.JDBC,
-        connection_string="jdbc:postgresql://localhost:5432/demo",
-    )
     table = Table(
         system=system,
         name="Products",
@@ -454,7 +456,7 @@ def test_preview_falls_back_to_managed_for_databricks_like_schema(db_session, mo
         decimal_places=None,
     )
 
-    db_session.add_all([process_area, data_object, system, connection, table, field])
+    db_session.add_all([process_area, data_object, system, table, field])
     db_session.commit()
 
     definition = _build_report_definition(table, [field])
@@ -506,19 +508,30 @@ def test_preview_prefers_databricks_connection_when_multiple_available(db_sessio
     data_object = DataObject(process_area=process_area, name="Web Sales", description="Preview test")
     system = System(name="Demo Data", physical_name="demo_data")
     postgres_connection = SystemConnection(
-        system=system,
         connection_type=SystemConnectionType.JDBC,
         connection_string="jdbc:postgresql://localhost:5432/demo",
     )
     databricks_connection = SystemConnection(
-        system=system,
         connection_type=SystemConnectionType.JDBC,
         connection_string="jdbc:databricks://example.cloud.databricks.com:443/default",
+    )
+    table_name = "demo_data_sample_data_websales_products"
+    selection_postgres = ConnectionTableSelection(
+        system_connection=postgres_connection,
+        schema_name="",
+        table_name=table_name,
+        table_type="table",
+    )
+    selection_databricks = ConnectionTableSelection(
+        system_connection=databricks_connection,
+        schema_name="",
+        table_name=table_name,
+        table_type="table",
     )
     table = Table(
         system=system,
         name="Products",
-        physical_name="demo_data_sample_data_websales_products",
+        physical_name=table_name,
         schema_name=None,
     )
     field = Field(
@@ -539,6 +552,8 @@ def test_preview_prefers_databricks_connection_when_multiple_available(db_sessio
             databricks_connection,
             table,
             field,
+            selection_postgres,
+            selection_databricks,
         ]
     )
     db_session.commit()

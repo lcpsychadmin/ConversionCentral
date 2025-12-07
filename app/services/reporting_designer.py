@@ -21,7 +21,6 @@ from app.models.entities import (
 from app.schemas import SystemConnectionType
 from app.schemas.reporting import (
     ReportAggregateFn,
-    ReportDesignerColumn,
     ReportDesignerDefinition,
     ReportDesignerJoin,
     ReportJoinType,
@@ -33,7 +32,7 @@ from app.services.constructed_data_warehouse import (
     ConstructedDataWarehouse,
     ConstructedDataWarehouseError,
 )
-from app.services.scheduled_ingestion import (
+from app.services.ingestion_support import (
     build_ingestion_schema_name,
     build_ingestion_table_name,
 )
@@ -748,33 +747,6 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
                         override = column_map.get(table_field.name)
                         if override:
                             field_column_overrides[table_field.id] = override
-        elif system is not None:
-            fallback_handle: _ConnectionHandle | None = None
-            for connection in getattr(system, "connections", []) or []:
-                resolved = _resolve_connection_identity(connection)
-                if not resolved:
-                    continue
-                connection_type, connection_string = resolved
-                connection_dialect = _infer_connection_dialect(connection_type, connection_string)
-                handle = _ConnectionHandle(
-                    kind="system",
-                    connection_type=connection_type,
-                    connection_string=connection_string,
-                    dialect=connection_dialect,
-                )
-                if (
-                    getattr(connection, "ingestion_enabled", False)
-                    and ingestion_source_connection is None
-                    and connection_dialect != "databricks"
-                ):
-                    ingestion_source_connection = connection
-                if connection_dialect == "databricks":
-                    connection_identity = handle
-                    break
-                if fallback_handle is None:
-                    fallback_handle = handle
-            if connection_identity is None and fallback_handle is not None:
-                connection_identity = fallback_handle
         if connection_identity is None:
             selection_match = _locate_catalog_selection(table)
             if selection_match is not None:
@@ -788,7 +760,7 @@ def generate_report_preview(db: Session, definition: ReportDesignerDefinition, *
                         connection_string=connection_string,
                         dialect=connection_dialect,
                     )
-        if selection_match is not None and getattr(selection_match.system_connection, "ingestion_enabled", False):
+        if selection_match is not None:
             resolved = _resolve_connection_identity(selection_match.system_connection)
             if resolved:
                 sel_type, sel_string = resolved

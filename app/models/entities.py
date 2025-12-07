@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 import sqlalchemy as sa
@@ -206,12 +207,6 @@ class ExecutionContext(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="planned")
 
     mock_cycle: Mapped[MockCycle] = relationship("MockCycle", back_populates="execution_contexts")
-    ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(
-        "IngestionJob",
-        back_populates="execution_context",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
     constructed_tables: Mapped[list["ConstructedTable"]] = relationship(
         "ConstructedTable",
         back_populates="execution_context",
@@ -236,6 +231,7 @@ class ConstructedTable(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("data_definition_tables.id", ondelete="CASCADE"), nullable=True, unique=True
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
@@ -614,14 +610,14 @@ class System(Base, TimestampMixin):
         viewonly=True,
         overlaps="data_object_links,system_links",
     )
-    connections: Mapped[list["SystemConnection"]] = relationship(
-        "SystemConnection",
+    data_definitions: Mapped[list["DataDefinition"]] = relationship(
+        "DataDefinition",
         back_populates="system",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    data_definitions: Mapped[list["DataDefinition"]] = relationship(
-        "DataDefinition",
+    connections: Mapped[list["SystemConnection"]] = relationship(
+        "SystemConnection",
         back_populates="system",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -691,6 +687,16 @@ class DataDefinitionTable(Base, TimestampMixin):
     table_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tables.id", ondelete="CASCADE"), nullable=False
     )
+    system_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("system_connections.system_connection_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    connection_table_selection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connection_table_selections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     alias: Mapped[str | None] = mapped_column(String(200), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     load_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -698,6 +704,10 @@ class DataDefinitionTable(Base, TimestampMixin):
 
     data_definition: Mapped[DataDefinition] = relationship("DataDefinition", back_populates="tables")
     table: Mapped["Table"] = relationship("Table", back_populates="definition_tables")
+    system_connection: Mapped[Optional["SystemConnection"]] = relationship("SystemConnection")
+    connection_table_selection: Mapped[Optional["ConnectionTableSelection"]] = relationship(
+        "ConnectionTableSelection"
+    )
     fields: Mapped[list["DataDefinitionField"]] = relationship(
         "DataDefinitionField",
         back_populates="definition_table",
@@ -943,12 +953,6 @@ class Table(Base, TimestampMixin):
     )
     definition_tables: Mapped[list["DataDefinitionTable"]] = relationship(
         "DataDefinitionTable",
-        back_populates="table",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(
-        "IngestionJob",
         back_populates="table",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -1484,9 +1488,10 @@ class SystemConnection(Base, TimestampMixin):
         primary_key=True,
         default=uuid.uuid4,
     )
-    system_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("systems.id", ondelete="CASCADE"), nullable=False
+    system_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("systems.id", ondelete="SET NULL"), nullable=True
     )
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Connection")
     connection_type: Mapped[str] = mapped_column(
         sa.Enum(
             "jdbc",
@@ -1512,10 +1517,15 @@ class SystemConnection(Base, TimestampMixin):
         default="username_password",
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    ingestion_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    use_databricks_managed_connection: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    databricks_catalog: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    databricks_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
-    system: Mapped[System] = relationship("System", back_populates="connections")
+    system: Mapped[System | None] = relationship("System", back_populates="connections")
+
     catalog_selections: Mapped[list["ConnectionTableSelection"]] = relationship(
         "ConnectionTableSelection",
         back_populates="system_connection",
@@ -1557,43 +1567,6 @@ class ConnectionTableSelection(Base, TimestampMixin):
     system_connection: Mapped[SystemConnection] = relationship(
         "SystemConnection", back_populates="catalog_selections"
     )
-    ingestion_schedules: Mapped[list["IngestionSchedule"]] = relationship(
-        "IngestionSchedule",
-        back_populates="table_selection",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-
-
-class IngestionJob(Base, TimestampMixin):
-    __tablename__ = "ingestion_jobs"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        "ingestion_job_id",
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    execution_context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_contexts.id", ondelete="CASCADE"), nullable=False
-    )
-    table_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tables.id", ondelete="CASCADE"), nullable=False
-    )
-    status: Mapped[str] = mapped_column(
-        sa.Enum("pending", "running", "completed", "failed", name="ingestion_job_status_enum"),
-        nullable=False,
-        default="pending",
-    )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    execution_context: Mapped[ExecutionContext] = relationship(
-        "ExecutionContext", back_populates="ingestion_jobs"
-    )
-    table: Mapped[Table] = relationship("Table", back_populates="ingestion_jobs")
 
 
 class DatabricksSqlSetting(Base, TimestampMixin):
@@ -1711,68 +1684,6 @@ class ApplicationSetting(Base, TimestampMixin):
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-class IngestionSchedule(Base, TimestampMixin):
-    __tablename__ = "ingestion_schedules"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        "ingestion_schedule_id",
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    connection_table_selection_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("connection_table_selections.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    schedule_expression: Mapped[str] = mapped_column(String(120), nullable=False)
-    timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    load_strategy: Mapped[str] = mapped_column(
-        sa.Enum(
-            "timestamp",
-            "numeric_key",
-            "full",
-            name="ingestion_load_strategy_enum",
-        ),
-        nullable=False,
-        default="timestamp",
-    )
-    watermark_column: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    primary_key_column: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    target_schema: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    target_table_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    target_warehouse: Mapped[str] = mapped_column(
-        sa.Enum("databricks_sql", name="data_warehouse_type_enum"),
-        nullable=False,
-        default="databricks_sql",
-    )
-    sap_hana_setting_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("sap_hana_settings.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=5_000)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_watermark_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_watermark_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    last_run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_run_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_run_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    last_run_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_rows_loaded: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-
-    table_selection: Mapped[ConnectionTableSelection] = relationship(
-        "ConnectionTableSelection", back_populates="ingestion_schedules"
-    )
-    runs: Mapped[list["IngestionRun"]] = relationship(
-        "IngestionRun",
-        back_populates="schedule",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-
-
 class DataQualityProfilingSchedule(Base, TimestampMixin):
     __tablename__ = "data_quality_profiling_schedules"
     __table_args__ = (
@@ -1822,44 +1733,114 @@ class DataQualityProfilingSchedule(Base, TimestampMixin):
     )
 
 
-class IngestionRun(Base, TimestampMixin):
-    __tablename__ = "ingestion_runs"
+class TableObservabilityCategorySchedule(Base, TimestampMixin):
+    __tablename__ = "table_observability_category_schedules"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "category_name",
+            name="uq_table_observability_category_schedules_category",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        "ingestion_run_id",
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    ingestion_schedule_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("ingestion_schedules.ingestion_schedule_id", ondelete="CASCADE"),
-        nullable=False,
+    category_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    cron_expression: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_run_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    runs: Mapped[list["TableObservabilityRun"]] = relationship(
+        "TableObservabilityRun",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    status: Mapped[str] = mapped_column(
-        sa.Enum(
-            "scheduled",
-            "running",
-            "completed",
-            "failed",
-            name="ingestion_run_status_enum",
+
+
+class TableObservabilityRun(Base, TimestampMixin):
+    __tablename__ = "table_observability_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "table_observability_category_schedules.id",
+            ondelete="SET NULL",
         ),
-        nullable=False,
-        default="scheduled",
+        nullable=True,
     )
+    category_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    rows_loaded: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rows_expected: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    watermark_timestamp_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    watermark_timestamp_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    watermark_id_before: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    watermark_id_after: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    table_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metrics_collected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    schedule: Mapped[IngestionSchedule] = relationship(
-        "IngestionSchedule", back_populates="runs"
+    schedule: Mapped[Optional[TableObservabilityCategorySchedule]] = relationship(
+        "TableObservabilityCategorySchedule",
+        back_populates="runs",
+    )
+    metrics: Mapped[list["TableObservabilityMetric"]] = relationship(
+        "TableObservabilityMetric",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class TableObservabilityMetric(Base, TimestampMixin):
+    __tablename__ = "table_observability_metrics"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("table_observability_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    selection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connection_table_selections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    system_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("system_connections.system_connection_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    schema_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    table_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    metric_category: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    metric_unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    metric_value_number: Mapped[Decimal | None] = mapped_column(
+        sa.Numeric(20, 4), nullable=True
+    )
+    metric_value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metric_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    metric_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    run: Mapped[TableObservabilityRun] = relationship(
+        "TableObservabilityRun",
+        back_populates="metrics",
+    )
+    selection: Mapped[Optional[ConnectionTableSelection]] = relationship(
+        "ConnectionTableSelection"
+    )
+    system_connection: Mapped[Optional[SystemConnection]] = relationship(
+        "SystemConnection"
     )
 
 

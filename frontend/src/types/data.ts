@@ -1,3 +1,72 @@
+export type RelationalDatabaseType = 'postgresql' | 'databricks' | 'sap';
+
+export type SystemConnectionType = 'jdbc';
+
+export type SystemConnectionAuthMethod = 'username_password';
+
+export interface System {
+  id: string;
+  name: string;
+  physicalName?: string | null;
+  description?: string | null;
+  systemType?: string | null;
+  status: string;
+  securityClassification?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SystemFormValues {
+  name: string;
+  physicalName: string;
+  description?: string | null;
+  systemType?: string | null;
+  status: string;
+  securityClassification?: string | null;
+}
+
+export interface SystemConnection {
+  id: string;
+  name: string;
+  systemId?: string | null;
+  connectionType: SystemConnectionType;
+  connectionString: string;
+  authMethod: SystemConnectionAuthMethod;
+  active: boolean;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LegalRequirement {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SecurityClassification {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  displayOrder?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ReleaseFormValues {
+  projectId: string;
+  name: string;
+  description?: string | null;
+  status: string;
+}
+
+export interface ReleaseInput extends ReleaseFormValues {}
+
 export interface DataObject {
   id: string;
   name: string;
@@ -86,184 +155,24 @@ export interface Release {
   projectName?: string | null;
 }
 
-export interface ReleaseFormValues {
-  projectId: string;
-  name: string;
-  description?: string | null;
-  status: string;
-}
-
-export interface ReleaseInput extends ReleaseFormValues {}
-
-export interface System {
-  id: string;
-  name: string;
-  physicalName: string;
-  description?: string | null;
-  systemType?: string | null;
-  status: string;
-  securityClassification?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface LegalRequirement {
-  id: string;
-  name: string;
-  description?: string | null;
-  status: string;
-  displayOrder?: number | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface SecurityClassification {
-  id: string;
-  name: string;
-  description?: string | null;
-  status: string;
-  displayOrder?: number | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface SystemFormValues {
-  name: string;
-  physicalName: string;
-  description?: string | null;
-  systemType?: string | null;
-  status: string;
-  securityClassification?: string | null;
-}
-
-export type SystemConnectionType = 'jdbc' | 'odbc' | 'api' | 'file' | 'saprfc' | 'other';
-
-export type SystemConnectionAuthMethod =
-  | 'username_password'
-  | 'oauth'
-  | 'key_vault_reference';
-
-export type RelationalDatabaseType = 'postgresql' | 'databricks' | 'sap';
-
-export interface SystemConnection {
-  id: string;
-  systemId: string;
-  connectionType: SystemConnectionType;
-  connectionString: string;
-  authMethod: SystemConnectionAuthMethod;
-  active: boolean;
-  ingestionEnabled: boolean;
-  usesDatabricksManagedConnection: boolean;
-  notes?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 export interface SystemConnectionInput {
-  systemId: string;
+  name?: string;
+  systemId?: string | null;
   connectionType: SystemConnectionType;
   connectionString?: string;
   authMethod: SystemConnectionAuthMethod;
   notes?: string | null;
   active?: boolean;
-  ingestionEnabled?: boolean;
-  useDatabricksManagedConnection?: boolean;
-  databricksCatalog?: string | null;
-  databricksSchema?: string | null;
 }
 
 export interface SystemConnectionUpdateInput {
-  systemId?: string;
+  name?: string;
+  systemId?: string | null;
   connectionType?: SystemConnectionType;
   connectionString?: string;
   authMethod?: SystemConnectionAuthMethod;
   notes?: string | null;
   active?: boolean;
-  ingestionEnabled?: boolean;
-  useDatabricksManagedConnection?: boolean;
-  databricksCatalog?: string | null;
-  databricksSchema?: string | null;
-}
-
-export interface DatabricksSqlSettings {
-  id: string;
-  displayName: string;
-  workspaceHost: string;
-  httpPath: string;
-  catalog?: string | null;
-  schemaName?: string | null;
-  constructedSchema?: string | null;
-  dataQualitySchema?: string | null;
-  dataQualityStorageFormat: 'delta' | 'hudi';
-  dataQualityAutoManageTables: boolean;
-  profilingPolicyId?: string | null;
-  profilingNotebookPath?: string | null;
-  ingestionBatchRows?: number | null;
-  ingestionMethod: 'sql' | 'spark';
-  sparkCompute?: 'classic' | 'serverless' | null;
-  warehouseName?: string | null;
-  isActive: boolean;
-  hasAccessToken: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface DatabricksSqlSettingsInput {
-  displayName: string;
-  workspaceHost: string;
-  httpPath: string;
-  accessToken: string;
-  catalog?: string | null;
-  schemaName?: string | null;
-  constructedSchema?: string | null;
-  dataQualitySchema?: string | null;
-  dataQualityStorageFormat: 'delta' | 'hudi';
-  dataQualityAutoManageTables: boolean;
-  profilingPolicyId?: string | null;
-  profilingNotebookPath?: string | null;
-  ingestionBatchRows?: number | null;
-  ingestionMethod: 'sql' | 'spark';
-  sparkCompute?: 'classic' | 'serverless' | null;
-  warehouseName?: string | null;
-}
-
-export interface DatabricksSqlSettingsUpdate {
-  displayName?: string;
-  workspaceHost?: string;
-  httpPath?: string;
-  accessToken?: string | null;
-  catalog?: string | null;
-  schemaName?: string | null;
-  constructedSchema?: string | null;
-  dataQualitySchema?: string | null;
-  dataQualityStorageFormat?: 'delta' | 'hudi';
-  dataQualityAutoManageTables?: boolean;
-  profilingPolicyId?: string | null;
-  profilingNotebookPath?: string | null;
-  ingestionBatchRows?: number | null;
-  ingestionMethod?: 'sql' | 'spark';
-  sparkCompute?: 'classic' | 'serverless' | null;
-  warehouseName?: string | null;
-  isActive?: boolean;
-}
-
-export interface DatabricksSqlSettingsTestResult {
-  success: boolean;
-  message: string;
-  durationMs?: number | null;
-}
-
-export interface DatabricksClusterPolicy {
-  id: string;
-  settingId: string;
-  policyId: string;
-  name: string;
-  description?: string | null;
-  definition?: Record<string, unknown> | null;
-  isActive: boolean;
-  syncedAt?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export interface DatabricksDataType {
@@ -372,7 +281,7 @@ export interface CompanySettings {
 export interface CompanySettingsUpdateInput extends CompanySettings {}
 
 export interface SystemConnectionFormValues {
-  systemId: string;
+  name: string;
   databaseType: RelationalDatabaseType;
   host: string;
   port: string;
@@ -382,10 +291,6 @@ export interface SystemConnectionFormValues {
   options?: Record<string, string>;
   notes?: string | null;
   active: boolean;
-  ingestionEnabled: boolean;
-  useDatabricksManagedConnection: boolean;
-  databricksCatalogOverride?: string;
-  databricksSchemaOverride?: string;
 }
 
 export interface ConnectionCatalogTable {
@@ -412,7 +317,62 @@ export interface ConnectionCatalogSelectionInput {
   estimatedRows?: number | null;
 }
 
-export type IngestionLoadStrategy = 'timestamp' | 'numeric_key' | 'full';
+export interface TableObservabilitySchedule {
+  scheduleId: string;
+  categoryKey: string;
+  categoryName: string;
+  cronExpression: string;
+  timezone: string;
+  isActive: boolean;
+  defaultCronExpression: string;
+  defaultTimezone: string;
+  cadence: string;
+  rationale: string;
+  lastRunStatus?: string | null;
+  lastRunStartedAt?: string | null;
+  lastRunCompletedAt?: string | null;
+  lastRunError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TableObservabilityScheduleUpdateInput {
+  cronExpression?: string;
+  timezone?: string;
+  isActive?: boolean;
+}
+
+export interface TableObservabilityRun {
+  runId: string;
+  scheduleId?: string | null;
+  categoryKey: string;
+  categoryName: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  tableCount: number;
+  metricsCollected: number;
+  error?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TableObservabilityMetric {
+  metricId: string;
+  runId: string;
+  selectionId?: string | null;
+  systemConnectionId?: string | null;
+  schemaName?: string | null;
+  tableName: string;
+  metricCategory: string;
+  metricName: string;
+  metricUnit?: string | null;
+  metricValueNumber?: number | null;
+  metricValueText?: string | null;
+  metricPayload?: Record<string, unknown> | null;
+  metricStatus?: string | null;
+  recordedAt: string;
+}
 
 export type DataWarehouseTarget = 'databricks_sql';
 
@@ -434,7 +394,6 @@ export interface DataQualityProject {
 export interface DataQualityConnection {
   connectionId: string;
   projectKey: string;
-  systemId?: string | null;
   name: string;
   catalog?: string | null;
   schemaName?: string | null;
@@ -542,17 +501,6 @@ export interface DataQualityProfileValueEntry {
   label?: string | null;
   lower?: number | null;
   upper?: number | null;
-}
-
-export interface DataQualityProfileAnomalyEntry {
-  anomalyTypeId?: string | null;
-  severity?: string | null;
-  likelihood?: string | null;
-  detail?: string | null;
-  piiRisk?: string | null;
-  dqDimension?: string | null;
-  columnName?: string | null;
-  detectedAt?: string | null;
 }
 
 export interface DataQualityProfileColumnEntry {
@@ -685,6 +633,17 @@ export interface DataQualityNumericDistributionBar {
   label: string;
   count: number;
   percentage?: number | null;
+}
+
+export interface DataQualityProfileAnomalyEntry {
+  anomalyTypeId?: string | null;
+  severity?: string | null;
+  likelihood?: string | null;
+  detail?: string | null;
+  piiRisk?: string | null;
+  dqDimension?: string | null;
+  columnName?: string | null;
+  detectedAt?: string | null;
 }
 
 export interface DataQualityNumericBoxPlot {
@@ -1047,78 +1006,6 @@ export interface UploadDataCreateResponse {
   dataDefinitionTableId?: string | null;
 }
 
-export interface IngestionSchedule {
-  id: string;
-  connectionTableSelectionId: string;
-  scheduleExpression: string;
-  timezone?: string | null;
-  loadStrategy: IngestionLoadStrategy;
-  watermarkColumn?: string | null;
-  primaryKeyColumn?: string | null;
-  targetSchema?: string | null;
-  targetTableName?: string | null;
-  targetWarehouse: DataWarehouseTarget;
-  sapHanaSettingId?: string | null;
-  batchSize: number;
-  isActive: boolean;
-  lastWatermarkTimestamp?: string | null;
-  lastWatermarkId?: number | null;
-  lastRunStartedAt?: string | null;
-  lastRunCompletedAt?: string | null;
-  lastRunStatus?: string | null;
-  lastRunError?: string | null;
-  totalRuns: number;
-  totalRowsLoaded: number;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface IngestionScheduleInput {
-  connectionTableSelectionId: string;
-  scheduleExpression: string;
-  timezone?: string | null;
-  loadStrategy: IngestionLoadStrategy;
-  watermarkColumn?: string | null;
-  primaryKeyColumn?: string | null;
-  targetSchema?: string | null;
-  targetTableName?: string | null;
-  targetWarehouse: DataWarehouseTarget;
-  sapHanaSettingId?: string | null;
-  batchSize: number;
-  isActive: boolean;
-}
-
-export interface IngestionScheduleUpdateInput {
-  scheduleExpression?: string;
-  timezone?: string | null;
-  loadStrategy?: IngestionLoadStrategy;
-  watermarkColumn?: string | null;
-  primaryKeyColumn?: string | null;
-  targetSchema?: string | null;
-  targetTableName?: string | null;
-  targetWarehouse?: DataWarehouseTarget;
-  sapHanaSettingId?: string | null;
-  batchSize?: number;
-  isActive?: boolean;
-}
-
-export interface IngestionRun {
-  id: string;
-  ingestionScheduleId: string;
-  status: 'scheduled' | 'running' | 'completed' | 'failed';
-  startedAt?: string | null;
-  completedAt?: string | null;
-  rowsLoaded?: number | null;
-  rowsExpected?: number | null;
-  watermarkTimestampBefore?: string | null;
-  watermarkTimestampAfter?: string | null;
-  watermarkIdBefore?: number | null;
-  watermarkIdAfter?: number | null;
-  queryText?: string | null;
-  errorMessage?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
 
 export interface Table {
   id: string;

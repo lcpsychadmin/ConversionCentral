@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from app.schemas.canvas import CanvasGraph
-from app.schemas.dbt import DbtArtifactBundle, DbtArtifactFile
+from app.schemas.dbt import DbtArtifactBundle
 from app.services.canvas_testgen_sync import (
     CanvasTestGenSyncError,
     sync_canvas_graph_to_testgen,

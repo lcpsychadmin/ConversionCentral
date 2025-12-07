@@ -149,6 +149,10 @@ Business users can now curate supplemental data assets that feed migration execu
 
 Each endpoint supports the complete CRUD surface and enforces foreign key integrity across execution contexts, approvals, and users.
 
+#### Per-Application Schemas
+
+Constructed tables now live inside the owning application's schema so enrichment data stays alongside its source system artifacts. Set `constructed_schema_name` (Databricks) and `constructed_sql_schema_name` (SQL Server) on the `/systems` resource to override the schema that new tables use; otherwise, the system's display `name` is sanitized and used, falling back to `physical_name` only when necessary. Every constructed table exposes a `schema_name` field so API clients and tooling can confirm where Databricks and SQL Server tables were created. Existing environments should run the latest Alembic migration plus `alembic upgrade head` to backfill schema names before enabling the feature.
+
 ### Security Endpoints
 
 Role-based access can now be enforced per process area to control who may view or edit migration assets.
@@ -159,14 +163,13 @@ Role-based access can now be enforced per process area to control who may view o
 
 All security routes support list, update, and delete operations while enforcing uniqueness and referential integrity across process areas, users, and roles.
 
-### Ingestion Endpoints
+### Connection Endpoints
 
-Configure connectivity and monitor ingestion progress:
+Configure connectivity for upstream systems:
 
 - `POST /system-connections` – define how to authenticate and connect to a registered system (JDBC, ODBC, API, file, SAP RFC, etc.).
-- `POST /ingestion-jobs` – schedule or log table-level ingestion executions with status tracking and row-count metrics.
 
-Both endpoints support list, update, and delete verbs, enabling full lifecycle management of connectivity and job telemetry.
+The endpoint supports list, update, and delete verbs to enable full lifecycle management of source connectivity. Source ingestion jobs and schedules have been removed from the platform.
 
 ### 6. Run Tests
 
@@ -219,7 +222,6 @@ The script reads `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKE
 | Post-Load Validation Issue | Individual post-load validation finding           | Belongs to Post-Load Validation Result      |
 | Post-Load Validation Approval | Governance sign-off for post-load results          | Belongs to Post-Load Validation Result & User |
 | System Connection    | Configuration for accessing an external system       | Belongs to System                           |
-| Ingestion Job        | Execution record for moving data for a table         | Belongs to Execution Context & Table        |
 
 ## Development Notes
 

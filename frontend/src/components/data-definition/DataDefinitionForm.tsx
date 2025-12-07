@@ -26,7 +26,12 @@ import PreviewIcon from '@mui/icons-material/Preview';
 import { DataDefinition, DataDefinitionTableInput, Table, TableInput, Field, ConnectionTablePreview } from '../../types/data';
 import { createTable, updateTable, createField, fetchTablePreview } from '../../services/tableService';
 import { fetchAvailableSourceTables, AvailableSourceTable } from '../../services/dataDefinitionService';
-import { buildSourceTableKeyList, toSourceTableKey } from './sourceTableUtils';
+import {
+  buildSourceTableKeyList,
+  sourceKeyToSchemaKey,
+  toSchemaTableKey,
+  toSourceTableKey
+} from './sourceTableUtils';
 import { useToast } from '../../hooks/useToast';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CreateTableDialog from './CreateTableDialog';
@@ -188,6 +193,9 @@ const DataDefinitionForm = ({
   const [tableDialogMode, setTableDialogMode] = useState<'create' | 'edit'>('create');
   const [editingTable, setEditingTable] = useState<Table | null>(null);
   const [tableDialogLoading, setTableDialogLoading] = useState(false);
+  const [formDataObjectId, setFormDataObjectId] = useState<string | null>(
+    initialDefinition?.dataObjectId ?? dataObjectId ?? null
+  );
   const [existingTablePrompt, setExistingTablePrompt] = useState<{
     table: Table;
     sanitized: SanitizedTablePayload;
@@ -216,15 +224,23 @@ const DataDefinitionForm = ({
     setLocalTables((prev) => prev.filter((table) => !tables.some((item) => item.id === table.id)));
   }, [tables]);
 
-  const initialDefinitionObjectId = initialDefinition?.dataObjectId ?? null;
+  useEffect(() => {
+    if (!open) {
+      setFormDataObjectId(null);
+      return;
+    }
+    setFormDataObjectId((prev) => prev ?? initialDefinition?.dataObjectId ?? dataObjectId ?? null);
+  }, [open, initialDefinition?.dataObjectId, dataObjectId]);
+
+  const resolvedDataObjectId = formDataObjectId ?? initialDefinition?.dataObjectId ?? dataObjectId ?? null;
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    const objectId = initialDefinitionObjectId ?? dataObjectId;
-    if (!objectId) {
+    if (!resolvedDataObjectId) {
+      setAvailableSourceTables([]);
       setSourceTableKeys([]);
       return;
     }
@@ -233,7 +249,7 @@ const DataDefinitionForm = ({
 
     const loadSourceTables = async () => {
       try {
-        const tablesResponse = await fetchAvailableSourceTables(objectId);
+        const tablesResponse = await fetchAvailableSourceTables(resolvedDataObjectId);
         if (cancelled) {
           return;
         }
@@ -251,7 +267,7 @@ const DataDefinitionForm = ({
     return () => {
       cancelled = true;
     };
-  }, [open, dataObjectId, initialDefinitionObjectId]);
+  }, [open, resolvedDataObjectId]);
 
   const combinedTables = useMemo(() => {
     const map = new Map<string, Table>();
@@ -261,6 +277,7 @@ const DataDefinitionForm = ({
     return Array.from(map.values());
   }, [tables, localTables]);
 
+  // Track schema/table combinations already attached to the definition so dialogs can exclude them.
   const definitionSourceTableKeys = useMemo(() => {
     const keys = new Set<string>();
     tableRows.forEach((row) => {
@@ -271,8 +288,7 @@ const DataDefinitionForm = ({
       if (!tableMeta) {
         return;
       }
-      const key = toSourceTableKey(
-        null,
+      const key = toSchemaTableKey(
         tableMeta.schemaName,
         tableMeta.physicalName ?? tableMeta.name
       );
@@ -283,7 +299,16 @@ const DataDefinitionForm = ({
     return Array.from(keys);
   }, [combinedTables, tableRows]);
 
-  const sourceTableKeySet = useMemo(() => new Set(sourceTableKeys), [sourceTableKeys]);
+  const sourceSchemaTableKeySet = useMemo(() => {
+    const normalized = new Set<string>();
+    sourceTableKeys.forEach((key) => {
+      const schemaKey = sourceKeyToSchemaKey(key);
+      if (schemaKey) {
+        normalized.add(schemaKey);
+      }
+    });
+    return normalized;
+  }, [sourceTableKeys]);
 
   const normalizedCurrent: Snapshot = useMemo(
     () => ({
@@ -379,9 +404,10 @@ const DataDefinitionForm = ({
         if (row.id !== rowId) return row;
         const nextAlias = row.alias || table?.name || '';
         const selectedKey = table
-          ? toSourceTableKey(null, table.schemaName, table.physicalName ?? table.name)
+          ? toSchemaTableKey(table.schemaName, table.physicalName ?? table.name)
           : null;
-        const shouldDisableConstruction = !table || (selectedKey && sourceTableKeySet.has(selectedKey));
+        const shouldDisableConstruction =
+          !table || (selectedKey && sourceSchemaTableKeySet.has(selectedKey));
         return {
           ...row,
           tableId: table?.id ?? '',
@@ -421,7 +447,7 @@ const DataDefinitionForm = ({
   };
 
   const handleOpenAddSourceTable = async () => {
-    const objectId = initialDefinition?.dataObjectId ?? dataObjectId;
+    const objectId = resolvedDataObjectId;
     if (!objectId) {
       toast.showError('Data object not available.');
       return;
@@ -457,8 +483,7 @@ const DataDefinitionForm = ({
       if (!tableMeta) {
         return;
       }
-      const key = toSourceTableKey(
-        null,
+      const key = toSchemaTableKey(
         tableMeta.schemaName,
         tableMeta.physicalName ?? tableMeta.name
       );
@@ -478,7 +503,11 @@ const DataDefinitionForm = ({
         continue;
       }
 
-      const sourceKey = toSourceTableKey(
+      const sourceKey = toSchemaTableKey(
+        sourceTable.schemaName,
+        sourceTable.tableName
+      );
+      const catalogAwareKey = toSourceTableKey(
         sourceTable.catalogName,
         sourceTable.schemaName,
         sourceTable.tableName
@@ -606,7 +635,9 @@ const DataDefinitionForm = ({
 
       if (sourceKey) {
         definitionKeySet.add(sourceKey);
-        keysToAdd.push(sourceKey);
+      }
+      if (catalogAwareKey) {
+        keysToAdd.push(catalogAwareKey);
       }
 
       addedCount += 1;
@@ -872,6 +903,7 @@ const DataDefinitionForm = ({
   };
 
   const tablesAvailable = combinedTables.length > 0;
+  const hasSelectedSourceTables = availableSourceTables.length > 0;
 
   useEffect(() => {
     if (!combinedTables.length) {
@@ -888,14 +920,13 @@ const DataDefinitionForm = ({
         if (!tableMeta) {
           return row;
         }
-        const key = toSourceTableKey(
-          null,
+        const key = toSchemaTableKey(
           tableMeta.schemaName,
           tableMeta.physicalName ?? tableMeta.name
         );
         const schemaNormalized = (tableMeta.schemaName ?? '').trim().toLowerCase();
         const isConstructedSchema = schemaNormalized === CONSTRUCTION_SCHEMA;
-        const isSource = Boolean(key && sourceTableKeySet.has(key));
+        const isSource = Boolean(key && sourceSchemaTableKeySet.has(key));
         if (isSource || !isConstructedSchema) {
           changed = true;
           return { ...row, isConstruction: false };
@@ -904,7 +935,7 @@ const DataDefinitionForm = ({
       });
       return changed ? next : prev;
     });
-  }, [combinedTables, sourceTableKeySet]);
+  }, [combinedTables, sourceSchemaTableKeySet]);
 
   return (
     <>
@@ -913,7 +944,7 @@ const DataDefinitionForm = ({
           <DialogTitle>{mode === 'create' ? 'Create Data Definition' : 'Edit Data Definition'}</DialogTitle>
           <DialogContent dividers>
           <Stack spacing={3} mt={1}>
-            {mode === 'create' && !tablesAvailable && (
+            {mode === 'create' && !tablesAvailable && !hasSelectedSourceTables && (
               <Alert severity="warning">
                 No tables are available for the selected system yet. Use the Create Table action below to add one before building the data definition.
               </Alert>
@@ -932,14 +963,13 @@ const DataDefinitionForm = ({
               {tableRows.map((row) => {
                 const selectedTable = combinedTables.find((table) => table.id === row.tableId) ?? null;
                 const selectedTableKey = selectedTable
-                  ? toSourceTableKey(
-                      null,
+                  ? toSchemaTableKey(
                       selectedTable.schemaName,
                       selectedTable.physicalName ?? selectedTable.name
                     )
                   : null;
                 const isSourceTable = Boolean(
-                  selectedTableKey && sourceTableKeySet.has(selectedTableKey)
+                  selectedTableKey && sourceSchemaTableKeySet.has(selectedTableKey)
                 );
                 const isConstructedSchema = (selectedTable?.schemaName ?? '').trim().toLowerCase() === CONSTRUCTION_SCHEMA;
                 const allowConstructionToggle = Boolean(selectedTable && isConstructedSchema);
@@ -1081,7 +1111,11 @@ const DataDefinitionForm = ({
                   variant="outlined"
                   startIcon={<AddCircleOutlineIcon />}
                   onClick={handleOpenAddSourceTable}
-                  disabled={loading || sourceTableDialogLoading || (!initialDefinition && !dataObjectId)}
+                  disabled={
+                    loading ||
+                    sourceTableDialogLoading ||
+                    (!initialDefinition && !resolvedDataObjectId)
+                  }
                 >
                   Add Source Table
                 </Button>
@@ -1143,7 +1177,7 @@ const DataDefinitionForm = ({
         />
       )}
       <AddExistingSourceTableDialog
-        dataObjectId={dataObjectId}
+        dataObjectId={resolvedDataObjectId ?? undefined}
         open={sourceTableDialogOpen}
         tables={availableSourceTables}
         loading={sourceTableDialogLoading}

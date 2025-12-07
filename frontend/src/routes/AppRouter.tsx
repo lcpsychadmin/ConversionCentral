@@ -8,9 +8,9 @@ import DataDefinitionsPage from '@pages/DataDefinitionPage';
 import DataConstructionPage from '@pages/DataConstructionPage';
 import ProcessAreasPage from '@pages/ProcessAreasPage';
 import DataObjectsPage from '@pages/DataObjectsPage';
-import SourceSystemsPage from '@pages/SourceSystemsPage';
-import IngestionSchedulesPage from '@pages/IngestionSchedulesPage';
-import DataWarehouseSettingsPage from '@pages/DatabricksSettingsPage';
+import ConnectionsPage from '@pages/ConnectionsPage';
+import ApplicationsPage from '@pages/ApplicationsPage';
+import TablesPage from '@pages/SourceCatalogPage';
 import ProjectsPage from '@pages/ProjectsPage';
 import ReleasesPage from '@pages/ReleasesPage';
 import LoginPage from '@pages/LoginPage';
@@ -28,7 +28,7 @@ import DataQualityProfileRunResultsPage from '@pages/DataQualityProfileRunResult
 import DataQualityTestLibraryPage from '@pages/DataQualityTestLibraryPage';
 import DataQualityTestSuitesPage from '@pages/DataQualityTestSuitesPage';
 import DataQualityTestSuiteDefinitionPage from '@pages/DataQualityTestSuiteDefinitionPage';
-import DataQualitySettingsPage from '@pages/DataQualitySettingsPage';
+import TableObservabilitySettingsPage from '@pages/TableObservabilitySettingsPage';
 import { ProtectedRoute } from '@routes/guards/ProtectedRoute';
 import { AuthProvider } from '@context/AuthContext';
 
@@ -65,18 +65,21 @@ const router = createBrowserRouter([
           { path: 'data-definition', element: <Navigate to="/data-definitions" replace /> },
           { path: 'data-construction', element: <DataConstructionPage /> },
           { path: 'process-areas', element: <ProcessAreasPage /> },
-          { path: 'applications', element: <Navigate to="/data-configuration/source-systems" replace /> },
-          { path: 'systems', element: <Navigate to="/data-configuration/source-systems" replace /> },
-          { path: 'data-configuration/source-systems', element: <SourceSystemsPage /> },
-          { path: 'data-configuration/source-catalog', element: <Navigate to="/data-configuration/source-systems" replace /> },
-          { path: 'data-configuration/ingestion-schedules', element: <IngestionSchedulesPage /> },
-          { path: 'data-configuration/data-warehouse', element: <DataWarehouseSettingsPage /> },
+          { path: 'applications', element: <Navigate to="/data-configuration/applications" replace /> },
+          { path: 'systems', element: <Navigate to="/data-configuration/applications" replace /> },
+          { path: 'data-configuration/applications', element: <ApplicationsPage /> },
+          { path: 'data-configuration/source-systems', element: <Navigate to="/data-configuration/applications" replace /> },
+          { path: 'data-configuration/connections', element: <ConnectionsPage /> },
+          { path: 'data-configuration/source-catalog', element: <TablesPage /> },
+          { path: 'data-configuration/ingestion-schedules', element: <Navigate to="/data-configuration/connections" replace /> },
+          { path: 'data-configuration/data-warehouse', element: <Navigate to="/data-configuration/connections" replace /> },
           { path: 'data-configuration/upload-data', element: <UploadDataPage /> },
-          { path: 'data-configuration/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
-          { path: 'application-settings/connections', element: <Navigate to="/data-configuration/source-systems" replace /> },
-          { path: 'application-settings/ingestion-schedules', element: <Navigate to="/data-configuration/ingestion-schedules" replace /> },
-          { path: 'application-settings/databricks', element: <Navigate to="/data-configuration/data-warehouse" replace /> },
+          { path: 'data-configuration/databricks', element: <Navigate to="/data-configuration/connections" replace /> },
+          { path: 'application-settings/connections', element: <Navigate to="/data-configuration/connections" replace /> },
+          { path: 'application-settings/ingestion-schedules', element: <Navigate to="/data-configuration/connections" replace /> },
+          { path: 'application-settings/databricks', element: <Navigate to="/data-configuration/connections" replace /> },
           { path: 'application-settings/company', element: <CompanySettingsPage /> },
+          { path: 'application-settings/table-observability', element: <TableObservabilitySettingsPage /> },
           { path: 'application-settings/legal-requirements', element: <LegalRequirementsPage /> },
           { path: 'application-settings/security-classifications', element: <SecurityClassificationsPage /> },
           { path: 'data-objects', element: <DataObjectsPage /> },
@@ -91,8 +94,7 @@ const router = createBrowserRouter([
           { path: 'data-quality/test-suites', element: <DataQualityTestSuitesPage /> },
           { path: 'data-quality/test-suites/:testSuiteKey', element: <DataQualityTestSuiteDefinitionPage /> },
           { path: 'data-quality/test-library', element: <DataQualityTestLibraryPage /> },
-          { path: 'data-quality/run-history', element: <DataQualityRunHistoryPage /> },
-          { path: 'data-quality/settings', element: <DataQualitySettingsPage /> }
+          { path: 'data-quality/run-history', element: <DataQualityRunHistoryPage /> }
         ]
       },
       {

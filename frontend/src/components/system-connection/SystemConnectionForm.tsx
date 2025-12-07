@@ -4,6 +4,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -12,12 +13,12 @@ import {
   MenuItem,
   Stack,
   Switch,
-  TextField
+  TextField,
+  Typography
 } from '@mui/material';
 
 import {
   RelationalDatabaseType,
-  System,
   SystemConnection,
   SystemConnectionFormValues
 } from '../../types/data';
@@ -26,144 +27,124 @@ import { buildJdbcConnectionString, parseJdbcConnectionString } from '../../util
 interface SystemConnectionFormProps {
   open: boolean;
   title: string;
-  systems: System[];
   initialValues?: SystemConnection | null;
-  defaultSystemId?: string | null;
-  systemLocked?: boolean;
-  managedWarehouseCatalog?: string | null;
   loading?: boolean;
   testing?: boolean;
   onClose: () => void;
   onSubmit: (values: SystemConnectionFormValues, connectionString: string | null) => void;
   onTest?: (values: SystemConnectionFormValues, connectionString: string | null) => void;
-  hasManagedWarehouse?: boolean;
-  managedWarehouseLoaded?: boolean;
+  forcedDatabaseType?: RelationalDatabaseType | null;
+  showDatabaseTypeSelector?: boolean;
 }
 
 type FieldErrorMap = Partial<Record<keyof SystemConnectionFormValues | 'form', string>>;
 
-const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql', 'databricks', 'sap'];
+export const DATABASE_OPTIONS: RelationalDatabaseType[] = ['postgresql', 'databricks', 'sap'];
 
-const DATABASE_LABELS: Record<RelationalDatabaseType, string> = {
+export const DATABASE_LABELS: Record<RelationalDatabaseType, string> = {
   postgresql: 'PostgreSQL',
   databricks: 'Databricks SQL Warehouse',
-  sap: 'SAP HANA',
+  sap: 'SAP HANA'
 };
 
 const DEFAULT_PORT_BY_DATABASE: Record<RelationalDatabaseType, string> = {
   postgresql: '5432',
   databricks: '443',
-  sap: '30015',
+  sap: '30015'
 };
 
 const DATABASE_HELPER_TEXT: Partial<Record<RelationalDatabaseType, string>> = {
-  sap: 'Tenant database name (case-sensitive).',
-  databricks: 'Optional when using the managed Databricks warehouse.',
+  sap: 'Tenant database name (case-sensitive).'
 };
 
-const getDefaultPort = (databaseType: RelationalDatabaseType): string => DEFAULT_PORT_BY_DATABASE[databaseType] ?? '5432';
+const getDefaultPort = (databaseType: RelationalDatabaseType): string =>
+  DEFAULT_PORT_BY_DATABASE[databaseType] ?? '5432';
 
 const sanitizeNotes = (notes?: string | null) => notes ?? '';
 
-const normalizeCatalogOverride = (value?: string) => (value ?? '').trim();
-
 const buildInitialSnapshot = (
-  systems: System[],
   initialValues?: SystemConnection | null,
-  defaultSystemId?: string | null
+  forcedType?: RelationalDatabaseType | null
 ): SystemConnectionFormValues => {
   const parsed = initialValues ? parseJdbcConnectionString(initialValues.connectionString) : null;
   const parsedOptions = parsed?.options ?? {};
+  const resolvedType = parsed?.databaseType ?? forcedType ?? 'postgresql';
 
   return {
-    systemId: initialValues?.systemId ?? defaultSystemId ?? '',
-    databaseType: parsed?.databaseType ?? 'postgresql',
+    name: initialValues?.name ?? 'Connection',
+    databaseType: resolvedType,
     host: parsed?.host ?? '',
-    port: parsed?.port || getDefaultPort(parsed?.databaseType ?? 'postgresql'),
+    port: parsed?.port || getDefaultPort(resolvedType),
     database: parsed?.database ?? '',
     username: parsed?.username ?? '',
     password: parsed?.password ?? '',
     options: parsedOptions,
     notes: sanitizeNotes(initialValues?.notes),
-    active: initialValues?.active ?? true,
-    ingestionEnabled: initialValues?.ingestionEnabled ?? true,
-    useDatabricksManagedConnection: initialValues?.usesDatabricksManagedConnection ?? false,
-    databricksCatalogOverride: parsedOptions.catalog ?? '',
-    databricksSchemaOverride: parsedOptions.schema ?? '',
+    active: initialValues?.active ?? true
   };
 };
 
 const validateValues = (values: SystemConnectionFormValues): FieldErrorMap => {
   const errors: FieldErrorMap = {};
 
-  if (!values.systemId) {
-    errors.systemId = 'System is required';
+  const trimmedName = values.name.trim();
+  if (!trimmedName) {
+    errors.name = 'Connection name is required';
+  } else if (trimmedName.length > 120) {
+    errors.name = 'Connection name must be 120 characters or fewer';
   }
 
-  const requiresCredentials = !(
-    values.databaseType === 'databricks' && values.useDatabricksManagedConnection
-  );
+  if (!values.host.trim()) {
+    errors.host = 'Host is required';
+  }
 
-  if (requiresCredentials) {
-    if (!values.host.trim()) {
-      errors.host = 'Host is required';
-    }
+  if (!values.port.trim()) {
+    errors.port = 'Port is required';
+  } else if (!/^\d+$/.test(values.port)) {
+    errors.port = 'Port must be numeric';
+  }
 
-    if (!values.port.trim()) {
-      errors.port = 'Port is required';
-    } else if (!/^\d+$/.test(values.port)) {
-      errors.port = 'Port must be numeric';
-    }
+  if (!values.database.trim()) {
+    errors.database = 'Database is required';
+  }
 
-    if (!values.database.trim()) {
-      errors.database = 'Database is required';
-    }
+  if (!values.username.trim()) {
+    errors.username = 'Username is required';
+  }
 
-    if (!values.username.trim()) {
-      errors.username = 'Username is required';
-    }
-
-    if (!values.password.trim()) {
-      errors.password = 'Password is required';
-    }
+  if (!values.password.trim()) {
+    errors.password = 'Password is required';
   }
 
   return errors;
 };
 
-const normalizeValues = (
-  values: SystemConnectionFormValues
-): SystemConnectionFormValues => ({
+const normalizeValues = (values: SystemConnectionFormValues): SystemConnectionFormValues => ({
   ...values,
+  name: values.name.trim(),
   host: values.host.trim(),
   port: values.port.trim(),
   database: values.database.trim(),
   username: values.username.trim(),
   password: values.password,
   notes: values.notes?.trim() ? values.notes.trim() : null,
-  databricksCatalogOverride: values.databricksCatalogOverride?.trim() ?? '',
-  databricksSchemaOverride: values.databricksSchemaOverride?.trim() ?? '',
 });
 
 const SystemConnectionForm = ({
   open,
   title,
-  systems,
   initialValues,
-  defaultSystemId,
-  systemLocked = false,
-  managedWarehouseCatalog = null,
   loading = false,
   testing = false,
   onClose,
   onSubmit,
   onTest,
-  hasManagedWarehouse = false,
-  managedWarehouseLoaded = false
+  forcedDatabaseType = null,
+  showDatabaseTypeSelector = true
 }: SystemConnectionFormProps) => {
   const initialSnapshot = useMemo(
-    () => buildInitialSnapshot(systems, initialValues, defaultSystemId),
-    [systems, initialValues, defaultSystemId]
+    () => buildInitialSnapshot(initialValues, forcedDatabaseType),
+    [initialValues, forcedDatabaseType]
   );
 
   const [values, setValues] = useState<SystemConnectionFormValues>(initialSnapshot);
@@ -173,14 +154,6 @@ const SystemConnectionForm = ({
     setValues(initialSnapshot);
     setErrors({});
   }, [initialSnapshot, open]);
-
-  const initialManaged = initialValues?.usesDatabricksManagedConnection ?? false;
-  const managedAvailable = hasManagedWarehouse || initialManaged;
-
-  const usingManagedWarehouse =
-    values.databaseType === 'databricks' &&
-    values.useDatabricksManagedConnection &&
-    managedAvailable;
 
   const handleChange = (field: keyof SystemConnectionFormValues) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -193,16 +166,7 @@ const SystemConnectionForm = ({
           return {
             ...prev,
             databaseType: nextType,
-            port: shouldResetPort ? getDefaultPort(nextType) : prev.port,
-            useDatabricksManagedConnection:
-              nextType === 'databricks' ? prev.useDatabricksManagedConnection : false,
-          };
-        }
-        if (field === 'databricksCatalogOverride') {
-          return {
-            ...prev,
-            databricksCatalogOverride: value,
-            databricksSchemaOverride: value ? prev.databricksSchemaOverride : '',
+            port: shouldResetPort ? getDefaultPort(nextType) : prev.port
           };
         }
         return { ...prev, [field]: value };
@@ -212,45 +176,12 @@ const SystemConnectionForm = ({
         if (field === 'databaseType') {
           next.port = undefined;
         }
-        if (field === 'databricksCatalogOverride' && !value.trim()) {
-          next.databricksSchemaOverride = undefined;
-        }
         return next;
       });
     };
 
   const handleToggleActive = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
     setValues((prev) => ({ ...prev, active: checked }));
-  };
-
-  const handleToggleIngestion = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
-    setValues((prev) => {
-      if (prev.databaseType === 'databricks' && prev.useDatabricksManagedConnection) {
-        return { ...prev, ingestionEnabled: false };
-      }
-      return { ...prev, ingestionEnabled: checked };
-    });
-  };
-
-  const handleToggleManaged = (_event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
-    if (checked && !hasManagedWarehouse) {
-      return;
-    }
-    setValues((prev) => ({
-      ...prev,
-      useDatabricksManagedConnection: checked,
-      ingestionEnabled: checked ? false : prev.ingestionEnabled,
-      port: checked ? getDefaultPort('databricks') : prev.port,
-    }));
-    setErrors((prev) => ({
-      ...prev,
-      host: undefined,
-      port: undefined,
-      database: undefined,
-      username: undefined,
-      password: undefined,
-      form: undefined,
-    }));
   };
 
   const resetAndClose = () => {
@@ -268,24 +199,7 @@ const SystemConnectionForm = ({
       return;
     }
 
-    if (
-      values.databaseType === 'databricks' &&
-      values.useDatabricksManagedConnection &&
-      !managedAvailable
-    ) {
-      setErrors((prev) => ({
-        ...prev,
-        form: 'Configure the Databricks SQL warehouse before using the managed connection option.'
-      }));
-      return;
-    }
-
     const normalized = normalizeValues(values);
-
-    if (usingManagedWarehouse) {
-      onSubmit(normalized, null);
-      return;
-    }
 
     try {
       const connectionString = buildJdbcConnectionString(normalized);
@@ -297,9 +211,7 @@ const SystemConnectionForm = ({
   };
 
   const handleTest = () => {
-    if (!onTest) return;
-
-    if (usingManagedWarehouse) {
+    if (!onTest) {
       return;
     }
 
@@ -321,7 +233,7 @@ const SystemConnectionForm = ({
 
   const isDirty = useMemo(() => {
     return (
-      values.systemId !== initialSnapshot.systemId ||
+      values.name !== initialSnapshot.name ||
       values.databaseType !== initialSnapshot.databaseType ||
       values.host !== initialSnapshot.host ||
       values.port !== initialSnapshot.port ||
@@ -329,20 +241,12 @@ const SystemConnectionForm = ({
       values.username !== initialSnapshot.username ||
       values.password !== initialSnapshot.password ||
       sanitizeNotes(values.notes) !== sanitizeNotes(initialSnapshot.notes) ||
-      values.active !== initialSnapshot.active ||
-      values.ingestionEnabled !== initialSnapshot.ingestionEnabled ||
-      values.useDatabricksManagedConnection !== initialSnapshot.useDatabricksManagedConnection ||
-      normalizeCatalogOverride(values.databricksCatalogOverride) !==
-        normalizeCatalogOverride(initialSnapshot.databricksCatalogOverride) ||
-      normalizeCatalogOverride(values.databricksSchemaOverride) !==
-        normalizeCatalogOverride(initialSnapshot.databricksSchemaOverride)
+      values.active !== initialSnapshot.active
     );
   }, [values, initialSnapshot]);
 
   const canTest = Boolean(
-    !usingManagedWarehouse &&
-      values.systemId &&
-      values.host.trim() &&
+    values.host.trim() &&
       values.port.trim() &&
       /^\d+$/.test(values.port) &&
       values.database.trim() &&
@@ -356,19 +260,6 @@ const SystemConnectionForm = ({
   const hostHelper = errors.host ?? 'Hostname or IP address';
   const usernameHelper = errors.username ?? undefined;
   const passwordHelper = errors.password ?? undefined;
-  const managedCatalogFallback = managedWarehouseCatalog?.trim() || 'workspace';
-  const catalogOverrideValue = values.databricksCatalogOverride ?? '';
-  const schemaOverrideValue = values.databricksSchemaOverride ?? '';
-  const catalogHelper =
-    errors.databricksCatalogOverride ??
-    (catalogOverrideValue.trim()
-      ? 'Overrides the managed catalog for this connection.'
-      : `Uses the managed catalog (${managedCatalogFallback}).`);
-  const schemaHelper =
-    errors.databricksSchemaOverride ??
-    (schemaOverrideValue.trim()
-      ? 'Overrides the managed schema for this connection.'
-      : 'Leave blank to use the managed schema (or omit when catalog-only overrides are needed).');
 
   return (
     <Dialog open={open} onClose={resetAndClose} fullWidth maxWidth="sm">
@@ -377,174 +268,111 @@ const SystemConnectionForm = ({
         <DialogContent>
           <Stack spacing={2} mt={1}>
             {errors.form && <Alert severity="error">{errors.form}</Alert>}
+
             <TextField
-              select
+              label="Connection Name"
+              fullWidth
               required
-              label="Application"
-              fullWidth
-              id="connection-system"
-              name="systemId"
-              value={values.systemId}
-              onChange={handleChange('systemId')}
-              error={!!errors.systemId}
-              helperText={errors.systemId}
-              disabled={systemLocked}
-            >
-              <MenuItem value="" disabled>
-                Select an application
-              </MenuItem>
-              {systems.map((system) => (
-                <MenuItem key={system.id} value={system.id}>
-                  {system.name}
-                </MenuItem>
-              ))}
-            </TextField>
+              id="connection-name"
+              name="name"
+              value={values.name}
+              onChange={handleChange('name')}
+              helperText={errors.name ?? 'Displayed throughout the workspace.'}
+              error={!!errors.name}
+            />
+
+            {showDatabaseTypeSelector ? (
+              <TextField
+                select
+                label="Database Type"
+                fullWidth
+                id="connection-database-type"
+                name="databaseType"
+                value={values.databaseType}
+                onChange={handleChange('databaseType')}
+                helperText="Relational engines supported today"
+              >
+                {DATABASE_OPTIONS.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {DATABASE_LABELS[option] ?? option}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : (
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    Data source
+                  </Typography>
+                  <Typography variant="subtitle1" fontWeight={600} lineHeight={1.2}>
+                    {DATABASE_LABELS[values.databaseType] ?? values.databaseType}
+                  </Typography>
+                </Box>
+                <Chip label={DATABASE_LABELS[values.databaseType] ?? values.databaseType} size="small" />
+              </Box>
+            )}
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                label="Host"
+                fullWidth
+                required
+                id="connection-host"
+                name="host"
+                value={values.host}
+                onChange={handleChange('host')}
+                error={!!errors.host}
+                helperText={hostHelper}
+              />
+              <TextField
+                label="Port"
+                fullWidth
+                required
+                id="connection-port"
+                name="port"
+                value={values.port}
+                onChange={handleChange('port')}
+                error={!!errors.port}
+                helperText={portHelper}
+              />
+            </Stack>
             <TextField
-              select
-              label="Database Type"
+              label={databaseLabel}
               fullWidth
-              id="connection-database-type"
-              name="databaseType"
-              value={values.databaseType}
-              onChange={handleChange('databaseType')}
-              helperText="Relational engines supported today"
-            >
-              {DATABASE_OPTIONS.map((option) => (
-                <MenuItem key={option} value={option}>
-                  {DATABASE_LABELS[option] ?? option}
-                </MenuItem>
-              ))}
-            </TextField>
-            {values.databaseType === 'databricks' && (
-              <Stack spacing={1}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={values.useDatabricksManagedConnection}
-                      onChange={handleToggleManaged}
-                      color="secondary"
-                      disabled={
-                        loading ||
-                        testing ||
-                        (!hasManagedWarehouse && !values.useDatabricksManagedConnection)
-                      }
-                    />
-                  }
-                  label={
-                    values.useDatabricksManagedConnection && hasManagedWarehouse
-                      ? 'Use managed Databricks warehouse (credentials resolved automatically)'
-                      : 'Use managed Databricks warehouse'
-                  }
-                />
-                  {managedWarehouseLoaded && !hasManagedWarehouse && !values.useDatabricksManagedConnection && (
-                    <Alert severity="info">
-                      Configure the Databricks SQL warehouse from Data Configuration followed by Data
-                      Warehouse to enable this option.
-                    </Alert>
-                  )}
-                  {managedWarehouseLoaded && values.useDatabricksManagedConnection && !hasManagedWarehouse && (
-                    <Alert severity="warning">
-                      Managed Databricks settings are not currently available. Update the warehouse settings
-                      to keep this connection active, or disable the managed option to provide credentials
-                      manually.
-                    </Alert>
-                  )}
-                  {usingManagedWarehouse && (
-                    <Alert severity="info">
-                      This connection reuses the managed Databricks SQL warehouse. Host, credentials, and
-                      catalog are supplied automatically from your warehouse settings.
-                    </Alert>
-                  )}
-                  {usingManagedWarehouse && (
-                    <TextField
-                      label="Catalog"
-                      fullWidth
-                      id="connection-databricks-catalog"
-                      name="databricksCatalogOverride"
-                      value={values.databricksCatalogOverride ?? ''}
-                      onChange={handleChange('databricksCatalogOverride')}
-                      error={!!errors.databricksCatalogOverride}
-                      helperText={catalogHelper}
-                    />
-                  )}
-                  {usingManagedWarehouse && (
-                    <TextField
-                      label="Schema"
-                      fullWidth
-                      id="connection-databricks-schema"
-                      name="databricksSchemaOverride"
-                      value={values.databricksSchemaOverride ?? ''}
-                      onChange={handleChange('databricksSchemaOverride')}
-                      error={!!errors.databricksSchemaOverride}
-                      helperText={schemaHelper}
-                    />
-                  )}
-              </Stack>
-            )}
-            {!usingManagedWarehouse && (
-              <>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  <TextField
-                    label="Host"
-                    fullWidth
-                    required
-                    id="connection-host"
-                    name="host"
-                    value={values.host}
-                    onChange={handleChange('host')}
-                    error={!!errors.host}
-                    helperText={hostHelper}
-                  />
-                  <TextField
-                    label="Port"
-                    fullWidth
-                    required
-                    id="connection-port"
-                    name="port"
-                    value={values.port}
-                    onChange={handleChange('port')}
-                    error={!!errors.port}
-                    helperText={portHelper}
-                  />
-                </Stack>
-                <TextField
-                  label={databaseLabel}
-                  fullWidth
-                  required
-                  id="connection-database"
-                  name="database"
-                  value={values.database}
-                  onChange={handleChange('database')}
-                  error={!!errors.database}
-                  helperText={databaseHelper}
-                />
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  <TextField
-                    label="Username"
-                    fullWidth
-                    required
-                    id="connection-username"
-                    name="username"
-                    value={values.username}
-                    onChange={handleChange('username')}
-                    error={!!errors.username}
-                    helperText={usernameHelper}
-                  />
-                  <TextField
-                    label="Password"
-                    fullWidth
-                    required
-                    id="connection-password"
-                    name="password"
-                    type="password"
-                    value={values.password}
-                    onChange={handleChange('password')}
-                    error={!!errors.password}
-                    helperText={passwordHelper}
-                  />
-                </Stack>
-              </>
-            )}
+              required
+              id="connection-database"
+              name="database"
+              value={values.database}
+              onChange={handleChange('database')}
+              error={!!errors.database}
+              helperText={databaseHelper}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                label="Username"
+                fullWidth
+                required
+                id="connection-username"
+                name="username"
+                value={values.username}
+                onChange={handleChange('username')}
+                error={!!errors.username}
+                helperText={usernameHelper}
+              />
+              <TextField
+                label="Password"
+                fullWidth
+                required
+                id="connection-password"
+                name="password"
+                type="password"
+                value={values.password}
+                onChange={handleChange('password')}
+                error={!!errors.password}
+                helperText={passwordHelper}
+              />
+            </Stack>
+
             <TextField
               label="Notes"
               fullWidth
@@ -559,23 +387,6 @@ const SystemConnectionForm = ({
               control={<Switch checked={values.active} onChange={handleToggleActive} />}
               label={values.active ? 'Connection is active' : 'Connection is disabled'}
             />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={values.ingestionEnabled}
-                  onChange={handleToggleIngestion}
-                  color="secondary"
-                  disabled={usingManagedWarehouse}
-                />
-              }
-              label={
-                usingManagedWarehouse
-                  ? 'Ingestion features are disabled for managed Databricks connections'
-                  : values.ingestionEnabled
-                    ? 'Ingestion features enabled'
-                    : 'Hide ingestion features for this connection'
-              }
-            />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between' }}>
@@ -583,12 +394,8 @@ const SystemConnectionForm = ({
             Cancel
           </Button>
           <Box display="flex" gap={1}>
-            {onTest && !usingManagedWarehouse && (
-              <LoadingButton
-                onClick={handleTest}
-                loading={testing}
-                disabled={!canTest || loading}
-              >
+            {onTest && (
+              <LoadingButton onClick={handleTest} loading={testing} disabled={!canTest || loading}>
                 Test Connection
               </LoadingButton>
             )}

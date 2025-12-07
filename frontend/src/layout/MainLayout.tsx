@@ -42,7 +42,8 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <SettingsIcon />,
     children: [
-      { label: 'Company Settings', path: '/application-settings/company' }
+      { label: 'Company Settings', path: '/application-settings/company' },
+      { label: 'Schedule Settings', path: '/application-settings/table-observability' }
     ]
   },
   {
@@ -50,9 +51,8 @@ const navItems: NavItem[] = [
     collapsible: true,
     icon: <TuneIcon />,
     children: [
-      { label: 'Data Warehouse', path: '/data-configuration/data-warehouse' },
-      { label: 'Source Systems', path: '/data-configuration/source-systems' },
-      { label: 'Ingestion Schedules', path: '/data-configuration/ingestion-schedules' }
+      { label: 'Connections', path: '/data-configuration/connections' },
+      { label: 'Tables', path: '/data-configuration/source-catalog' }
     ]
   },
   {
@@ -69,6 +69,7 @@ const navItems: NavItem[] = [
         ]
       },
       { label: 'Process Areas', path: '/process-areas' },
+      { label: 'Applications', path: '/data-configuration/applications' },
       { label: 'Data Objects', path: '/data-objects' },
       { label: 'Data Object Definition', path: '/data-definitions' }
     ]

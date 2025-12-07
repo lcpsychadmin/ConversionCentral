@@ -1,24 +1,5 @@
 #!/usr/bin/env python
-"""
-Validation Engine Test Script
-
-This script demonstrates the validation engine with various rule types.
-Run after the backend is running with populated database.
-
-Usage:
-    python scripts/test_validation_engine.py
-"""
-
-import sys
-from uuid import UUID
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
-# Add parent directory to path to import app modules
-sys.path.insert(0, "/code")
-
-from app.services.validation_engine import ValidationEngine
+"""Quick demo script that prints validation-rule examples for docs and workshops."""
 
 
 def test_required_rule():

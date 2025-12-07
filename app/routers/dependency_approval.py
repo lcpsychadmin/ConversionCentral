@@ -14,10 +14,12 @@ from app.schemas import (
     DependencyApprovalRead,
     DependencyApprovalUpdate,
 )
+from app.services.data_quality_backend import LOCAL_BACKEND, get_metadata_backend
 from app.services.data_quality_keys import (
     project_keys_for_data_object,
     project_keys_for_table,
 )
+from app.services.data_quality_local_client import LocalTestGenClient
 from app.services.data_quality_testgen import TestGenClient, TestGenClientError
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,9 @@ def _guard_data_quality(project_keys: Set[str]) -> None:
 
 
 def _get_testgen_client() -> Optional[TestGenClient]:
+    if get_metadata_backend() == LOCAL_BACKEND:
+        return LocalTestGenClient()
+
     try:
         params = get_ingestion_connection_params()
     except RuntimeError:

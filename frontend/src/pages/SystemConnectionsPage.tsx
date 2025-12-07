@@ -1,1 +1,1 @@
-export { default } from './SourceSystemsPage';
+export { default } from './ConnectionsPage';

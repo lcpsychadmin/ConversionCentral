@@ -1,23 +1,25 @@
 from datetime import datetime, timezone
 from enum import Enum
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ConnectionTableSelection, System, SystemConnection
+from app.ingestion.engine import get_ingestion_connection_params
+from app.models import ConnectionTableSelection, SystemConnection
 from app.schemas import (
     ConnectionCatalogSelectionUpdate,
     ConnectionCatalogTable,
     ConnectionTablePreview,
-    SystemConnectionAuthMethod,
     SystemConnectionCreate,
     SystemConnectionRead,
     SystemConnectionTestRequest,
     SystemConnectionTestResult,
     SystemConnectionType,
     SystemConnectionUpdate,
+    TableObservabilityPlan,
 )
 from app.services.catalog_browser import (
     CatalogTable,
@@ -26,14 +28,13 @@ from app.services.catalog_browser import (
     fetch_connection_catalog,
     fetch_table_preview,
 )
-from app.services.scheduled_ingestion import scheduled_ingestion_engine
 from app.services.connection_testing import ConnectionTestError, test_connection
 from app.services.connection_catalog_cleanup import (
     CatalogRemoval,
     cascade_cleanup_for_catalog_removals,
 )
-from app.services.databricks_bootstrap import get_managed_databricks_connection_string
 from app.services.data_quality_provisioning import trigger_data_quality_provisioning
+from app.services.table_observability import build_table_observability_plan
 
 router = APIRouter(prefix="/system-connections", tags=["System Connections"])
 
@@ -54,10 +55,33 @@ def _get_system_connection_or_404(
     return system_connection
 
 
-def _ensure_system_exists(system_id: UUID | None, db: Session) -> None:
-    if system_id and not db.get(System, system_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+def get_managed_databricks_connection_string(
+    *, catalog_override: str | None = None, schema_override: str | None = None
+) -> str:
+    try:
+        params = get_ingestion_connection_params()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    host = (params.workspace_host or "").strip()
+    http_path = (params.http_path or "").strip()
+    if not host or not http_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Databricks managed connection is not configured.",
+        )
+
+    catalog = (catalog_override or params.catalog or "").strip() or None
+    schema_name = (schema_override or params.schema_name or "").strip() or None
+
+    query: dict[str, str] = {"http_path": http_path}
+    if catalog:
+        query["catalog"] = catalog
+    if schema_name:
+        query["schema"] = schema_name
+
+    query_string = urlencode(query)
+    return f"jdbc:databricks://token:@{host}:443/default?{query_string}"
 
 def _assemble_catalog_response(
     system_connection: SystemConnection,
@@ -132,34 +156,27 @@ def _assemble_catalog_response(
 def create_system_connection(
     payload: SystemConnectionCreate, db: Session = Depends(get_db)
 ) -> SystemConnectionRead:
-    _ensure_system_exists(payload.system_id, db)
-
     raw_payload = payload.dict()
     use_managed = raw_payload.pop("use_databricks_managed_connection", False)
     catalog_override = raw_payload.pop("databricks_catalog", None)
     schema_override = raw_payload.pop("databricks_schema", None)
-    ingestion_explicit = "ingestion_enabled" in payload.__fields_set__
-    data = _normalize_payload(raw_payload)
 
     if use_managed:
-        try:
-            connection_string = get_managed_databricks_connection_string(
-                catalog_override=catalog_override,
-                schema_override=schema_override,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        data["connection_type"] = SystemConnectionType.JDBC.value
-        data["auth_method"] = SystemConnectionAuthMethod.USERNAME_PASSWORD.value
-        data["connection_string"] = connection_string
-        if not ingestion_explicit:
-            data["ingestion_enabled"] = False
+        raw_payload["connection_string"] = get_managed_databricks_connection_string(
+            catalog_override=catalog_override,
+            schema_override=schema_override,
+        )
+        raw_payload["connection_type"] = SystemConnectionType.JDBC
+
+    raw_payload["use_databricks_managed_connection"] = use_managed
+    raw_payload["databricks_catalog"] = catalog_override
+    raw_payload["databricks_schema"] = schema_override
+    data = _normalize_payload(raw_payload)
 
     system_connection = SystemConnection(**data)
     db.add(system_connection)
     db.commit()
     db.refresh(system_connection)
-    scheduled_ingestion_engine.reload_jobs()
     trigger_data_quality_provisioning(reason="connection-created")
     return system_connection
 
@@ -251,6 +268,18 @@ def preview_system_connection_table(
     return ConnectionTablePreview(columns=preview.columns, rows=preview.rows)
 
 
+@router.get(
+    "/{system_connection_id}/catalog/observability",
+    response_model=TableObservabilityPlan,
+)
+def get_table_observability_plan(
+    system_connection_id: UUID,
+    db: Session = Depends(get_db),
+) -> TableObservabilityPlan:
+    system_connection = _get_system_connection_or_404(system_connection_id, db)
+    return build_table_observability_plan(system_connection)
+
+
 @router.put("/{system_connection_id}", response_model=SystemConnectionRead)
 def update_system_connection(
     system_connection_id: UUID,
@@ -260,35 +289,43 @@ def update_system_connection(
     system_connection = _get_system_connection_or_404(system_connection_id, db)
 
     raw_payload = payload.dict(exclude_unset=True)
-    use_managed = raw_payload.pop("use_databricks_managed_connection", None)
-    catalog_override = raw_payload.pop("databricks_catalog", None)
-    schema_override = raw_payload.pop("databricks_schema", None)
-    ingestion_explicit = "ingestion_enabled" in raw_payload
+    sentinel = object()
+    use_managed = raw_payload.pop("use_databricks_managed_connection", sentinel)
+    catalog_override = raw_payload.pop("databricks_catalog", sentinel)
+    schema_override = raw_payload.pop("databricks_schema", sentinel)
+
+    catalog_value = None if catalog_override is sentinel else catalog_override
+    schema_value = None if schema_override is sentinel else schema_override
+
+    if use_managed is not sentinel and use_managed:
+        catalog_for_connection = (
+            catalog_value if catalog_override is not sentinel else system_connection.databricks_catalog
+        )
+        schema_for_connection = (
+            schema_value if schema_override is not sentinel else system_connection.databricks_schema
+        )
+        raw_payload["connection_string"] = get_managed_databricks_connection_string(
+            catalog_override=catalog_for_connection,
+            schema_override=schema_for_connection,
+        )
+        raw_payload["connection_type"] = SystemConnectionType.JDBC
+
+    if use_managed is not sentinel:
+        raw_payload["use_databricks_managed_connection"] = use_managed
+
+    if catalog_override is not sentinel:
+        raw_payload["databricks_catalog"] = catalog_value
+
+    if schema_override is not sentinel:
+        raw_payload["databricks_schema"] = schema_value
+
     update_data = _normalize_payload(raw_payload)
-    _ensure_system_exists(update_data.get("system_id"), db)
 
-    if use_managed:
-        try:
-            connection_string = get_managed_databricks_connection_string(
-                catalog_override=catalog_override,
-                schema_override=schema_override,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        update_data["connection_type"] = SystemConnectionType.JDBC.value
-        update_data["auth_method"] = SystemConnectionAuthMethod.USERNAME_PASSWORD.value
-        update_data["connection_string"] = connection_string
-        if not ingestion_explicit:
-            update_data["ingestion_enabled"] = False
-
-    ingestion_before = system_connection.ingestion_enabled
     for field_name, value in update_data.items():
         setattr(system_connection, field_name, value)
 
     db.commit()
     db.refresh(system_connection)
-    if "ingestion_enabled" in update_data and system_connection.ingestion_enabled != ingestion_before:
-        scheduled_ingestion_engine.reload_jobs()
     trigger_data_quality_provisioning(reason="connection-updated")
     return system_connection
 
@@ -319,7 +356,6 @@ def update_system_connection_catalog_selection(
             removed_catalogs.append(
                 CatalogRemoval(
                     system_connection_id=system_connection.id,
-                    system_id=system_connection.system_id,
                     schema_name=selection.schema_name,
                     table_name=selection.table_name,
                 )
@@ -364,8 +400,6 @@ def update_system_connection_catalog_selection(
     if changed:
         db.commit()
         db.refresh(system_connection)
-        if removed_catalogs:
-            scheduled_ingestion_engine.reload_jobs()
         trigger_data_quality_provisioning(reason="connection-catalog-updated")
 
 
@@ -377,7 +411,6 @@ def delete_system_connection(
     removals = [
         CatalogRemoval(
             system_connection_id=system_connection.id,
-            system_id=system_connection.system_id,
             schema_name=selection.schema_name,
             table_name=selection.table_name,
         )
@@ -389,6 +422,5 @@ def delete_system_connection(
 
     db.delete(system_connection)
     db.commit()
-    scheduled_ingestion_engine.reload_jobs()
     trigger_data_quality_provisioning(reason="connection-deleted")
 

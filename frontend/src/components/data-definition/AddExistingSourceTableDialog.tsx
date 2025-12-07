@@ -31,7 +31,7 @@ import {
 	fetchSourceTableColumns,
 	SourceTableColumn
 } from '../../services/dataDefinitionService';
-import { toSourceTableKey } from './sourceTableUtils';
+import { sourceKeyToSchemaKey, toSchemaTableKey, toSourceTableKey } from './sourceTableUtils';
 
 export interface SelectedSourceTablePayload {
 	catalogName: string | null;
@@ -117,8 +117,24 @@ const AddExistingSourceTableDialog = ({
 		columnStateRef.current = columnState;
 	}, [columnState]);
 
-	const excludedKeySet = useMemo(() => new Set(excludedTableKeys), [excludedTableKeys]);
+	const excludedSchemaKeySet = useMemo(() => new Set(excludedTableKeys), [excludedTableKeys]);
 	const selectedKeySet = useMemo(() => new Set(selectedTableKeys), [selectedTableKeys]);
+
+	const isSchemaKeyExcluded = useCallback(
+		(key: string | null | undefined) => {
+			const normalized = sourceKeyToSchemaKey(key);
+			return normalized ? excludedSchemaKeySet.has(normalized) : false;
+		},
+		[excludedSchemaKeySet]
+	);
+
+	const isTableExcluded = useCallback(
+		(table: AvailableSourceTable) => {
+			const normalized = toSchemaTableKey(table.schemaName, table.tableName);
+			return normalized ? excludedSchemaKeySet.has(normalized) : false;
+		},
+		[excludedSchemaKeySet]
+	);
 
 	const tableMap = useMemo(() => {
 		const map = new Map<string, AvailableSourceTable>();
@@ -232,17 +248,6 @@ const AddExistingSourceTableDialog = ({
 		return sortedCatalogs;
 	}, [tables, searchTerm]);
 
-	const autoExpandedNodeIds = useMemo(() => {
-		const ids: string[] = [];
-		catalogHierarchy.forEach((catalog) => {
-			ids.push(catalog.id);
-			catalog.children.forEach((schema) => {
-				ids.push(schema.id);
-			});
-		});
-		return ids;
-	}, [catalogHierarchy]);
-
 	useEffect(() => {
 		if (!open) {
 			return;
@@ -252,6 +257,7 @@ const AddExistingSourceTableDialog = ({
 		setLocalError(null);
 		setPendingSelection(null);
 		setSubmitting(false);
+		setExpandedNodes([]);
 		setActiveItemId(null);
 		setActiveTableKey(null);
 		setColumnState({});
@@ -262,20 +268,13 @@ const AddExistingSourceTableDialog = ({
 		if (!open) {
 			return;
 		}
-		setExpandedNodes(autoExpandedNodeIds);
-	}, [open, autoExpandedNodeIds]);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
 		setSelectedTableKeys((prev) => {
 			const filtered = prev.filter(
-				(key) => tableMap.has(key) && !excludedKeySet.has(key)
+				(key) => tableMap.has(key) && !isSchemaKeyExcluded(key)
 			);
 			return filtered.length === prev.length ? prev : filtered;
 		});
-	}, [open, tableMap, excludedKeySet]);
+		}, [open, tableMap, isSchemaKeyExcluded]);
 
 	useEffect(() => {
 		setColumnState((prev) => {
@@ -412,7 +411,7 @@ const AddExistingSourceTableDialog = ({
 	const handleToggleTable = useCallback(
 		async (node: TableTreeNode, shouldSelect: boolean) => {
 			if (shouldSelect) {
-				if (excludedKeySet.has(node.key)) {
+				if (isSchemaKeyExcluded(node.key) || isTableExcluded(node.table)) {
 					return;
 				}
 				setPendingSelection(node.key);
@@ -432,7 +431,7 @@ const AddExistingSourceTableDialog = ({
 				setSelectedTableKeys((prev) => prev.filter((key) => key !== node.key));
 			}
 		},
-		[ensureColumnsLoaded, excludedKeySet]
+		[ensureColumnsLoaded, isSchemaKeyExcluded, isTableExcluded]
 	);
 
 	const handleColumnToggle = useCallback((tableKey: string, columnName: string) => {
@@ -576,7 +575,7 @@ const AddExistingSourceTableDialog = ({
 
 	const renderTableNode = (node: TableTreeNode) => {
 		const isSelected = selectedKeySet.has(node.key);
-		const isExcluded = excludedKeySet.has(node.key);
+		const isExcluded = isSchemaKeyExcluded(node.key) || isTableExcluded(node.table);
 		const selectionInProgress = pendingSelection === node.key;
 		const disableCheckbox =
 			loading ||

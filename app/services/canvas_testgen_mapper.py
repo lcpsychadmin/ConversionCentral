@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
-from app.schemas.dbt_manifest import DbtManifest, DbtManifestNode, DbtManifestSource
-from app.services.data_quality_metadata import (
+from app.schemas.dbt_manifest import DbtManifest, DbtManifestSource
+from app.services.data_quality_seed import (
     ConnectionSeed,
     DataQualitySeed,
     ProjectSeed,

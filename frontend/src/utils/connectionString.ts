@@ -10,9 +10,19 @@ export interface JdbcConnectionDetails {
   options: Record<string, string>;
 }
 
+const ALLOW_EMPTY_QUERY_KEYS = new Set(['schema']);
+
 const buildQueryString = (options?: Record<string, string>): string => {
   if (!options) return '';
-  const entries = Object.entries(options).filter(([key, value]) => key && value !== undefined && value !== '');
+  const entries = Object.entries(options).filter(([key, value]) => {
+    if (!key || value === undefined) {
+      return false;
+    }
+    if (value === '') {
+      return ALLOW_EMPTY_QUERY_KEYS.has(key);
+    }
+    return true;
+  });
   if (!entries.length) return '';
   const query = entries
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from logging import getLogger
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.constants.audit_fields import AUDIT_FIELD_NAME_SET
 from app.models import (
+    ConnectionTableSelection,
     ConstructedDataValidationRule,
     ConstructedField,
     ConstructedTable,
@@ -28,6 +30,9 @@ from app.services.constructed_table_manager import (
     create_or_update_constructed_table,
     drop_constructed_table,
 )
+from app.services.constructed_schema_resolver import resolve_constructed_schema
+from app.services.data_quality_provisioning import trigger_data_quality_provisioning
+from app.services.table_filters import connection_is_databricks
 
 if TYPE_CHECKING:  # pragma: no cover - import guarded for type checking only
     from app.models import SystemConnection
@@ -87,17 +92,16 @@ _TYPE_VALIDATION_PATTERNS: dict[str, tuple[str, str]] = {
     "boolean": (r"^(?i:true|false|0|1)$", "{field} must be true or false."),
 }
 
-CONSTRUCTED_TABLE_SCHEMA = "construction_data"
 
-
-def sync_construction_tables_for_definition(definition_id: UUID, db: Session) -> None:
+def sync_construction_tables_for_definition(
+    definition_id: UUID,
+    db: Session,
+) -> None:
     """Ensure constructed tables mirror the current data definition configuration."""
     definition = (
         db.query(DataDefinition)
         .options(
-            selectinload(DataDefinition.system).selectinload(System.connections),
-            selectinload(DataDefinition.tables)
-            .selectinload(DataDefinitionTable.table),
+            selectinload(DataDefinition.system),
             selectinload(DataDefinition.tables)
             .selectinload(DataDefinitionTable.fields)
             .selectinload(DataDefinitionField.field),
@@ -133,6 +137,7 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
             _sync_validation_rules(table, constructed_table, db)
             constructed_table.status = ConstructedTableStatus.APPROVED.value
             active_constructed_table_ids.add(constructed_table.id)
+            _ensure_constructed_catalog_selection(system, constructed_table, db)
 
             if settings.enable_constructed_table_sync:
                 _sync_sql_server_table(system, table, constructed_table)
@@ -147,6 +152,7 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
                     )
         else:
             if table.constructed_table:
+                _remove_constructed_catalog_selection(system, table.constructed_table, db)
                 _drop_sql_table(system, table.constructed_table, settings.enable_constructed_table_sync)
                 if warehouse:
                     try:
@@ -160,7 +166,7 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
                 db.delete(table.constructed_table)
 
     if not active_constructed_table_ids:
-        stale_tables = (
+        stale_tables: list[ConstructedTable] = (
             db.query(ConstructedTable)
             .filter(ConstructedTable.data_definition_id == definition.id)
             .all()
@@ -176,6 +182,7 @@ def sync_construction_tables_for_definition(definition_id: UUID, db: Session) ->
         )
 
     for constructed_table in stale_tables:
+        _remove_constructed_catalog_selection(system, constructed_table, db)
         _drop_sql_table(system, constructed_table, settings.enable_constructed_table_sync)
         if warehouse:
             try:
@@ -194,7 +201,7 @@ def delete_constructed_tables_for_definition(definition_id: UUID, db: Session) -
     definition = (
         db.query(DataDefinition)
         .options(
-            selectinload(DataDefinition.system).selectinload(System.connections),
+            selectinload(DataDefinition.system),
             selectinload(DataDefinition.constructed_tables),
         )
         .filter(DataDefinition.id == definition_id)
@@ -220,6 +227,7 @@ def delete_constructed_tables_for_definition(definition_id: UUID, db: Session) -
 
     for constructed_table in list(definition.constructed_tables):
         if system:
+            _remove_constructed_catalog_selection(system, constructed_table, db)
             _drop_sql_table(system, constructed_table, settings.enable_constructed_table_sync)
         if warehouse:
             try:
@@ -235,6 +243,7 @@ def delete_constructed_tables_for_definition(definition_id: UUID, db: Session) -
         db.delete(constructed_table)
 
     db.flush()
+    trigger_data_quality_provisioning(reason="constructed-table-sync")
 
 
 def _ensure_constructed_table(
@@ -261,6 +270,9 @@ def _ensure_constructed_table(
         if definition_table.description:
             constructed_table.description = definition_table.description
         constructed_table.purpose = _build_constructed_table_purpose(definition_table)
+
+    system = definition.system
+    constructed_table.schema_name = resolve_constructed_schema(table=constructed_table, system=system)
 
     return constructed_table
 
@@ -509,7 +521,7 @@ def _sync_sql_server_table(
         )
         return
 
-    schema_name = CONSTRUCTED_TABLE_SCHEMA
+    schema_name = resolve_constructed_schema(table=constructed_table, system=system)
 
     try:
         create_or_update_constructed_table(
@@ -549,7 +561,7 @@ def _drop_sql_table(
         )
         return
 
-    schema_name = CONSTRUCTED_TABLE_SCHEMA
+    schema_name = resolve_constructed_schema(table=constructed_table, system=system)
 
     try:
         drop_constructed_table(
@@ -603,3 +615,102 @@ def _slugify(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", value.lower())
     slug = re.sub(r"_+", "_", slug).strip("_")
     return slug or "table"
+
+
+def _normalized(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _selection_matches(selection: ConnectionTableSelection, schema_norm: str, table_norm: str) -> bool:
+    return _normalized(selection.table_name) == table_norm and (
+        not schema_norm or _normalized(selection.schema_name) == schema_norm
+    )
+
+
+def _databricks_connections(system: System | None) -> list["SystemConnection"]:
+    if system is None:
+        return []
+    return [
+        connection
+        for connection in getattr(system, "connections", []) or []
+        if connection.active and connection_is_databricks(connection)
+    ]
+
+
+def _ensure_constructed_catalog_selection(
+    system: System | None,
+    constructed_table: ConstructedTable,
+    db: Session,
+) -> None:
+    table_name = (constructed_table.name or "").strip()
+    if not table_name:
+        return
+
+    schema_name = (constructed_table.schema_name or "").strip()
+    schema_norm = _normalized(schema_name)
+    table_norm = _normalized(table_name)
+
+    now = datetime.now(timezone.utc)
+
+    for connection in _databricks_connections(system):
+        _remove_conflicting_constructed_selections(connection, table_norm, schema_norm, db)
+        selections = connection.catalog_selections or []
+        existing = next(
+            (selection for selection in selections if _selection_matches(selection, schema_norm, table_norm)),
+            None,
+        )
+        if existing:
+            if existing.table_type != "constructed":
+                existing.table_type = "constructed"
+            if existing.last_seen_at != now:
+                existing.last_seen_at = now
+            if schema_name and existing.schema_name != schema_name:
+                existing.schema_name = schema_name
+            continue
+
+        selection = ConnectionTableSelection(
+            system_connection_id=connection.id,
+            schema_name=schema_name or constructed_table.schema_name or "constructed",
+            table_name=table_name,
+            table_type="constructed",
+            last_seen_at=now,
+        )
+        db.add(selection)
+        if connection.catalog_selections is None:
+            connection.catalog_selections = [selection]
+        else:
+            connection.catalog_selections.append(selection)
+
+
+def _remove_constructed_catalog_selection(
+    system: System | None,
+    constructed_table: ConstructedTable,
+    db: Session,
+) -> None:
+    table_norm = _normalized(getattr(constructed_table, "name", None))
+    if not table_norm:
+        return
+    schema_norm = _normalized(getattr(constructed_table, "schema_name", None))
+
+    for connection in _databricks_connections(system):
+        for selection in list(connection.catalog_selections or []):
+            if _selection_matches(selection, schema_norm, table_norm):
+                connection.catalog_selections.remove(selection)
+                db.delete(selection)
+
+
+def _remove_conflicting_constructed_selections(
+    connection: "SystemConnection",
+    table_norm: str,
+    schema_norm: str,
+    db: Session,
+) -> None:
+    for selection in list(connection.catalog_selections or []):
+        if _normalized(selection.table_name) != table_norm:
+            continue
+        if schema_norm and _normalized(selection.schema_name) == schema_norm:
+            continue
+        if (selection.table_type or "").lower() != "constructed":
+            continue
+        connection.catalog_selections.remove(selection)
+        db.delete(selection)

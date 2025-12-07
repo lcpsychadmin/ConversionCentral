@@ -26,12 +26,15 @@ services:
     environment:
       APP_NAME: "Conversion Central API"
       DATABASE_URL: "postgresql+psycopg://postgres:postgres@postgres:5432/conversion_central"
+      INGESTION_DATABASE_URL: "postgresql+psycopg://postgres:postgres@postgres:5432/conversion_central"
+      DATA_QUALITY_METADATA_BACKEND: "local"
       DATABRICKS_HOST: ${DATABRICKS_HOST:-}
       DATABRICKS_HTTP_PATH: ${DATABRICKS_HTTP_PATH:-}
       DATABRICKS_CATALOG: ${DATABRICKS_CATALOG:-}
       DATABRICKS_SCHEMA: ${DATABRICKS_SCHEMA:-}
       DATABRICKS_TOKEN: ${DATABRICKS_TOKEN:-}
       FRONTEND_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,https://localhost,https://localhost:443,https://127.0.0.1,https://127.0.0.1:443,https://wescollins.duckdns.org,http://wescollins.duckdns.org"
+      PROFILING_EXECUTION_MODE: "local"
     depends_on:
       postgres:
         condition: service_healthy

@@ -19,8 +19,8 @@ os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("INGESTION_DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("ENABLE_SQL_SERVER_SYNC", "false")
 
-from app.database import Base, get_db, get_control_db
-from app.main import app
+from app.database import Base, get_db, get_control_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 def _create_testing_engine():

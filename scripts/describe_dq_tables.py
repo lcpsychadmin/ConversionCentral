@@ -46,9 +46,9 @@ def _emit(message: str = "") -> None:
 _emit("Starting Databricks profiling metadata inspection helper.")
 _emit(f"__name__ = {__name__}")
 
-from app.ingestion.engine import get_ingestion_connection_params
-from app.services.databricks_sql import build_sqlalchemy_url
-from app.services.data_quality_metadata import _format_table
+from app.ingestion.engine import get_ingestion_connection_params  # noqa: E402
+from app.services.databricks_sql import build_sqlalchemy_url  # noqa: E402
+from app.services.data_quality_metadata import _format_table  # noqa: E402
 
 
 def _format_row(row: tuple[str | None, str | None, str | None]) -> str:

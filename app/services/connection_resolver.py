@@ -76,9 +76,20 @@ def _convert_jdbc_to_sqlalchemy_url(connection_string: str) -> URL:
     )
 
 
+def _normalize_databricks_query_key(key: str) -> str:
+    cleaned = (key or "").strip().replace("-", "_")
+    lowered = cleaned.lower()
+    if lowered == "httppath":
+        return "http_path"
+    return lowered
+
+
 def _convert_databricks_connection(parsed) -> URL:
     query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
     query: dict[str, str] = dict(query_pairs) if query_pairs else {}
+    normalized_query = {
+        _normalize_databricks_query_key(key): value for key, value in query.items() if key
+    }
 
     try:
         params = get_ingestion_connection_params()
@@ -88,9 +99,19 @@ def _convert_databricks_connection(parsed) -> URL:
         ) from exc
 
     host = parsed.hostname or params.workspace_host
-    http_path = query.get("http_path") or params.http_path
-    catalog = query.get("catalog") or params.catalog
-    schema_name = query.get("schema") or params.schema_name
+    http_path = normalized_query.get("http_path") or params.http_path
+
+    if "catalog" in normalized_query:
+        catalog_value = (normalized_query.get("catalog") or "").strip()
+        catalog = catalog_value or None
+    else:
+        catalog = params.catalog
+
+    if "schema" in normalized_query:
+        schema_value = (normalized_query.get("schema") or "").strip()
+        schema_name = schema_value or None
+    else:
+        schema_name = params.schema_name
 
     access_token = parsed.password or params.access_token
     if not access_token:

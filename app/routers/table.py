@@ -116,26 +116,23 @@ def preview_table(
     The table must have a physical name and belong to a system with an active connection.
     """
     table = _get_table_or_404(table_id, db)
-    
+
     # Get the system and its connection
     system = db.get(System, table.system_id)
     if not system:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     
-    # Find an active connection for this system
+    # Find any active connection (system links were removed)
     connection = (
         db.query(SystemConnection)
-        .filter(
-            SystemConnection.system_id == table.system_id,
-            SystemConnection.active == True
-        )
+        .filter(SystemConnection.active.is_(True))
         .first()
     )
-    
+
     if not connection:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active connection found for this table's system"
+            detail="No active connections available for preview after application removal",
         )
     
     try:

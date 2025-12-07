@@ -16,13 +16,12 @@ from app.routers import (
 	data_quality,
 	data_quality_profiling_schedule,
 	data_quality_testgen,
+	table_observability,
 	legal_requirement,
 	role,
 	user,
 	field,
 	field_load,
-	ingestion_job,
-	ingestion_schedule,
 	process_area_role_assignment,
 	mapping,
 	mapping_set,
@@ -46,7 +45,6 @@ from app.routers import (
 	dependency_approval,
 	dependency_dag,
 	reporting,
-	databricks_settings,
 	security_classification,
 	sap_hana_settings,
 	application_database,
@@ -87,8 +85,6 @@ api_router.include_router(post_load_validation_result.router)
 api_router.include_router(post_load_validation_issue.router)
 api_router.include_router(post_load_validation_approval.router)
 api_router.include_router(system_connection.router)
-api_router.include_router(ingestion_job.router)
-api_router.include_router(ingestion_schedule.router)
 api_router.include_router(data_object_dependency.router)
 api_router.include_router(table_dependency.router)
 api_router.include_router(table_load_order.router)
@@ -97,10 +93,10 @@ api_router.include_router(dependency_approval.router)
 api_router.include_router(dependency_dag.router)
 api_router.include_router(reporting.router)
 api_router.include_router(databricks_metadata.router)
-api_router.include_router(databricks_settings.router)
 api_router.include_router(data_quality.router)
 api_router.include_router(data_quality_profiling_schedule.router)
 api_router.include_router(data_quality_testgen.router)
+api_router.include_router(table_observability.router)
 api_router.include_router(security_classification.router)
 api_router.include_router(sap_hana_settings.router)
 api_router.include_router(application_database.router)

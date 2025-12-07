@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.data_quality_metadata import (
-    ensure_data_quality_metadata,
+from app.services.data_quality_metadata import ensure_data_quality_metadata
+from app.services.data_quality_seed import (
     ConnectionSeed,
     DataQualitySeed,
     ProjectSeed,
@@ -21,6 +21,7 @@ from app.services.data_quality_keys import (
     build_table_id,
 )
 from app.services import data_quality_metadata
+from app.services.data_quality_backend import LOCAL_BACKEND
 from app.services.databricks_sql import DatabricksConnectionParams
 
 
@@ -226,35 +227,92 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
     assert any("DELETE FROM `sandbox`.`dq`.`dq_connections`" in stmt for stmt in executed)
 
 
-def test_tables_for_connection_uses_ingestion_naming(monkeypatch):
-    data_object_id = uuid4()
-    selection = SimpleNamespace(id=uuid4(), schema_name="sample_data", table_name="WebSales_Customers")
-    connection = SimpleNamespace(
+def test_ensure_data_quality_metadata_local_backend(monkeypatch):
+    params = _build_params()
+
+    class DummyRepo:
+        def __init__(self):
+            self.seeded = False
+
+        def seed_metadata(self, seed):
+            self.seeded = True
+
+    repo_instance = DummyRepo()
+
+    monkeypatch.setattr(data_quality_metadata, "get_metadata_backend", lambda: LOCAL_BACKEND)
+    monkeypatch.setattr(data_quality_metadata, "LocalDataQualityRepository", lambda: repo_instance)
+    monkeypatch.setattr(data_quality_metadata, "_collect_metadata", lambda params: DataQualitySeed())
+
+    def _fail(*args, **kwargs):  # pragma: no cover - validation helper
+        raise AssertionError("Databricks schema provisioning should not run for local backend")
+
+    monkeypatch.setattr(data_quality_metadata, "_apply_schema", _fail)
+
+    ensure_data_quality_metadata(params)
+
+    assert repo_instance.seeded is True
+
+
+def test_definition_table_entry_uses_ingestion_schema_for_native_tables():
+    system_id = uuid4()
+    definition_table_id = uuid4()
+    system = SimpleNamespace(id=system_id, name="Demo Data", physical_name=None)
+    table = SimpleNamespace(
         id=uuid4(),
-        system=SimpleNamespace(id=uuid4(), name="Demo Data", physical_name=None),
-        catalog_selections=[selection],
-        active=True,
+        schema_name="raw",
+        physical_name="Customers",
+        name=None,
+        system_id=system_id,
     )
+    definition_table = SimpleNamespace(id=definition_table_id, table=table, constructed_table=None)
+    params = _build_params(schema_name="stage")
 
-    tables = data_quality_metadata._tables_for_connection(connection, data_object_id=data_object_id, table_keys=None)
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
 
-    assert len(tables) == 1
-    assert tables[0].schema_name == "demo_data"
-    assert tables[0].table_name == "sample_data_websales_customers"
+    assert entry is not None
+    assert entry.schema_name == "demo_data"
+    assert entry.table_name == "raw_customers"
+    assert entry.source_table_id == str(table.id)
 
 
-def test_tables_for_connection_falls_back_when_system_name_missing(monkeypatch):
-    data_object_id = uuid4()
-    selection = SimpleNamespace(id=uuid4(), schema_name="finance", table_name="transactions")
-    connection = SimpleNamespace(
+def test_definition_table_entry_uses_table_schema_for_external_tables():
+    system = SimpleNamespace(id=uuid4(), name="CRM", physical_name=None)
+    other_system_id = uuid4()
+    table = SimpleNamespace(
         id=uuid4(),
-        system=SimpleNamespace(id=uuid4(), name=None, physical_name=None),
-        catalog_selections=[selection],
-        active=True,
+        schema_name="analytics",
+        physical_name="orders",
+        name="Orders",
+        system_id=other_system_id,
     )
+    definition_table = SimpleNamespace(id=uuid4(), table=table, constructed_table=None)
+    params = _build_params()
 
-    tables = data_quality_metadata._tables_for_connection(connection, data_object_id=data_object_id, table_keys=None)
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
 
-    assert len(tables) == 1
-    assert tables[0].schema_name == "finance"
-    assert tables[0].table_name == "finance_transactions"
+    assert entry is not None
+    assert entry.schema_name == "analytics"
+    assert entry.table_name == "orders"
+
+
+def test_definition_table_entry_handles_constructed_tables(monkeypatch):
+    system = SimpleNamespace(id=uuid4(), name="ERP", physical_name="erp")
+    constructed_table = SimpleNamespace(id=uuid4(), name="curated_orders", schema_name="cstm_schema")
+    table = SimpleNamespace(id=uuid4(), schema_name=None, physical_name=None, system_id=system.id)
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=constructed_table,
+    )
+    params = _build_params(constructed_schema="constructed")
+
+    def _resolve(*, overrides=None, table=None, system=None, fallback_schema=None):
+        return "constructed_data" if table is constructed_table else "constructed"
+
+    monkeypatch.setattr(data_quality_metadata, "resolve_constructed_schema", _resolve)
+
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
+
+    assert entry is not None
+    assert entry.schema_name == "constructed_data"
+    assert entry.table_name == constructed_table.name

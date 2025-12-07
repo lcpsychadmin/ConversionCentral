@@ -13,6 +13,9 @@ def connection_is_databricks(connection: SystemConnection) -> bool:
     if not getattr(connection, "active", False):
         return False
 
+    if getattr(connection, "use_databricks_managed_connection", False):
+        return True
+
     connection_type = str(getattr(connection, "connection_type", "") or "").lower()
     if connection_type != SystemConnectionType.JDBC.value:
         return False
@@ -33,5 +36,27 @@ def table_has_databricks_connection(table: Table) -> bool:
     return False
 
 
+def _system_indicates_databricks(table: Table) -> bool:
+    system = getattr(table, "system", None)
+    if system is None:
+        return False
+
+    system_type = (getattr(system, "system_type", "") or "").strip().lower()
+    if system_type == "databricks":
+        return True
+
+    physical_name = (getattr(system, "physical_name", "") or "").strip().lower()
+    if physical_name.startswith("dbr_"):
+        return True
+
+    system_name = (getattr(system, "name", "") or "").strip().lower()
+    if "databricks" in system_name:
+        return True
+
+    return False
+
+
 def table_is_databricks_eligible(table: Table) -> bool:
-    return table_is_constructed(table) or table_has_databricks_connection(table)
+    if table_is_constructed(table) or table_has_databricks_connection(table):
+        return True
+    return _system_indicates_databricks(table)

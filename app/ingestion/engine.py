@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Generator, Optional
+from typing import Generator
 from uuid import UUID
 
 from sqlalchemy import create_engine, select

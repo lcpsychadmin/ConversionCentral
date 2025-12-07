@@ -234,7 +234,7 @@ class TestGenClient:
                 for ddl in ddl_statements:
                     try:
                         connection.execute(ddl)
-                    except SQLAlchemyError as exc:
+                    except SQLAlchemyError:
                         raise
                 for statement in statements:
                     try:
@@ -286,7 +286,7 @@ class TestGenClient:
     def list_connections(self, project_key: str) -> list[dict[str, Any]]:
         connections_table = _format_table(self._params.catalog, self._schema, "dq_connections")
         statement = text(
-            f"SELECT connection_id, project_key, system_id, name, catalog, schema_name, http_path, managed_credentials_ref, is_active "
+            f"SELECT connection_id, project_key, name, catalog, schema_name, http_path, managed_credentials_ref, is_active "
             f"FROM {connections_table} WHERE project_key = :project_key ORDER BY name"
         )
         return self._fetch(statement, {"project_key": project_key})
@@ -305,7 +305,7 @@ class TestGenClient:
         statement = text(
             f"SELECT groups.table_group_id, groups.connection_id, groups.name, groups.description, "
             "groups.profiling_include_mask, groups.profiling_exclude_mask, groups.profiling_job_id, "
-            "conns.name AS connection_name, conns.project_key, conns.system_id, conns.catalog, conns.schema_name, "
+            "conns.name AS connection_name, conns.project_key, conns.catalog, conns.schema_name, "
             "conns.http_path, conns.managed_credentials_ref, conns.is_active "
             f"FROM {table_groups_table} AS groups "
             f"JOIN {connections_table} AS conns ON conns.connection_id = groups.connection_id "
@@ -689,8 +689,7 @@ class TestGenClient:
                 c.name AS connection_name,
                 c.catalog,
                 c.schema_name,
-                c.project_key,
-                c.system_id
+                c.project_key
             FROM {profiles_table} p
             LEFT JOIN {table_groups_table} g ON g.table_group_id = p.table_group_id
             LEFT JOIN {connections_table} c ON c.connection_id = g.connection_id
@@ -715,8 +714,7 @@ class TestGenClient:
                 c.name AS connection_name,
                 c.catalog,
                 c.schema_name,
-                c.project_key,
-                c.system_id
+                c.project_key
             FROM {table_groups_table} g
             LEFT JOIN {connections_table} c ON c.connection_id = g.connection_id
             ORDER BY g.name
@@ -1375,7 +1373,7 @@ class TestGenClient:
         )
         statement = text(
             f"SELECT profile_run_id, schema_name, table_name, column_name, value, frequency, relative_freq, rank, "
-            "bucket_label, bucket_lower_bound, bucket_upper_bound FROM {values_table} "
+            f"bucket_label, bucket_lower_bound, bucket_upper_bound FROM {values_table} "
             "WHERE profile_run_id = :profile_run_id "
             f"{order_clause}"
         )

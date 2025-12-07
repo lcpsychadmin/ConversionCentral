@@ -12,13 +12,12 @@ import FlashOnIcon from '@mui/icons-material/FlashOn';
 import { Chip, Link, Tooltip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 
-import { SystemConnection, System } from '../../types/data';
+import { SystemConnection } from '../../types/data';
 import { formatConnectionSummary, parseJdbcConnectionString } from '../../utils/connectionString';
 import { getDataGridStyles } from '../../utils/tableStyles';
 
 interface SystemConnectionTableProps {
   data: SystemConnection[];
-  systems: System[];
   loading: boolean;
   selectedId?: string | null;
   canManage?: boolean;
@@ -31,11 +30,11 @@ interface SystemConnectionTableProps {
 
 const DATABASE_LABELS: Record<string, string> = {
   postgresql: 'PostgreSQL',
-  databricks: 'Databricks SQL Warehouse'
+  databricks: 'Databricks SQL Warehouse',
+  sap: 'SAP HANA'
 };
 
 const buildColumns = (
-  systemLookup: Map<string, string>,
   canManage: boolean,
   onViewDetail?: (connection: SystemConnection) => void,
   onEdit?: (connection: SystemConnection) => void,
@@ -44,19 +43,29 @@ const buildColumns = (
 ): GridColDef<SystemConnection>[] => {
   const baseColumns: GridColDef<SystemConnection>[] = [
     {
-      field: 'systemId',
-      headerName: 'Application',
-      flex: 1,
-      valueGetter: ({ row }) => systemLookup.get(row.systemId) ?? '—'
+      field: 'name',
+      headerName: 'Connection',
+      flex: 0.9,
+      minWidth: 180,
+      renderCell: ({ row }) => (
+        <Link
+          component="button"
+          variant="body2"
+          onClick={(event) => {
+            event.preventDefault();
+            onViewDetail?.(row);
+          }}
+          sx={{ cursor: 'pointer', fontWeight: 600 }}
+        >
+          {row.name}
+        </Link>
+      )
     },
     {
       field: 'databaseType',
       headerName: 'Database',
       flex: 0.8,
       valueGetter: ({ row }) => {
-        if (row.usesDatabricksManagedConnection) {
-          return 'Databricks SQL Warehouse (Managed)';
-        }
         const parsed = parseJdbcConnectionString(row.connectionString);
         if (!parsed) return '—';
         return DATABASE_LABELS[parsed.databaseType] ?? parsed.databaseType;
@@ -68,9 +77,7 @@ const buildColumns = (
       flex: 1.4,
       renderCell: ({ row }) => {
         const summary = formatConnectionSummary(row.connectionString);
-        const tooltipMessage = row.usesDatabricksManagedConnection
-          ? 'Managed Databricks warehouse connection.'
-          : row.notes ?? summary;
+        const tooltipMessage = row.notes ?? summary;
         return (
           <Tooltip title={tooltipMessage} placement="top" enterDelay={600}>
             <Link
@@ -99,19 +106,6 @@ const buildColumns = (
           size="small"
         />
       )
-    },
-    {
-      field: 'ingestionEnabled',
-      headerName: 'Ingestion',
-      flex: 0.7,
-      renderCell: ({ value }) => (
-        <Chip
-          label={value ? 'Enabled' : 'Hidden'}
-          color={value ? 'primary' : 'default'}
-          size="small"
-          variant={value ? 'filled' : 'outlined'}
-        />
-      )
     }
   ];
 
@@ -128,7 +122,7 @@ const buildColumns = (
       getActions: (params: GridRowParams<SystemConnection>) => {
   const items: ReactElement[] = [];
 
-        if (onTest && !params.row.usesDatabricksManagedConnection) {
+        if (onTest) {
           items.push(
             <GridActionsCellItem
               key="test"
@@ -168,7 +162,6 @@ const buildColumns = (
 
 const SystemConnectionTable = ({
   data,
-  systems,
   loading,
   selectedId,
   canManage = false,
@@ -178,16 +171,11 @@ const SystemConnectionTable = ({
   onDelete,
   onTest
 }: SystemConnectionTableProps) => {
-  const systemLookup = useMemo(
-    () => new Map(systems.map((system) => [system.id, system.name])),
-    [systems]
-  );
-
   const theme = useTheme();
 
   const columns = useMemo(
-    () => buildColumns(systemLookup, canManage, onViewDetail, onEdit, onDelete, onTest),
-    [systemLookup, canManage, onViewDetail, onEdit, onDelete, onTest]
+    () => buildColumns(canManage, onViewDetail, onEdit, onDelete, onTest),
+    [canManage, onViewDetail, onEdit, onDelete, onTest]
   );
 
   const handleSelectionChange = (selection: GridRowSelectionModel) => {

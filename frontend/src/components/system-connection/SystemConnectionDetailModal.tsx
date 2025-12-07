@@ -47,14 +47,8 @@ const SystemConnectionDetailModal = ({
     return null;
   }
 
-  const isManagedDatabricks = connection.usesDatabricksManagedConnection;
   const parsed = parseJdbcConnectionString(connection.connectionString);
-  const usernameDisplay = isManagedDatabricks
-    ? 'Managed by Databricks settings'
-    : parsed?.username
-      ? parsed.username
-      : '—';
-  const modeDisplay = isManagedDatabricks ? 'Managed Databricks warehouse' : 'Direct JDBC configuration';
+  const usernameDisplay = parsed?.username ? parsed.username : '—';
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -66,8 +60,7 @@ const SystemConnectionDetailModal = ({
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <Stack spacing={2}>
-                <DetailLine label="Application" value={system?.name ?? '—'} />
-                <DetailLine label="Mode" value={modeDisplay} />
+                <DetailLine label="Application" value={system?.name ?? 'Global connection'} />
                 <DetailLine
                   label="Endpoint"
                   value={formatConnectionSummary(connection.connectionString)}
@@ -89,10 +82,6 @@ const SystemConnectionDetailModal = ({
                   value={usernameDisplay}
                 />
                 <DetailLine label="Status" value={connection.active ? 'Active' : 'Disabled'} />
-                <DetailLine
-                  label="Ingestion"
-                  value={connection.ingestionEnabled ? 'Enabled' : 'Disabled'}
-                />
                 <DetailLine label="Notes" value={connection.notes ?? '—'} />
                 <DetailLine
                   label="Last Updated"

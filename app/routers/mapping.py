@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Field, Mapping, MappingSet, User
-from app.schemas import MappingCreate, MappingRead, MappingStatus, MappingUpdate
+from app.schemas import MappingCreate, MappingRead, MappingUpdate
 
 router = APIRouter(prefix="/mappings", tags=["Mappings"])
 

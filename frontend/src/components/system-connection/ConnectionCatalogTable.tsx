@@ -178,7 +178,7 @@ const ConnectionCatalogTable = ({
     <Stack spacing={2} sx={{ position: 'relative' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.3 }}>
-          Source Catalog
+          Tables
         </Typography>
         <Box display="flex" alignItems="center" gap={1.5}>
           <LoadingButton

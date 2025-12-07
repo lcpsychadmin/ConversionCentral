@@ -59,7 +59,7 @@ class DataQualityRunExecutor:
         except RuntimeError as exc:
             logger.info("Skipping data quality validation run for %s: %s", project_key, exc)
             return None
-        except Exception as exc:  # pragma: no cover - defensive guard
+        except Exception:  # pragma: no cover - defensive guard
             logger.exception("Failed to resolve Databricks params for data quality run %s", project_key)
             return None
 

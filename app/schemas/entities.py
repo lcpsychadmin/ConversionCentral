@@ -2,6 +2,7 @@ import base64
 import binascii
 import re
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
@@ -981,50 +982,50 @@ class SystemConnectionAuthMethod(str, Enum):
 
 
 class SystemConnectionBase(BaseModel):
-    system_id: UUID
+    display_name: str = Field("Connection", max_length=120)
     connection_type: SystemConnectionType = SystemConnectionType.JDBC
     connection_string: str
     auth_method: SystemConnectionAuthMethod = SystemConnectionAuthMethod.USERNAME_PASSWORD
     active: bool = True
-    ingestion_enabled: bool = True
     notes: Optional[str] = None
+    system_id: Optional[UUID] = None
 
 
 class SystemConnectionCreate(SystemConnectionBase):
     connection_string: Optional[str] = Field(None, min_length=1)
+    use_databricks_managed_connection: bool = False
     databricks_catalog: Optional[str] = Field(None, max_length=120)
     databricks_schema: Optional[str] = Field(None, max_length=120)
-    use_databricks_managed_connection: bool = False
 
     @root_validator
-    def _require_connection(cls, values: dict) -> dict:
-        use_managed = values.get("use_databricks_managed_connection")
+    def _require_connection_string(cls, values: dict) -> dict:
+        use_managed = values.get("use_databricks_managed_connection", False)
         connection_string = values.get("connection_string")
         if not use_managed and not connection_string:
-            raise ValueError(
-                "connection_string is required unless use_databricks_managed_connection is true."
-            )
-        if values.get("databricks_schema") and not values.get("databricks_catalog"):
-            raise ValueError("databricks_schema requires databricks_catalog to be set.")
+            raise ValueError("connection_string is required unless using a managed Databricks connection.")
         return values
 
 
 class SystemConnectionUpdate(BaseModel):
-    system_id: Optional[UUID] = None
+    display_name: Optional[str] = Field(None, max_length=120)
     connection_type: Optional[SystemConnectionType] = None
     connection_string: Optional[str] = Field(None, min_length=1)
     auth_method: Optional[SystemConnectionAuthMethod] = None
     active: Optional[bool] = None
-    ingestion_enabled: Optional[bool] = None
     notes: Optional[str] = None
+    system_id: Optional[UUID] = None
     use_databricks_managed_connection: Optional[bool] = None
     databricks_catalog: Optional[str] = Field(None, max_length=120)
     databricks_schema: Optional[str] = Field(None, max_length=120)
 
     @root_validator
-    def _validate_schema_dependency(cls, values: dict) -> dict:
-        if values.get("databricks_schema") and not values.get("databricks_catalog"):
-            raise ValueError("databricks_schema requires databricks_catalog to be set.")
+    def _validate_connection_transition(cls, values: dict) -> dict:
+        use_managed = values.get("use_databricks_managed_connection")
+        connection_string = values.get("connection_string")
+        if use_managed is False and not connection_string:
+            raise ValueError(
+                "connection_string must be provided when disabling a managed Databricks connection."
+            )
         return values
 
 
@@ -1360,122 +1361,109 @@ class ConnectionCatalogSelectionUpdate(BaseModel):
     selected_tables: list[ConnectionTableIdentifier]
 
 
-class IngestionJobStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+class TableObservabilityMetric(BaseModel):
+    name: str
+    description: str
+    baseline: Optional[str] = None
+    source: Optional[str] = None
 
 
-class IngestionJobBase(BaseModel):
-    execution_context_id: UUID
-    table_id: UUID
-    status: IngestionJobStatus = IngestionJobStatus.PENDING
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    row_count: Optional[int] = Field(None, ge=0)
-    notes: Optional[str] = None
+class TableObservabilityCategory(BaseModel):
+    name: str
+    cadence: str
+    rationale: str
+    metrics: list[TableObservabilityMetric] = Field(default_factory=list)
 
 
-class IngestionJobCreate(IngestionJobBase):
-    pass
+class TableObservabilityTable(BaseModel):
+    selection_id: UUID
+    schema_name: str
+    table_name: str
+    table_type: Optional[str] = None
+    column_count: Optional[int] = None
+    estimated_rows: Optional[int] = None
+    categories: list[TableObservabilityCategory] = Field(default_factory=list)
 
 
-class IngestionJobUpdate(BaseModel):
-    execution_context_id: Optional[UUID] = None
-    table_id: Optional[UUID] = None
-    status: Optional[IngestionJobStatus] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    row_count: Optional[int] = Field(None, ge=0)
-    notes: Optional[str] = None
+class TableObservabilityPlan(BaseModel):
+    system_connection_id: UUID
+    connection_name: str
+    table_count: int
+    generated_at: datetime
+    tables: list[TableObservabilityTable] = Field(default_factory=list)
 
 
-class IngestionJobRead(IngestionJobBase, TimestampSchema):
-    id: UUID
+class TableObservabilityScheduleUpdate(BaseModel):
+    cron_expression: Optional[str] = Field(default=None, alias="cronExpression")
+    timezone: Optional[str] = None
+    is_active: Optional[bool] = Field(default=None, alias="isActive")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
-class IngestionJobRunRequest(BaseModel):
-    replace: bool = False
-    batch_size: Optional[int] = Field(default=None, ge=1, le=100_000)
+class TableObservabilityScheduleRead(BaseModel):
+    schedule_id: UUID = Field(alias="scheduleId")
+    category_key: str = Field(alias="categoryKey")
+    category_name: str = Field(alias="categoryName")
+    cron_expression: str = Field(alias="cronExpression")
+    timezone: str
+    is_active: bool = Field(alias="isActive")
+    default_cron_expression: str = Field(alias="defaultCronExpression")
+    default_timezone: str = Field(alias="defaultTimezone")
+    cadence: str
+    rationale: str
+    last_run_status: Optional[str] = Field(default=None, alias="lastRunStatus")
+    last_run_started_at: Optional[datetime] = Field(default=None, alias="lastRunStartedAt")
+    last_run_completed_at: Optional[datetime] = Field(default=None, alias="lastRunCompletedAt")
+    last_run_error: Optional[str] = Field(default=None, alias="lastRunError")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
-class IngestionLoadStrategy(str, Enum):
-    TIMESTAMP = "timestamp"
-    NUMERIC_KEY = "numeric_key"
-    FULL = "full"
+class TableObservabilityRunRead(BaseModel):
+    run_id: UUID = Field(alias="runId")
+    schedule_id: Optional[UUID] = Field(default=None, alias="scheduleId")
+    category_key: str = Field(alias="categoryKey")
+    category_name: str = Field(alias="categoryName")
+    status: str
+    started_at: Optional[datetime] = Field(default=None, alias="startedAt")
+    completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
+    table_count: int = Field(alias="tableCount")
+    metrics_collected: int = Field(alias="metricsCollected")
+    error: Optional[str] = None
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class TableObservabilityMetricRead(BaseModel):
+    metric_id: UUID = Field(alias="metricId")
+    run_id: UUID = Field(alias="runId")
+    selection_id: Optional[UUID] = Field(default=None, alias="selectionId")
+    system_connection_id: Optional[UUID] = Field(default=None, alias="systemConnectionId")
+    schema_name: Optional[str] = Field(default=None, alias="schemaName")
+    table_name: str = Field(alias="tableName")
+    metric_category: str = Field(alias="metricCategory")
+    metric_name: str = Field(alias="metricName")
+    metric_unit: Optional[str] = Field(default=None, alias="metricUnit")
+    metric_value_number: Optional[Decimal] = Field(default=None, alias="metricValueNumber")
+    metric_value_text: Optional[str] = Field(default=None, alias="metricValueText")
+    metric_payload: Optional[dict[str, Any]] = Field(default=None, alias="metricPayload")
+    metric_status: Optional[str] = Field(default=None, alias="metricStatus")
+    recorded_at: datetime = Field(alias="recordedAt")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 class DataWarehouseTarget(str, Enum):
     DATABRICKS_SQL = "databricks_sql"
-
-
-class IngestionScheduleBase(BaseModel):
-    connection_table_selection_id: UUID
-    schedule_expression: str = Field(..., max_length=120)
-    timezone: Optional[str] = Field(None, max_length=60)
-    load_strategy: IngestionLoadStrategy = IngestionLoadStrategy.TIMESTAMP
-    watermark_column: Optional[str] = Field(None, max_length=120)
-    primary_key_column: Optional[str] = Field(None, max_length=120)
-    target_schema: Optional[str] = Field(None, max_length=120)
-    target_table_name: Optional[str] = Field(None, max_length=200)
-    target_warehouse: DataWarehouseTarget = DataWarehouseTarget.DATABRICKS_SQL
-    sap_hana_setting_id: Optional[UUID] = None
-    batch_size: int = Field(5_000, ge=1, le=100_000)
-    is_active: bool = True
-
-
-class IngestionScheduleCreate(IngestionScheduleBase):
-    pass
-
-
-class IngestionScheduleUpdate(BaseModel):
-    schedule_expression: Optional[str] = Field(None, max_length=120)
-    timezone: Optional[str] = Field(None, max_length=60)
-    load_strategy: Optional[IngestionLoadStrategy] = None
-    watermark_column: Optional[str] = Field(None, max_length=120)
-    primary_key_column: Optional[str] = Field(None, max_length=120)
-    target_schema: Optional[str] = Field(None, max_length=120)
-    target_table_name: Optional[str] = Field(None, max_length=200)
-    target_warehouse: Optional[DataWarehouseTarget] = None
-    sap_hana_setting_id: Optional[UUID | None] = None
-    batch_size: Optional[int] = Field(None, ge=1, le=100_000)
-    is_active: Optional[bool] = None
-
-
-class IngestionScheduleRead(IngestionScheduleBase, TimestampSchema):
-    id: UUID
-    last_watermark_timestamp: Optional[datetime]
-    last_watermark_id: Optional[int]
-    last_run_started_at: Optional[datetime]
-    last_run_completed_at: Optional[datetime]
-    last_run_status: Optional[str]
-    last_run_error: Optional[str]
-    total_runs: int
-    total_rows_loaded: int
-
-
-class IngestionRunStatus(str, Enum):
-    SCHEDULED = "scheduled"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class IngestionRunRead(TimestampSchema):
-    id: UUID
-    ingestion_schedule_id: UUID
-    status: IngestionRunStatus
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
-    rows_loaded: Optional[int]
-    rows_expected: Optional[int]
-    watermark_timestamp_before: Optional[datetime]
-    watermark_timestamp_after: Optional[datetime]
-    watermark_id_before: Optional[int]
-    watermark_id_after: Optional[int]
-    query_text: Optional[str]
-    error_message: Optional[str]
 
 
 class PreLoadValidationResultBase(BaseModel):

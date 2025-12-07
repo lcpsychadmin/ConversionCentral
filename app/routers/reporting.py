@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models.entities import Report, System, Table
+from app.models.entities import Report, Table
 from app.schemas import TableRead
 from app.schemas.reporting import (
     ReportCreateRequest,
@@ -45,7 +45,7 @@ def list_reporting_tables(db: Session = Depends(get_db)) -> List[TableRead]:
     tables = (
         db.query(Table)
         .options(
-            selectinload(Table.system).selectinload(System.connections),
+            selectinload(Table.system),
             selectinload(Table.definition_tables),
         )
         .order_by(Table.name.asc())

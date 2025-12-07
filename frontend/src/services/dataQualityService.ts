@@ -64,7 +64,6 @@ interface TestGenProjectResponse {
 interface TestGenConnectionResponse {
   connection_id: string;
   project_key: string;
-  system_id?: string | null;
   name: string;
   catalog?: string | null;
   schema_name?: string | null;
@@ -376,7 +375,6 @@ const mapProject = (payload: TestGenProjectResponse): DataQualityProject => ({
 const mapConnection = (payload: TestGenConnectionResponse): DataQualityConnection => ({
   connectionId: payload.connection_id,
   projectKey: payload.project_key,
-  systemId: payload.system_id ?? null,
   name: payload.name,
   catalog: payload.catalog ?? null,
   schemaName: payload.schema_name ?? null,

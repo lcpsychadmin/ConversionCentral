@@ -14,7 +14,7 @@ from app.services.connection_resolver import (
 )
 
 if TYPE_CHECKING:
-    from app.models import ConstructedField, ConstructedTable
+    from app.models import ConstructedField
 
 logger = getLogger(__name__)
 

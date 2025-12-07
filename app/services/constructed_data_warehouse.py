@@ -19,6 +19,7 @@ from app.ingestion.engine import (
 )
 from app.models import ConstructedTable
 from app.services.constructed_data_store import ConstructedDataRecord
+from app.services.constructed_schema_resolver import resolve_constructed_schema
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +76,16 @@ class ConstructedDataWarehouse:
     def __init__(self, *, engine: Engine | None = None, schema: str | None = None) -> None:
         settings = get_settings()
         self.engine = engine or get_ingestion_engine()
+        dialect_name = (self.engine.dialect.name or "").lower()
+        self._warehouse_enabled = dialect_name.startswith("databricks")
         override_url = settings.ingestion_database_url
 
-        if self.engine.dialect.name == "sqlite":  # Used during tests; no warehouse sync required
+        if not self._warehouse_enabled:
+            # Non-Databricks overrides (e.g. local Postgres/sqlite) cannot execute warehouse DDL.
             self.schema = ""
+        elif dialect_name == "sqlite":  # Used during tests; no warehouse sync required
+            self.schema = ""
+            self._warehouse_enabled = False
         elif schema:
             self.schema = schema
         elif override_url:
@@ -87,16 +94,15 @@ class ConstructedDataWarehouse:
             params = get_ingestion_connection_params()
             self.schema = params.constructed_schema or params.schema_name or self.DEFAULT_SCHEMA
 
-        if not self.schema and self.engine.dialect.name != "sqlite":
+        if not self.schema and self._warehouse_enabled:
             raise ConstructedDataWarehouseError("Constructed data schema is not configured for Databricks storage.")
 
         self._ensured_signatures: dict[UUID, tuple[tuple[str, str, bool], ...]] = {}
-        self._schema_sql = _format_schema_path(self.schema) if self.schema else ""
 
     # Public API -----------------------------------------------------------------
 
     def upsert_records(self, table: ConstructedTable, records: Iterable[ConstructedDataRecord]) -> None:
-        if self.engine.dialect.name == "sqlite":
+        if not self._warehouse_enabled:
             return
 
         record_list = list(records)
@@ -127,7 +133,7 @@ class ConstructedDataWarehouse:
             raise ConstructedDataWarehouseError("Failed to persist constructed data to warehouse") from exc
 
     def delete_rows(self, table: ConstructedTable, row_ids: Iterable[UUID]) -> None:
-        if self.engine.dialect.name == "sqlite":
+        if not self._warehouse_enabled:
             return
 
         row_id_list = [str(row_id) for row_id in row_ids]
@@ -151,7 +157,7 @@ class ConstructedDataWarehouse:
     def ensure_table(self, table: ConstructedTable) -> None:
         """Ensure the physical warehouse table exists, creating or altering it when needed."""
 
-        if self.engine.dialect.name == "sqlite":
+        if not self._warehouse_enabled:
             return
 
         schema = self._build_schema(table)
@@ -160,7 +166,7 @@ class ConstructedDataWarehouse:
     def drop_table(self, table: ConstructedTable) -> None:
         """Drop the physical warehouse table for the provided constructed table."""
 
-        if self.engine.dialect.name == "sqlite":
+        if not self._warehouse_enabled:
             return
 
         schema = self._build_schema(table)
@@ -186,6 +192,12 @@ class ConstructedDataWarehouse:
             table_name = f"constructed_{table.id.hex[:8]}"
         else:
             table_name = table.name
+
+        schema_name = resolve_constructed_schema(
+            table=table,
+            system=None,
+            fallback_schema=self.schema,
+        )
 
         columns: list[_ColumnSpec] = []
         seen_names: set[str] = set()
@@ -217,7 +229,7 @@ class ConstructedDataWarehouse:
 
         return _TableSchema(
             constructed_table_id=table.id,
-            schema_name=self.schema,
+            schema_name=schema_name,
             table_name=table_name,
             columns=tuple(columns),
         )
@@ -227,10 +239,11 @@ class ConstructedDataWarehouse:
         if self._ensured_signatures.get(schema.constructed_table_id) == signature:
             return
 
-        if not self._schema_sql:
+        schema_sql = schema.schema_show_path
+        if not schema_sql:
             raise ConstructedDataWarehouseError("Constructed data schema is not configured for Databricks storage.")
 
-        create_schema_stmt = text(f"CREATE SCHEMA IF NOT EXISTS {self._schema_sql}")
+        create_schema_stmt = text(f"CREATE SCHEMA IF NOT EXISTS {schema_sql}")
         create_table_stmt = self._build_create_table_statement(schema)
 
         table_exists = self._table_exists(schema)
@@ -327,13 +340,21 @@ class ConstructedDataWarehouse:
         return False
 
     def _table_exists(self, schema: _TableSchema) -> bool:
+        if not self._warehouse_enabled:
+            return False
         schema_sql = schema.schema_show_path
         if not schema_sql:
             return False
         table_literal = _quote_string_literal(schema.table_name)
         stmt = text(f"SHOW TABLES IN {schema_sql} LIKE {table_literal}")
-        with self.engine.connect() as connection:
-            rows = connection.execute(stmt).fetchall()
+        try:
+            with self.engine.connect() as connection:
+                rows = connection.execute(stmt).fetchall()
+        except SQLAlchemyError as exc:  # pragma: no cover - dependent on warehouse state
+            message = str(exc).upper()
+            if "SCHEMA_NOT_FOUND" in message:
+                return False
+            raise
         return len(rows) > 0
 
     def _ensure_change_feed_enabled(self, connection, schema: _TableSchema) -> None:

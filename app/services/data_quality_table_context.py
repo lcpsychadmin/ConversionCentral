@@ -5,10 +5,12 @@ from typing import Iterable, List, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, joinedload, object_session
 
-from app.models import DataDefinition, DataDefinitionTable, System, SystemConnection
+from app.models import ConnectionTableSelection, DataDefinition, DataDefinitionTable, System, SystemConnection
 from app.services.data_quality_keys import build_table_group_id, build_table_id
+from app.services.table_filters import connection_is_databricks
 
 
 def _safe_lower(value: str | None) -> str:
@@ -35,6 +37,76 @@ def _matches_selection(
         return True
 
     return sel_schema == table_schema_norm
+
+
+def _find_selection_for_table(
+    table_link: DataDefinitionTable,
+    table_schema: str | None,
+    logical_name: str | None,
+    physical_name: str | None,
+) -> ConnectionTableSelection | None:
+    table = table_link.table
+    definition: DataDefinition | None = table_link.data_definition
+    system: System | None = None
+
+    if table and table.system:
+        system = table.system
+    elif definition and definition.system:
+        system = definition.system
+
+    if system is not None:
+        for connection in getattr(system, "connections", []) or []:
+            if not getattr(connection, "active", False):
+                continue
+            for selection in getattr(connection, "catalog_selections", []) or []:
+                if _matches_selection(
+                    selection.schema_name,
+                    selection.table_name,
+                    table_schema,
+                    logical_name,
+                    physical_name,
+                ):
+                    return selection
+
+    session = object_session(table_link)
+    if session is None:
+        return None
+
+    normalized_schema = _safe_lower(table_schema)
+    normalized_names = {
+        value for value in [_safe_lower(logical_name), _safe_lower(physical_name)] if value
+    }
+
+    query = (
+        session.query(ConnectionTableSelection)
+        .join(SystemConnection)
+        .filter(SystemConnection.active.is_(True))
+    )
+
+    if normalized_schema:
+        query = query.filter(func.lower(ConnectionTableSelection.schema_name) == normalized_schema)
+    if normalized_names:
+        query = query.filter(func.lower(ConnectionTableSelection.table_name).in_(tuple(normalized_names)))
+
+    return query.first()
+
+
+def _find_global_databricks_connections(table_link: DataDefinitionTable) -> list[SystemConnection]:
+    session = object_session(table_link)
+    if session is None:
+        return []
+
+    return (
+        session.query(SystemConnection)
+        .filter(
+            SystemConnection.active.is_(True),
+            or_(
+                SystemConnection.use_databricks_managed_connection.is_(True),
+                func.lower(SystemConnection.connection_string).like("jdbc:databricks:%"),
+            ),
+        )
+        .all()
+    )
 
 
 @dataclass(frozen=True)
@@ -75,44 +147,109 @@ def _build_table_context(table_link: DataDefinitionTable) -> TableContext:
 
     data_object_id = definition.data_object_id
 
-    logical_name = table_link.table.name if table_link.table is not None else None
-    physical_name = table_link.table.physical_name if table_link.table is not None else None
-    table_schema = table_link.table.schema_name if table_link.table is not None else None
+    linked_table = table_link.table
+    constructed_table = table_link.constructed_table
+
+    matching_logical_name = linked_table.name if linked_table is not None else table_link.alias
+    matching_physical_name = linked_table.physical_name if linked_table is not None else None
+    matching_schema = linked_table.schema_name if linked_table is not None else None
+
+    logical_name = table_link.alias or matching_logical_name
+    physical_name = matching_physical_name
+    table_schema = matching_schema
+
+    if constructed_table is not None:
+        logical_name = constructed_table.name or logical_name
+        physical_name = constructed_table.name or physical_name
+        table_schema = constructed_table.schema_name or table_schema
+
+    is_constructed = bool(constructed_table is not None or table_link.is_construction)
+
+    linked_selection: ConnectionTableSelection | None = table_link.connection_table_selection
+    if linked_selection is None:
+        linked_selection = _find_selection_for_table(
+            table_link,
+            matching_schema,
+            matching_logical_name,
+            matching_physical_name,
+        )
 
     table_group_id: str | None = None
     table_id: str | None = None
-    active_connections = [connection for connection in (system.connections or []) if connection.active]
+    deduped_connections: list[SystemConnection] = []
+    seen_ids: set[UUID] = set()
 
-    for connection in active_connections:
-        for selection in connection.catalog_selections or []:
-            if _matches_selection(
-                selection.schema_name,
-                selection.table_name,
-                table_schema,
-                logical_name,
-                physical_name,
-            ):
-                table_group_id = build_table_group_id(connection.id, data_object_id)
-                table_id = build_table_id(selection.id, data_object_id)
-                break
-        if table_group_id:
-            break
+    def _add_connection(connection: SystemConnection | None) -> None:
+        if connection is None or connection.id is None:
+            return
+        if connection.id in seen_ids:
+            return
+        seen_ids.add(connection.id)
+        deduped_connections.append(connection)
 
-    if table_group_id is None:
-        if not active_connections:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="No active system connection is available for this data definition table",
-            )
-        if len(active_connections) > 1:
+    _add_connection(table_link.system_connection)
+    if linked_selection and linked_selection.system_connection:
+        _add_connection(linked_selection.system_connection)
+
+    explicit_connections_present = bool(deduped_connections)
+
+    if not explicit_connections_present:
+        for connection in getattr(system, "connections", []) or []:
+            _add_connection(connection)
+
+    if not deduped_connections and is_constructed:
+        for connection in _find_global_databricks_connections(table_link):
+            _add_connection(connection)
+
+    active_connections = [connection for connection in deduped_connections if connection.active]
+    databricks_connections = [
+        connection for connection in active_connections if connection_is_databricks(connection)
+    ]
+
+    if linked_selection and linked_selection.system_connection and linked_selection.system_connection.active:
+        chosen_connection = linked_selection.system_connection
+        table_group_id = build_table_group_id(chosen_connection.id, data_object_id)
+        table_id = build_table_id(linked_selection.id, data_object_id)
+    else:
+        candidate_connections = (
+            databricks_connections if (is_constructed and databricks_connections) else active_connections
+        )
+
+        if not candidate_connections:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "Multiple active system connections exist for this data definition table; "
+                    "No active connection is assigned to this data definition table. "
+                    "Assign a catalog selection or connection to continue."
+                ),
+            )
+
+        chosen_connection = candidate_connections[0]
+
+        if len(candidate_connections) > 1 and not is_constructed:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Multiple active connections are assigned to this data definition table; "
                     "add a catalog selection so profiling can determine the correct connection."
                 ),
             )
-        table_group_id = build_table_group_id(active_connections[0].id, data_object_id)
+
+        if len(candidate_connections) > 1 and is_constructed:
+            normalized_schema = _safe_lower(table_schema)
+            matched_connection = None
+            if normalized_schema:
+                for connection in candidate_connections:
+                    connection_schema = getattr(connection, "schema_name", None)
+                    if _safe_lower(connection_schema) == normalized_schema:
+                        matched_connection = connection
+                        break
+            if matched_connection is None and databricks_connections:
+                matched_connection = databricks_connections[0]
+            chosen_connection = matched_connection or candidate_connections[0]
+
+        table_group_id = build_table_group_id(chosen_connection.id, data_object_id)
+        table_id = None
 
     return TableContext(
         data_definition_table_id=table_link.id,
@@ -132,12 +269,13 @@ def resolve_table_context(db: Session, data_definition_table_id: UUID) -> TableC
     table_link = (
         db.query(DataDefinitionTable)
         .options(
-            joinedload(DataDefinitionTable.data_definition)
-            .joinedload(DataDefinition.system)
-            .joinedload(System.connections)
-            .selectinload(SystemConnection.catalog_selections),
+            joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.system),
             joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.data_object),
             joinedload(DataDefinitionTable.table),
+            joinedload(DataDefinitionTable.constructed_table),
+            joinedload(DataDefinitionTable.connection_table_selection).joinedload(
+                ConnectionTableSelection.system_connection
+            ),
         )
         .filter(DataDefinitionTable.id == data_definition_table_id)
         .one_or_none()
@@ -156,12 +294,13 @@ def resolve_table_contexts_for_data_object(
         db.query(DataDefinitionTable)
         .join(DataDefinition)
         .options(
-            joinedload(DataDefinitionTable.data_definition)
-            .joinedload(DataDefinition.system)
-            .joinedload(System.connections)
-            .selectinload(SystemConnection.catalog_selections),
+            joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.system),
             joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.data_object),
             joinedload(DataDefinitionTable.table),
+            joinedload(DataDefinitionTable.constructed_table),
+            joinedload(DataDefinitionTable.connection_table_selection).joinedload(
+                ConnectionTableSelection.system_connection
+            ),
         )
         .filter(DataDefinition.data_object_id == data_object_id)
         .all()
@@ -183,12 +322,10 @@ def resolve_all_table_contexts(db: Session) -> List[TableContext]:
         db.query(DataDefinitionTable)
         .join(DataDefinition)
         .options(
-            joinedload(DataDefinitionTable.data_definition)
-            .joinedload(DataDefinition.system)
-            .joinedload(System.connections)
-            .selectinload(SystemConnection.catalog_selections),
+            joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.system),
             joinedload(DataDefinitionTable.data_definition).joinedload(DataDefinition.data_object),
             joinedload(DataDefinitionTable.table),
+            joinedload(DataDefinitionTable.constructed_table),
         )
         .all()
     )

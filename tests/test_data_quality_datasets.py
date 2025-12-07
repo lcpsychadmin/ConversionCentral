@@ -7,6 +7,7 @@ from app.main import app
 from app.routers.data_quality import get_profiling_service
 from app.models.entities import (
     ConnectionTableSelection,
+    ConstructedTable,
     DataDefinition,
     DataDefinitionField,
     DataDefinitionTable,
@@ -44,7 +45,6 @@ class StubProfilingService:
             schema_name=None,
             http_path=None,
             project_key=None,
-            system_id=None,
             profiling_job_id=None,
             is_active=True,
         )
@@ -123,12 +123,10 @@ def _seed_dataset_context(db_session, *, include_connection: bool = True, connec
 
     if include_connection:
         connection = SystemConnection(
-            system=system,
             connection_type="jdbc",
             connection_string="jdbc://example",
             auth_method="username_password",
             active=connection_active,
-            ingestion_enabled=True,
         )
         selection = ConnectionTableSelection(
             system_connection=connection,
@@ -343,12 +341,10 @@ def test_start_profile_runs_skips_tables_when_connections_are_ambiguous(client, 
     )
 
     connection_primary = SystemConnection(
-        system=system,
         connection_type="jdbc",
         connection_string="jdbc://primary",
         auth_method="username_password",
         active=True,
-        ingestion_enabled=True,
     )
     primary_selection = ConnectionTableSelection(
         system_connection=connection_primary,
@@ -357,12 +353,10 @@ def test_start_profile_runs_skips_tables_when_connections_are_ambiguous(client, 
     )
 
     connection_secondary = SystemConnection(
-        system=system,
         connection_type="jdbc",
         connection_string="jdbc://secondary",
         auth_method="username_password",
         active=True,
-        ingestion_enabled=True,
     )
     secondary_selection = ConnectionTableSelection(
         system_connection=connection_secondary,
@@ -418,6 +412,72 @@ def test_get_table_context_returns_table_group(client, db_session):
     payload = response.json()
     assert payload["tableGroupId"] == expected_group
     assert payload["dataDefinitionTableId"] == str(context["definition_table_id"])
+
+
+def test_table_context_prefers_databricks_connection_for_constructed_table(client, db_session):
+    product_team = ProcessArea(name="Product Constructed", description="Team", status="active")
+    system = System(name="Analytics", physical_name="analytics", description="Analytics platform")
+    data_object = DataObject(name="Constructed", description="Constructed data", status="active", process_area=product_team)
+    definition = DataDefinition(data_object=data_object, system=system, description="Constructed definition")
+    base_table = Table(
+        system=system,
+        name="staging_constructed",
+        physical_name="raw.staging_constructed",
+        schema_name="raw",
+        description="Base staging table",
+        table_type="base",
+    )
+    definition_table = DataDefinitionTable(
+        data_definition=definition,
+        table=base_table,
+        alias="Constructed table",
+        is_construction=True,
+    )
+    constructed_table = ConstructedTable(
+        data_definition=definition,
+        data_definition_table=definition_table,
+        name="curated_constructed",
+        schema_name="analytics_curated",
+        status="approved",
+    )
+
+    databricks_connection = SystemConnection(
+        connection_type="jdbc",
+        connection_string="jdbc:databricks://workspace.cloud.databricks.com/",
+        auth_method="username_password",
+        active=True,
+    )
+    fallback_connection = SystemConnection(
+        connection_type="jdbc",
+        connection_string="jdbc://legacy",
+        auth_method="username_password",
+        active=True,
+    )
+
+    db_session.add_all(
+        [
+            product_team,
+            system,
+            data_object,
+            definition,
+            base_table,
+            definition_table,
+            constructed_table,
+            databricks_connection,
+            fallback_connection,
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/data-quality/datasets/tables/{definition_table.id}/context")
+
+    assert response.status_code == 200
+    payload = response.json()
+    expected_group = build_table_group_id(databricks_connection.id, data_object.id)
+    assert payload["tableGroupId"] == expected_group
+    assert payload["schemaName"] == "analytics_curated"
+    assert payload["tableName"] == "curated_constructed"
+    assert payload["physicalName"] == "curated_constructed"
 
 
 def test_start_profile_runs_returns_404_when_no_tables(client, db_session):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Mapping, MutableMapping, Sequence
+from typing import Mapping, MutableMapping, Sequence
 
 from sqlalchemy import Column, MetaData, Table, insert, text
 from sqlalchemy import types as satypes

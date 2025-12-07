@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import DataDefinition, DataDefinitionTable, Report, SystemConnection, Table
 from app.services.data_construction_sync import delete_constructed_tables_for_definition
 from app.services.ingestion_storage import DatabricksIngestionStorage
-from app.services.scheduled_ingestion import (
+from app.services.ingestion_support import (
     build_ingestion_schema_name,
     build_ingestion_table_name,
 )
@@ -25,9 +25,9 @@ class CatalogRemoval:
     """Details about a catalog table unselection that now requires cleanup."""
 
     system_connection_id: UUID
-    system_id: UUID
     schema_name: str | None
     table_name: str
+    system_id: UUID | None = None
 
 
 def cascade_cleanup_for_catalog_removals(
@@ -67,11 +67,27 @@ def cascade_cleanup_for_catalog_removals(
         if not table_normalized:
             continue
 
-        tables_query = (
-            db.query(Table)
-            .filter(Table.system_id == removal.system_id)
-            .filter(func.lower(Table.physical_name) == table_normalized)
-        )
+        tables_query = db.query(Table)
+
+        if removal.system_id:
+            tables_query = tables_query.filter(Table.system_id == removal.system_id)
+        elif removal.system_connection_id:
+            tables_query = (
+                tables_query.join(
+                    DataDefinitionTable,
+                    DataDefinitionTable.table_id == Table.id,
+                )
+                .filter(DataDefinitionTable.system_connection_id == removal.system_connection_id)
+            )
+        else:
+            logger.info(
+                "Catalog cleanup skipped for %s.%s – missing system and connection identifiers.",
+                removal.schema_name or "<default>",
+                removal.table_name,
+            )
+            continue
+
+        tables_query = tables_query.filter(func.lower(Table.physical_name) == table_normalized)
         if schema_normalized:
             tables_query = tables_query.filter(func.lower(Table.schema_name) == schema_normalized)
         else:
@@ -128,7 +144,7 @@ def cascade_cleanup_for_catalog_removals(
                         "Dropped Databricks ingestion table %s.%s for system %s",
                         ingestion_schema or "<default>",
                         ingestion_table,
-                        connection.system_id,
+                        getattr(connection, "system_id", None),
                     )
                 except Exception as exc:  # pragma: no cover - backend specific
                     logger.warning(

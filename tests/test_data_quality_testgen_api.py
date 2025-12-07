@@ -260,7 +260,7 @@ def test_list_connections_and_tables(client):
         {
             "connection_id": CONNECTION_ID,
             "project_key": PROJECT_KEY,
-            "system_id": None,
+                "system_id": None,
             "name": "Primary",
             "catalog": None,
             "schema_name": None,
@@ -636,18 +636,19 @@ def _seed_data_quality_context(db_session):
     )
 
     connection = SystemConnection(
-        system=system,
         connection_type="jdbc",
         connection_string="jdbc://example",
         auth_method="username_password",
         active=True,
-        ingestion_enabled=True,
     )
     selection = ConnectionTableSelection(
         system_connection=connection,
         schema_name="analytics",
         table_name="raw.invoices",
     )
+
+    definition_table.system_connection = connection
+    definition_table.connection_table_selection = selection
 
     db_session.add_all([
         product_team,

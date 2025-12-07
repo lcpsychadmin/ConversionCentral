@@ -10,8 +10,6 @@ from app.models import (
     ConstructedTableApproval,
     DataDefinition,
     ExecutionContext,
-    MockCycle,
-    System,
 )
 from app.schemas import (
     ConstructedTableApprovalDecision,
@@ -19,12 +17,6 @@ from app.schemas import (
     ConstructedTableRead,
     ConstructedTableStatus,
     ConstructedTableUpdate,
-    SystemConnectionType,
-)
-from app.services.constructed_table_manager import (
-    ConstructedTableManagerError,
-    create_or_update_constructed_table,
-    drop_constructed_table,
 )
 
 logger = getLogger(__name__)
@@ -81,47 +73,11 @@ def _sync_constructed_table_to_sql_server(
         )
         return
 
-    # Get the active SQL Server connection for this system
-    sql_server_connection = (
-        db.query(System)
-        .options(selectinload(System.connections))
-        .filter(System.id == system.id)
-        .one()
-        .connections
+    logger.info(
+        "SQL Server sync skipped for constructed table %s because system connections are no longer tracked.",
+        constructed_table.id,
     )
-    
-    # Find active JDBC connection to SQL Server (mssql dialect)
-    sql_conn = None
-    for conn in sql_server_connection:
-        if (
-            conn.active
-            and conn.connection_type.lower() == "jdbc"
-            and "mssql" in conn.connection_string.lower()
-        ):
-            sql_conn = conn
-            break
-
-    if not sql_conn:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No active SQL Server connection found for this system",
-        )
-
-    try:
-        if constructed_table.fields:
-            create_or_update_constructed_table(
-                connection_type=SystemConnectionType.JDBC,
-                connection_string=sql_conn.connection_string,
-                schema_name="dbo",  # Default schema
-                table_name=constructed_table.name,
-                fields=constructed_table.fields,
-            )
-    except ConstructedTableManagerError as exc:
-        logger.error(f"Failed to sync constructed table {constructed_table.id}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create/update table in SQL Server: {str(exc)}",
-        )
+    return
 
 
 def _has_approved_decisions(constructed_table_id: UUID, db: Session) -> bool:
@@ -228,36 +184,10 @@ def delete_constructed_table(
         db.commit()
         return
     
-    # Get the active SQL Server connection
-    sql_server_connection = (
-        db.query(System)
-        .options(selectinload(System.connections))
-        .filter(System.id == system.id)
-        .one()
-        .connections
+    logger.info(
+        "Skipping SQL Server constructed table cleanup for %s because system connections are no longer tracked.",
+        constructed_table.id,
     )
-    
-    sql_conn = None
-    for conn in sql_server_connection:
-        if (
-            conn.active
-            and conn.connection_type.lower() == "jdbc"
-            and "mssql" in conn.connection_string.lower()
-        ):
-            sql_conn = conn
-            break
-    
-    if sql_conn:
-        try:
-            drop_constructed_table(
-                connection_type=SystemConnectionType.JDBC,
-                connection_string=sql_conn.connection_string,
-                schema_name="dbo",
-                table_name=constructed_table.name,
-            )
-        except ConstructedTableManagerError as exc:
-            logger.warning(f"Could not drop table from SQL Server: {exc}")
-            # Don't fail the delete if table cleanup fails
     
     db.delete(constructed_table)
     db.commit()

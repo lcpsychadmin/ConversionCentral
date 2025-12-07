@@ -44,7 +44,6 @@ def _build_group_row(**overrides: Any) -> dict[str, Any]:
         "schema_name": "finance",
         "http_path": "/sql/1.0/warehouses/abc",
         "project_key": "system:123:object:456",
-        "system_id": "123",
         "profiling_job_id": None,
         "is_active": True,
     }
@@ -63,6 +62,7 @@ def _build_settings(**overrides: Any) -> SimpleNamespace:
         "databricks_host": "adb-test.cloud.databricks.com",
         "databricks_token": "dapi-test",
         "databricks_spark_compute": "classic",
+        "profiling_execution_mode": "databricks",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

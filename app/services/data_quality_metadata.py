@@ -6,7 +6,7 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Iterable, Sequence, Set
+from typing import Iterable, Sequence
 
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
@@ -16,21 +16,32 @@ from sqlalchemy.orm import selectinload
 from app.services.databricks_sql import DatabricksConnectionParams, build_sqlalchemy_url
 from app.database import SessionLocal
 from app.models import (
-    ConnectionTableSelection,
     DataDefinition,
     DataDefinitionTable,
     DataObject,
     DataObjectSystem,
     System,
     SystemConnection,
+    Table,
+)
+from app.services.constructed_schema_resolver import resolve_constructed_schema
+from app.services.data_quality_backend import (
+    LOCAL_BACKEND,
+    get_metadata_backend,
 )
 from app.services.data_quality_keys import (
     build_connection_id,
     build_project_key,
     build_table_group_id,
     build_table_id,
-    create_definition_table_key_set,
-    selection_matches_keys,
+)
+from app.services.data_quality_repository import LocalDataQualityRepository
+from app.services.data_quality_seed import (
+    ConnectionSeed,
+    DataQualitySeed,
+    ProjectSeed,
+    TableGroupSeed,
+    TableSeed,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,9 +52,12 @@ _PROJECT_KEY_PREFIX = "system:"
 _CONNECTION_ID_PREFIX = "conn:"
 _TABLE_GROUP_ID_PREFIX = "group:"
 _TABLE_ID_PREFIX = "selection:"
-
-
 _SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _seed_local_metadata(seed: DataQualitySeed) -> None:
+    repository = LocalDataQualityRepository()
+    repository.seed_metadata(seed)
 
 
 def _sanitize_part(value: str | None, *, default: str | None = None) -> str | None:
@@ -56,120 +70,113 @@ def _sanitize_part(value: str | None, *, default: str | None = None) -> str | No
     return default
 
 
-def _ingestion_schema_name(connection: SystemConnection) -> str | None:
-    system = getattr(connection, "system", None)
+@dataclass(frozen=True)
+class _DefinitionTableEntry:
+    definition_table_id: str
+    schema_name: str
+    table_name: str
+    source_table_id: str | None
+
+
+def _select_profiling_connection(system: System) -> SystemConnection | None:
+    connections = list(getattr(system, "connections", []) or [])
+    for connection in connections:
+        if getattr(connection, "active", False):
+            return connection
+    return None
+
+
+def _ingestion_schema_name_for_system(system: System, params: DatabricksConnectionParams) -> str | None:
     candidates = (
         getattr(system, "name", None),
         getattr(system, "physical_name", None),
+        params.schema_name,
     )
     for candidate in candidates:
         normalized = _sanitize_part(candidate)
         if normalized:
             return normalized
-    return None
+    return params.schema_name
 
 
-def _ingestion_table_name(selection: ConnectionTableSelection) -> str:
-    schema_part = _sanitize_part(getattr(selection, "schema_name", None) or "default", default="segment")
-    table_part = _sanitize_part(getattr(selection, "table_name", None) or "table", default="segment")
+def _format_ingested_table_name(table: Table) -> str:
+    schema_part = _sanitize_part(getattr(table, "schema_name", None) or "default", default="segment")
+    table_part = _sanitize_part(
+        getattr(table, "physical_name", None) or getattr(table, "name", None) or "table",
+        default="segment",
+    )
     parts = [part for part in (schema_part, table_part) if part]
     return "_".join(parts) if parts else "segment"
 
 
-@dataclass(frozen=True)
-class TableSeed:
-    table_id: str
-    table_group_id: str
-    schema_name: str | None
-    table_name: str
-    source_table_id: str | None = None
+def _definition_table_entry(
+    definition_table: DataDefinitionTable,
+    system: System,
+    params: DatabricksConnectionParams,
+) -> _DefinitionTableEntry | None:
+    table = getattr(definition_table, "table", None)
+    if table is None:
+        return None
+
+    constructed = getattr(definition_table, "constructed_table", None)
+    if constructed is not None:
+        schema_name = resolve_constructed_schema(
+            table=constructed,
+            system=system,
+            fallback_schema=params.constructed_schema or params.schema_name,
+        )
+        table_name = constructed.name or f"constructed_{constructed.id.hex[:8]}"
+        return _DefinitionTableEntry(
+            definition_table_id=str(definition_table.id),
+            schema_name=schema_name,
+            table_name=table_name,
+            source_table_id=str(getattr(table, "id", "")) or None,
+        )
+
+    if getattr(table, "system_id", None) == getattr(system, "id", None):
+        schema_name = _ingestion_schema_name_for_system(system, params)
+        table_name = _format_ingested_table_name(table)
+        return _DefinitionTableEntry(
+            definition_table_id=str(definition_table.id),
+            schema_name=schema_name or params.schema_name or "default",
+            table_name=table_name,
+            source_table_id=str(getattr(table, "id", "")) or None,
+        )
+
+    schema_name = getattr(table, "schema_name", None) or params.schema_name
+    table_name = getattr(table, "physical_name", None) or getattr(table, "name", None)
+    if not schema_name or not table_name:
+        return None
+    return _DefinitionTableEntry(
+        definition_table_id=str(definition_table.id),
+        schema_name=schema_name,
+        table_name=table_name,
+        source_table_id=str(getattr(table, "id", "")) or None,
+    )
 
 
-@dataclass(frozen=True)
-class TableGroupSeed:
-    table_group_id: str
-    connection_id: str
-    name: str
-    description: str | None = None
-    profiling_include_mask: str | None = None
-    profiling_exclude_mask: str | None = None
-    profiling_job_id: str | None = None
-    tables: tuple[TableSeed, ...] = ()
-
-
-@dataclass(frozen=True)
-class ConnectionSeed:
-    connection_id: str
-    project_key: str
-    system_id: str
-    name: str
-    catalog: str | None
-    schema_name: str | None
-    http_path: str | None
-    managed_credentials_ref: str | None
-    is_active: bool
-    table_groups: tuple[TableGroupSeed, ...] = ()
-
-
-@dataclass(frozen=True)
-class ProjectSeed:
-    project_key: str
-    name: str
-    description: str | None
-    sql_flavor: str
-    connections: tuple[ConnectionSeed, ...] = ()
-
-
-@dataclass(frozen=True)
-class DataQualitySeed:
-    projects: tuple[ProjectSeed, ...] = ()
-
+def _definition_table_entries(
+    definitions: Iterable[DataDefinition],
+    system: System,
+    params: DatabricksConnectionParams,
+) -> list[_DefinitionTableEntry]:
+    entries: list[_DefinitionTableEntry] = []
+    seen: set[str] = set()
+    for definition in definitions:
+        for definition_table in getattr(definition, "tables", []) or []:
+            identifier = str(getattr(definition_table, "id", ""))
+            if not identifier or identifier in seen:
+                continue
+            entry = _definition_table_entry(definition_table, system, params)
+            if entry is None:
+                continue
+            entries.append(entry)
+            seen.add(identifier)
+    return entries
 
 def _format_connection_name(system_name: str, data_object_name: str, connection_type: str | None) -> str:
     suffix = f" ({connection_type.upper()})" if connection_type else ""
     return f"{system_name} · {data_object_name}{suffix}"
-
-
-def _tables_for_connection(
-    connection: SystemConnection,
-    *,
-    data_object_id,
-    table_keys: Set["DefinitionTableKey"],
-) -> tuple[TableSeed, ...]:
-    selections = list(connection.catalog_selections or [])
-    if not selections:
-        return ()
-
-    group_id = build_table_group_id(connection.id, data_object_id)
-    ingestion_schema = _ingestion_schema_name(connection)
-
-    def _build_tables(filter_keys: Set["DefinitionTableKey"] | None) -> list[TableSeed]:
-        result: list[TableSeed] = []
-        for selection in selections:
-            if filter_keys is not None and not selection_matches_keys(
-                selection.schema_name, selection.table_name, filter_keys
-            ):
-                continue
-            schema = ingestion_schema or (selection.schema_name.strip() if selection.schema_name else None)
-            table_name = _ingestion_table_name(selection)
-            result.append(
-                TableSeed(
-                    table_id=build_table_id(selection.id, data_object_id),
-                    table_group_id=group_id,
-                    schema_name=schema,
-                    table_name=table_name,
-                    source_table_id=None,
-                )
-            )
-        return result
-
-    primary = _build_tables(table_keys)
-    if primary:
-        return tuple(primary)
-    if table_keys:
-        fallback = _build_tables(None)
-        return tuple(fallback)
-    return tuple(primary)
 
 
 def ensure_data_quality_metadata(
@@ -183,8 +190,18 @@ def ensure_data_quality_metadata(
     metadata collection will be skipped in that case.
     """
 
+    backend = get_metadata_backend()
+
     if not params.data_quality_auto_manage_tables:
-        logger.info("Databricks data quality auto-management disabled; skipping metadata provisioning.")
+        logger.info("Data quality auto-management disabled; skipping metadata provisioning.")
+        return
+
+    if backend == LOCAL_BACKEND:
+        try:
+            seed = seed_override or _collect_metadata(params)
+            _seed_local_metadata(seed)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Failed to seed local data quality metadata: %s", exc)
         return
 
     schema = (params.data_quality_schema or "").strip()
@@ -305,12 +322,15 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
         systems = (
             session.execute(
                 select(System).options(
-                    selectinload(System.connections).selectinload(SystemConnection.catalog_selections),
                     selectinload(System.data_object_links)
                     .selectinload(DataObjectSystem.data_object)
                     .selectinload(DataObject.data_definitions)
                     .selectinload(DataDefinition.tables)
                     .selectinload(DataDefinitionTable.table),
+                    selectinload(System.data_object_links)
+                    .selectinload(DataObject.data_definitions)
+                    .selectinload(DataDefinition.tables)
+                    .selectinload(DataDefinitionTable.constructed_table),
                 )
             )
             .scalars()
@@ -320,6 +340,14 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
 
         for system in systems:
             if system.status and system.status.lower() != "active":
+                continue
+
+            profiling_connection = _select_profiling_connection(system)
+            if profiling_connection is None:
+                logger.debug(
+                    "Skipping system %s: no active profiling connection available.",
+                    getattr(system, "name", system.id),
+                )
                 continue
 
             data_object_links = [link for link in system.data_object_links if link.data_object is not None]
@@ -338,65 +366,59 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
                 if not definitions:
                     continue
 
-                definition_keys = create_definition_table_key_set(definitions)
-                connections: list[ConnectionSeed] = []
+                entries = _definition_table_entries(definitions, system, params)
+                if not entries:
+                    continue
 
-                for connection in system.connections:
-                    if not connection.active:
-                        continue
+                project_key = build_project_key(system.id, data_object.id)
+                connection_id = build_connection_id(profiling_connection.id, data_object.id)
+                table_group_id = build_table_group_id(profiling_connection.id, data_object.id)
 
-                    tables = _tables_for_connection(
-                        connection,
-                        data_object_id=data_object.id,
-                        table_keys=definition_keys,
+                tables = tuple(
+                    TableSeed(
+                        table_id=build_table_id(entry.definition_table_id, data_object.id),
+                        table_group_id=table_group_id,
+                        schema_name=entry.schema_name,
+                        table_name=entry.table_name,
+                        source_table_id=entry.source_table_id,
                     )
+                    for entry in entries
+                )
 
-                    if not tables:
-                        continue
+                table_group = TableGroupSeed(
+                    table_group_id=table_group_id,
+                    connection_id=connection_id,
+                    name=f"{data_object.name} Tables",
+                    description=data_object.description or system.description,
+                    tables=tables,
+                )
 
-                    connection_id = build_connection_id(connection.id, data_object.id)
-                    table_group_id = build_table_group_id(connection.id, data_object.id)
+                connection_seed = ConnectionSeed(
+                    connection_id=connection_id,
+                    project_key=project_key,
+                    system_id=str(getattr(system, "id", "")) or None,
+                    name=_format_connection_name(
+                        system.name,
+                        data_object.name,
+                        getattr(profiling_connection, "connection_type", None),
+                    ),
+                    catalog=params.catalog,
+                    schema_name=params.schema_name,
+                    http_path=params.http_path,
+                    managed_credentials_ref=None,
+                    is_active=bool(profiling_connection.active),
+                    table_groups=(table_group,),
+                )
 
-                    table_groups = (
-                        TableGroupSeed(
-                            table_group_id=table_group_id,
-                            connection_id=connection_id,
-                            name=f"{data_object.name} Tables",
-                            description=data_object.description or system.description,
-                            tables=tables,
-                        ),
+                projects.append(
+                    ProjectSeed(
+                        project_key=project_key,
+                        name=f"{system.name} · {data_object.name}",
+                        description=data_object.description or system.description,
+                        sql_flavor="databricks-sql",
+                        connections=(connection_seed,),
                     )
-
-                    connections.append(
-                        ConnectionSeed(
-                            connection_id=connection_id,
-                            project_key=build_project_key(system.id, data_object.id),
-                            system_id=str(system.id),
-                            name=_format_connection_name(
-                                system.name,
-                                data_object.name,
-                                connection.connection_type,
-                            ),
-                            catalog=params.catalog,
-                            schema_name=params.schema_name,
-                            http_path=params.http_path,
-                            managed_credentials_ref=None,
-                            # Profiling should still consider the connection active even when ingestion is disabled.
-                            is_active=bool(connection.active),
-                            table_groups=table_groups,
-                        )
-                    )
-
-                if connections:
-                    projects.append(
-                        ProjectSeed(
-                            project_key=build_project_key(system.id, data_object.id),
-                            name=f"{system.name} · {data_object.name}",
-                            description=data_object.description or system.description,
-                            sql_flavor="databricks-sql",
-                            connections=tuple(connections),
-                        )
-                    )
+                )
 
     return DataQualitySeed(projects=tuple(projects))
 
@@ -462,7 +484,6 @@ MERGE INTO {connections_table} AS target
 USING (
     SELECT :connection_id AS connection_id,
            :project_key AS project_key,
-           :system_id AS system_id,
            :name AS name,
            :catalog AS catalog,
            :schema_name AS schema_name,
@@ -473,7 +494,6 @@ USING (
 ON target.connection_id = source.connection_id
 WHEN MATCHED THEN UPDATE SET
     project_key = source.project_key,
-    system_id = source.system_id,
     name = source.name,
     catalog = source.catalog,
     schema_name = source.schema_name,
@@ -484,7 +504,6 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (
     connection_id,
     project_key,
-    system_id,
     name,
     catalog,
     schema_name,
@@ -497,7 +516,6 @@ WHEN NOT MATCHED THEN INSERT (
 VALUES (
     source.connection_id,
     source.project_key,
-    source.system_id,
     source.name,
     source.catalog,
     source.schema_name,
@@ -512,7 +530,6 @@ VALUES (
         {
             "connection_id": conn_seed.connection_id,
             "project_key": conn_seed.project_key,
-            "system_id": conn_seed.system_id,
             "name": conn_seed.name,
             "catalog": conn_seed.catalog,
             "schema_name": conn_seed.schema_name,
@@ -752,7 +769,6 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                 [
                     "connection_id STRING NOT NULL",
                     "project_key STRING NOT NULL",
-                    "system_id STRING",
                     "name STRING",
                     "catalog STRING",
                     "schema_name STRING",

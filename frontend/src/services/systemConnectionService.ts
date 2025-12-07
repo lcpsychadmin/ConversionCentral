@@ -12,14 +12,14 @@ import {
 
 export interface SystemConnectionResponse {
   id: string;
-  systemId: string;
+  displayName?: string | null;
+  display_name?: string | null;
+  systemId?: string | null;
+  system_id?: string | null;
   connectionType: SystemConnectionType;
   connectionString: string;
   authMethod: SystemConnectionAuthMethod;
   active: boolean;
-  ingestionEnabled: boolean;
-  usesDatabricksManagedConnection?: boolean;
-  uses_databricks_managed_connection?: boolean;
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -81,16 +81,12 @@ const mapConnectionCatalogTable = (
 
 export const mapSystemConnection = (payload: SystemConnectionResponse): SystemConnection => ({
   id: payload.id,
-  systemId: payload.systemId,
+  name: payload.displayName ?? payload.display_name ?? 'Connection',
+  systemId: payload.systemId ?? payload.system_id ?? null,
   connectionType: payload.connectionType,
   connectionString: payload.connectionString,
   authMethod: payload.authMethod,
   active: payload.active,
-  ingestionEnabled: payload.ingestionEnabled,
-  usesDatabricksManagedConnection:
-    payload.usesDatabricksManagedConnection ??
-    payload.uses_databricks_managed_connection ??
-    false,
   notes: payload.notes ?? null,
   createdAt: payload.createdAt,
   updatedAt: payload.updatedAt
@@ -105,28 +101,19 @@ export const createSystemConnection = async (
   input: SystemConnectionInput
 ): Promise<SystemConnection> => {
   const payload: Record<string, unknown> = {
-    system_id: input.systemId,
+    display_name: input.name ?? 'Connection',
     connection_type: input.connectionType,
     auth_method: input.authMethod,
     active: input.active ?? true,
-    ingestion_enabled: input.ingestionEnabled ?? true,
     notes: input.notes ?? null
   };
 
+  if (input.systemId !== undefined) {
+    payload.system_id = input.systemId;
+  }
+
   if (input.connectionString !== undefined) {
     payload.connection_string = input.connectionString;
-  }
-
-  if (input.useDatabricksManagedConnection !== undefined) {
-    payload.use_databricks_managed_connection = input.useDatabricksManagedConnection;
-  }
-
-  if (input.databricksCatalog !== undefined) {
-    payload.databricks_catalog = input.databricksCatalog;
-  }
-
-  if (input.databricksSchema !== undefined) {
-    payload.databricks_schema = input.databricksSchema;
   }
 
   const response = await client.post<SystemConnectionResponse>('/system-connections', payload);
@@ -138,18 +125,13 @@ export const updateSystemConnection = async (
   input: SystemConnectionUpdateInput
 ): Promise<SystemConnection> => {
   const response = await client.put<SystemConnectionResponse>(`/system-connections/${id}`, {
+    ...(input.name !== undefined ? { display_name: input.name } : {}),
     ...(input.systemId !== undefined ? { system_id: input.systemId } : {}),
     ...(input.connectionType !== undefined ? { connection_type: input.connectionType } : {}),
     ...(input.connectionString !== undefined ? { connection_string: input.connectionString } : {}),
     ...(input.authMethod !== undefined ? { auth_method: input.authMethod } : {}),
     ...(input.active !== undefined ? { active: input.active } : {}),
-    ...(input.ingestionEnabled !== undefined ? { ingestion_enabled: input.ingestionEnabled } : {}),
-    ...(input.notes !== undefined ? { notes: input.notes } : {}),
-    ...(input.useDatabricksManagedConnection !== undefined
-      ? { use_databricks_managed_connection: input.useDatabricksManagedConnection }
-      : {}),
-    ...(input.databricksCatalog !== undefined ? { databricks_catalog: input.databricksCatalog } : {}),
-    ...(input.databricksSchema !== undefined ? { databricks_schema: input.databricksSchema } : {})
+    ...(input.notes !== undefined ? { notes: input.notes } : {})
   });
   return mapSystemConnection(response.data);
 };

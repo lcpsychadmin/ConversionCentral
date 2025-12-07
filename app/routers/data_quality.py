@@ -284,7 +284,6 @@ def _build_entity_maps(
     if connection_ids:
         rows = (
             db.query(SystemConnection)
-            .options(joinedload(SystemConnection.system))
             .filter(SystemConnection.id.in_(connection_ids))
             .all()
         )
@@ -366,6 +365,8 @@ def list_profile_runs(
         data_object_ids=data_object_ids,
     )
 
+    group_rows = [row for row in group_rows if _resolve_connection_uuid(row.get("connection_id"), row.get("table_group_id"))]
+
     table_group_counts: Dict[str, Dict[str, int]] = {}
     if table_group_ids:
         try:
@@ -393,7 +394,7 @@ def list_profile_runs(
         _, data_object_uuid = _extract_ids_from_table_group(table_group)
 
         connection = connections_map.get(connection_uuid)
-        system: System | None = connection.system if connection else None
+        system: System | None = getattr(connection, "system", None) if connection else None
         data_object = data_objects_map.get(data_object_uuid)
         process_area: ProcessArea | None = data_object.process_area if data_object else None
         severity_counts = severity_map.get(profile_run_id, {}) if profile_run_id else {}
@@ -440,7 +441,7 @@ def list_profile_runs(
         connection_uuid = _resolve_connection_uuid(row.get("connection_id"), table_group)
         _, data_object_uuid = _extract_ids_from_table_group(table_group)
         connection = connections_map.get(connection_uuid)
-        system: System | None = connection.system if connection else None
+        system: System | None = getattr(connection, "system", None) if connection else None
         data_object = data_objects_map.get(data_object_uuid)
         process_area: ProcessArea | None = data_object.process_area if data_object else None
         counts = table_group_counts.get(table_group or "", {})
