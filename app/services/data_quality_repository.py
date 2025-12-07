@@ -45,10 +45,13 @@ class LocalDataQualityRepository:
         self._prune_projects(session, active_project_keys)
 
     def _upsert_project(self, session: Session, project: ProjectSeed) -> None:
+        if project.workspace_id is None:
+            raise ValueError("workspace_id is required for DataQualityProject seeds")
         record = session.get(DataQualityProject, project.project_key)
         if record is None:
-            record = DataQualityProject(project_key=project.project_key)
+            record = DataQualityProject(project_key=project.project_key, workspace_id=project.workspace_id)
             session.add(record)
+        record.workspace_id = project.workspace_id
         record.name = project.name
         record.description = project.description
         record.sql_flavor = project.sql_flavor

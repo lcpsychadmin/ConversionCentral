@@ -9,10 +9,8 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import SettingsIcon from '@mui/icons-material/Settings';
-import ProjectsIcon from '@mui/icons-material/FolderOpen';
 import DataObjectIcon from '@mui/icons-material/Storage';
 import AssessmentIcon from '@mui/icons-material/Assessment';
-import TuneIcon from '@mui/icons-material/Tune';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 
@@ -24,6 +22,7 @@ import {
 
 import { ReactNode } from 'react';
 import useDesignerStore from '../stores/designerStore';
+import WorkspaceMenu from '@components/workspaces/WorkspaceMenu';
 
 const drawerWidth = 280;
 
@@ -38,44 +37,51 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Overview', path: '/', icon: <DashboardIcon /> },
   {
-    label: 'Application Settings',
+    label: 'Global Settings',
     collapsible: true,
     icon: <SettingsIcon />,
     children: [
       { label: 'Company Settings', path: '/application-settings/company' },
-      { label: 'Schedule Settings', path: '/application-settings/table-observability' }
-    ]
-  },
-  {
-    label: 'Data Connections',
-    collapsible: true,
-    icon: <TuneIcon />,
-    children: [
-      { label: 'Connections', path: '/data-configuration/connections' },
-      { label: 'Tables', path: '/data-configuration/source-catalog' }
-    ]
-  },
-  {
-    label: 'Data Configuration',
-    collapsible: true,
-    icon: <DataObjectIcon />,
-    children: [
+      {
+        label: 'Data Connections',
+        collapsible: true,
+        children: [
+          { label: 'Connections', path: '/data-configuration/connections' },
+          { label: 'Tables', path: '/data-configuration/source-catalog' },
+          { label: 'Observability Schedules', path: '/application-settings/table-observability' }
+        ]
+      },
       {
         label: 'Data Definition Settings',
         collapsible: true,
         children: [
           { label: 'Legal Requirements', path: '/application-settings/legal-requirements' },
-          { label: 'Security Classifications', path: '/application-settings/security-classifications' }
+          { label: 'Security Classifications', path: '/application-settings/security-classifications' },
+          { label: 'Process Areas', path: '/process-areas' },
+          { label: 'Applications', path: '/data-configuration/applications' }
         ]
       },
-      { label: 'Process Areas', path: '/process-areas' },
-      { label: 'Applications', path: '/data-configuration/applications' },
+      {
+        label: 'Project Settings',
+        collapsible: true,
+        children: [
+          { label: 'Projects', path: '/project-settings/projects' },
+          { label: 'Releases', path: '/project-settings/releases' }
+        ]
+      }
+    ]
+  },
+  {
+    label: 'Data Objects',
+    collapsible: true,
+    icon: <DataObjectIcon />,
+    children: [
       { label: 'Data Objects', path: '/data-objects' },
       { label: 'Data Object Definition', path: '/data-definitions' }
     ]
   },
   {
-    label: 'Data Management',
+    label: 'Maintain Data',
     collapsible: true,
     icon: <ManageAccountsIcon />,
     children: [
@@ -95,7 +101,6 @@ const navItems: NavItem[] = [
       // Temporarily hide lower-priority areas while we focus on core workflows
     ]
   },
-  // Project settings will be moved under Data Migration (see below)
   {
     label: 'Reporting',
     collapsible: true,
@@ -103,22 +108,6 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Report Designer', path: '/reporting/designer' },
       { label: 'Report Catalog', path: '/reporting/catalog' }
-    ]
-  }
-  ,
-  {
-    label: 'Data Migration',
-    collapsible: true,
-    icon: <ProjectsIcon />,
-    children: [
-      {
-        label: 'Project Settings',
-        collapsible: true,
-        children: [
-          { label: 'Projects', path: '/project-settings/projects' },
-          { label: 'Releases', path: '/project-settings/releases' }
-        ]
-      }
     ]
   }
 ];
@@ -352,133 +341,145 @@ const MainLayout = () => {
       }}
     >
       <Toolbar />
-      <List sx={{ px: 1 }}>
-        {navItems.map((item) => {
-          const hasChildren = Boolean(item.children?.length);
-          const isCollapsible = hasChildren && item.collapsible;
-          const isOpen = isCollapsible ? openSections[item.label] : true;
+      <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
+        <List sx={{ px: 1 }}>
+          {navItems.map((item) => {
+            const hasChildren = Boolean(item.children?.length);
+            const isCollapsible = hasChildren && item.collapsible;
+            const isOpen = isCollapsible ? openSections[item.label] : true;
 
-          return (
-            <Box key={item.label} sx={{ width: '100%' }}>
-              <ListItem disablePadding>
-                {isCollapsible ? (
-                  <ListItemButton
-                    onClick={() => handleSectionToggle(item.label)}
-                    sx={{
-                      borderRadius: 1,
-                      mb: 0.5,
-                      color: navHeadingColor,
-                      fontWeight: 600,
-                      '&:hover': {
-                        backgroundColor: navHoverBackground
-                      }
-                    }}
-                  >
-                    {item.icon && (
-                      <ListItemIcon
-                        sx={{
-                          color: navIconColor,
-                          minWidth: 40,
-                          '& svg': { fontSize: 24 }
-                        }}
-                      >
-                        {item.icon}
-                      </ListItemIcon>
-                    )}
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{
-                        fontSize: 16,
+            return (
+              <Box key={item.label} sx={{ width: '100%' }}>
+                <ListItem disablePadding>
+                  {isCollapsible ? (
+                    <ListItemButton
+                      onClick={() => handleSectionToggle(item.label)}
+                      sx={{
+                        borderRadius: 1,
+                        mb: 0.5,
+                        color: navHeadingColor,
                         fontWeight: 600,
-                        letterSpacing: 0.3,
-                        sx: { color: navHeadingColor }
+                        '&:hover': {
+                          backgroundColor: navHoverBackground
+                        }
                       }}
-                    />
-                    {isOpen ? (
-                      <ExpandLessIcon sx={{ fontSize: 24, color: navIconColor }} />
-                    ) : (
-                      <ExpandMoreIcon sx={{ fontSize: 24, color: navIconColor }} />
-                    )}
-                  </ListItemButton>
-                ) : item.path ? (
-                  <ListItemButton
-                    component={Link}
-                    to={item.path}
-                    onClick={() => setMobileOpen(false)}
-                    sx={{
-                      borderRadius: 1,
-                      mb: 0.5,
-                      color: navTextColor,
-                      '&:hover': {
-                        backgroundColor: navHoverBackground
-                      }
-                    }}
-                  >
-                    {item.icon && (
-                      <ListItemIcon
-                        sx={{
-                          color: navIconColor,
-                          minWidth: 40,
-                          '& svg': { fontSize: 24 }
+                    >
+                      {item.icon && (
+                        <ListItemIcon
+                          sx={{
+                            color: navIconColor,
+                            minWidth: 40,
+                            '& svg': { fontSize: 24 }
+                          }}
+                        >
+                          {item.icon}
+                        </ListItemIcon>
+                      )}
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          letterSpacing: 0.3,
+                          sx: { color: navHeadingColor }
                         }}
-                      >
-                        {item.icon}
-                      </ListItemIcon>
-                    )}
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{
-                        fontSize: 16,
-                        fontWeight: 600,
-                        sx: { color: navTextColor }
+                      />
+                      {isOpen ? (
+                        <ExpandLessIcon sx={{ fontSize: 24, color: navIconColor }} />
+                      ) : (
+                        <ExpandMoreIcon sx={{ fontSize: 24, color: navIconColor }} />
+                      )}
+                    </ListItemButton>
+                  ) : item.path ? (
+                    <ListItemButton
+                      component={Link}
+                      to={item.path}
+                      onClick={() => setMobileOpen(false)}
+                      sx={{
+                        borderRadius: 1,
+                        mb: 0.5,
+                        color: navTextColor,
+                        '&:hover': {
+                          backgroundColor: navHoverBackground
+                        }
                       }}
-                    />
-                  </ListItemButton>
-                ) : (
-                  <ListItemButton
-                    disabled
-                    sx={{
-                      borderRadius: 1,
-                      mb: 0.5,
-                      color: navHeadingColor,
-                      fontWeight: 600
-                    }}
-                  >
-                    {item.icon && (
-                      <ListItemIcon
-                        sx={{
-                          color: navIconColor,
-                          minWidth: 40,
-                          '& svg': { fontSize: 24 }
+                    >
+                      {item.icon && (
+                        <ListItemIcon
+                          sx={{
+                            color: navIconColor,
+                            minWidth: 40,
+                            '& svg': { fontSize: 24 }
+                          }}
+                        >
+                          {item.icon}
+                        </ListItemIcon>
+                      )}
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          sx: { color: navTextColor }
                         }}
-                      >
-                        {item.icon}
-                      </ListItemIcon>
-                    )}
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{
-                        fontSize: 16,
-                        fontWeight: 600,
-                        sx: { color: navHeadingColor }
+                      />
+                    </ListItemButton>
+                  ) : (
+                    <ListItemButton
+                      disabled
+                      sx={{
+                        borderRadius: 1,
+                        mb: 0.5,
+                        color: navHeadingColor,
+                        fontWeight: 600
                       }}
-                    />
-                  </ListItemButton>
+                    >
+                      {item.icon && (
+                        <ListItemIcon
+                          sx={{
+                            color: navIconColor,
+                            minWidth: 40,
+                            '& svg': { fontSize: 24 }
+                          }}
+                        >
+                          {item.icon}
+                        </ListItemIcon>
+                      )}
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          sx: { color: navHeadingColor }
+                        }}
+                      />
+                    </ListItemButton>
+                  )}
+                </ListItem>
+                {hasChildren && (
+                  isCollapsible ? (
+                    <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                      {renderNestedChildren(item.children!, item.label)}
+                    </Collapse>
+                  ) : (
+                    renderNestedChildren(item.children!, item.label)
+                  )
                 )}
-              </ListItem>
-              {hasChildren && (
-                isCollapsible ? (
-                  <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                    {renderNestedChildren(item.children!, item.label)}
-                  </Collapse>
-                ) : (
-                  renderNestedChildren(item.children!, item.label)
-                )
-              )}
-            </Box>
-          );
-        })}
-      </List>
+              </Box>
+            );
+          })}
+        </List>
+      </Box>
+      <Box
+        sx={{
+          borderTop: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+          px: 2,
+          py: 2,
+          backgroundColor: alpha(theme.palette.background.default, isDarkMode ? 0.2 : 0.4)
+        }}
+      >
+        <WorkspaceMenu variant="sidebar" />
+      </Box>
     </Box>
   );
 

@@ -104,7 +104,7 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
 
     ensure_data_quality_metadata(params)
 
-    assert len(executed) == 38
+    assert len(executed) == 39
     assert executed[0] == "CREATE SCHEMA IF NOT EXISTS `sandbox`.`dq`"
     assert executed[1].startswith("CREATE TABLE IF NOT EXISTS `sandbox`.`dq`.`dq_projects`")
     assert "USING DELTA" in executed[1]
@@ -124,6 +124,7 @@ def test_ensure_data_quality_metadata_executes_expected_statements(monkeypatch):
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_profiles` ADD COLUMNS (dq_score_profiling DOUBLE)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_data_table_chars` ADD COLUMNS (last_complete_profile_run_id STRING)" == statement for statement in executed)
     assert any("ALTER TABLE `sandbox`.`dq`.`dq_data_column_chars` ADD COLUMNS (last_complete_profile_run_id STRING)" == statement for statement in executed)
+    assert any("ALTER TABLE `sandbox`.`dq`.`dq_projects` ADD COLUMNS (workspace_id STRING)" == statement for statement in executed)
     assert "DELETE FROM `sandbox`.`dq`.`dq_settings` WHERE key = 'schema_version'" in executed
     assert "INSERT INTO `sandbox`.`dq`.`dq_settings` (key, value, updated_at) VALUES ('schema_version', '3', current_timestamp())" in executed
 
@@ -174,8 +175,9 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
         data_object_identifier = "object-1"
         connection_identifier = "connection-1"
         selection_identifier = "selection-1234"
+        workspace_identifier = uuid4()
 
-        project_key = build_project_key(system_identifier, data_object_identifier)
+        project_key = build_project_key(workspace_identifier)
         connection_id = build_connection_id(connection_identifier, data_object_identifier)
         table_group_id = build_table_group_id(connection_identifier, data_object_identifier)
 
@@ -208,6 +210,7 @@ def test_ensure_data_quality_metadata_seeds_metadata(monkeypatch):
             name="System",
             description=None,
             sql_flavor="databricks-sql",
+            workspace_id=workspace_identifier,
             connections=(connection_seed,),
         )
         return DataQualitySeed(projects=(project_seed,))
@@ -253,10 +256,17 @@ def test_ensure_data_quality_metadata_local_backend(monkeypatch):
     assert repo_instance.seeded is True
 
 
-def test_definition_table_entry_uses_ingestion_schema_for_native_tables():
+def test_definition_table_entry_uses_source_schema_for_native_tables():
     system_id = uuid4()
     definition_table_id = uuid4()
     system = SimpleNamespace(id=system_id, name="Demo Data", physical_name=None)
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=system_id,
+        active=True,
+        connection_type="jdbc",
+        display_name="Demo Warehouse",
+    )
     table = SimpleNamespace(
         id=uuid4(),
         schema_name="raw",
@@ -264,28 +274,79 @@ def test_definition_table_entry_uses_ingestion_schema_for_native_tables():
         name=None,
         system_id=system_id,
     )
-    definition_table = SimpleNamespace(id=definition_table_id, table=table, constructed_table=None)
+    definition_table = SimpleNamespace(
+        id=definition_table_id,
+        table=table,
+        constructed_table=None,
+        system_connection=connection,
+    )
+    params = _build_params(schema_name="stage")
+
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
+
+    assert entry is not None
+    assert entry.schema_name == "raw"
+    assert entry.table_name == "Customers"
+    assert entry.source_table_id == str(table.id)
+    assert entry.selection_id is None
+    assert entry.connection is connection
+
+
+def test_definition_table_entry_falls_back_to_ingestion_schema_when_missing():
+    system_id = uuid4()
+    system = SimpleNamespace(id=system_id, name="Demo Data", physical_name=None)
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=system_id,
+        active=True,
+        connection_type="jdbc",
+        display_name="Demo Warehouse",
+    )
+    table = SimpleNamespace(
+        id=uuid4(),
+        schema_name=None,
+        physical_name=None,
+        name="fallback_table",
+        system_id=system_id,
+    )
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=None,
+        system_connection=connection,
+    )
     params = _build_params(schema_name="stage")
 
     entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
 
     assert entry is not None
     assert entry.schema_name == "demo_data"
-    assert entry.table_name == "raw_customers"
-    assert entry.source_table_id == str(table.id)
+    assert entry.table_name == "fallback_table"
+    assert entry.connection is connection
 
 
-def test_definition_table_entry_uses_table_schema_for_external_tables():
+def test_definition_table_entry_uses_table_schema_when_system_unknown():
     system = SimpleNamespace(id=uuid4(), name="CRM", physical_name=None)
-    other_system_id = uuid4()
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=system.id,
+        active=True,
+        connection_type="jdbc",
+        display_name="CRM Warehouse",
+    )
     table = SimpleNamespace(
         id=uuid4(),
         schema_name="analytics",
         physical_name="orders",
         name="Orders",
-        system_id=other_system_id,
+        system_id=None,
     )
-    definition_table = SimpleNamespace(id=uuid4(), table=table, constructed_table=None)
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=None,
+        system_connection=connection,
+    )
     params = _build_params()
 
     entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
@@ -293,16 +354,25 @@ def test_definition_table_entry_uses_table_schema_for_external_tables():
     assert entry is not None
     assert entry.schema_name == "analytics"
     assert entry.table_name == "orders"
+    assert entry.connection is connection
 
 
 def test_definition_table_entry_handles_constructed_tables(monkeypatch):
     system = SimpleNamespace(id=uuid4(), name="ERP", physical_name="erp")
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=system.id,
+        active=True,
+        connection_type="jdbc",
+        display_name="ERP Warehouse",
+    )
     constructed_table = SimpleNamespace(id=uuid4(), name="curated_orders", schema_name="cstm_schema")
     table = SimpleNamespace(id=uuid4(), schema_name=None, physical_name=None, system_id=system.id)
     definition_table = SimpleNamespace(
         id=uuid4(),
         table=table,
         constructed_table=constructed_table,
+        system_connection=connection,
     )
     params = _build_params(constructed_schema="constructed")
 
@@ -316,3 +386,106 @@ def test_definition_table_entry_handles_constructed_tables(monkeypatch):
     assert entry is not None
     assert entry.schema_name == "constructed_data"
     assert entry.table_name == constructed_table.name
+    assert entry.connection is connection
+
+
+def test_definition_table_entry_skips_tables_for_mismatched_system():
+    system_id = uuid4()
+    other_system_id = uuid4()
+    system = SimpleNamespace(id=system_id, name="ERP", physical_name=None)
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=other_system_id,
+        active=True,
+        connection_type="jdbc",
+        display_name="ERP Warehouse",
+    )
+    table = SimpleNamespace(
+        id=uuid4(),
+        schema_name="analytics",
+        physical_name="orders",
+        name="Orders",
+        system_id=other_system_id,
+    )
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=None,
+        system_connection=connection,
+    )
+    params = _build_params()
+
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
+
+    assert entry is None
+
+
+def test_definition_targets_system_prefers_connection_system_id():
+    system_id = uuid4()
+    fallback_system_id = uuid4()
+    system = SimpleNamespace(id=system_id)
+    table = SimpleNamespace(
+        id=uuid4(),
+        schema_name="analytics",
+        physical_name="orders",
+        name="Orders",
+        system_id=fallback_system_id,
+    )
+    connection = SimpleNamespace(system_id=system_id)
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=None,
+        system_connection=connection,
+    )
+    definition = SimpleNamespace(system_id=fallback_system_id, tables=[definition_table])
+
+    assert data_quality_metadata._definition_targets_system(definition, system) is True
+    assert (
+        data_quality_metadata._definition_targets_system(
+            definition,
+            SimpleNamespace(id=fallback_system_id),
+        )
+        is False
+    )
+
+
+def test_definition_table_entry_prefers_selection_metadata():
+    system_id = uuid4()
+    system = SimpleNamespace(id=system_id, name="ERP", physical_name=None)
+    connection = SimpleNamespace(
+        id=uuid4(),
+        system_id=system_id,
+        active=True,
+        connection_type="jdbc",
+        display_name="Primary Warehouse",
+    )
+    selection_id = uuid4()
+    selection = SimpleNamespace(
+        id=selection_id,
+        schema_name="sample_schema",
+        table_name="sample_table",
+        system_connection=connection,
+    )
+    table = SimpleNamespace(
+        id=uuid4(),
+        schema_name="fallback_schema",
+        physical_name="fallback_table",
+        name="Fallback",
+        system_id=system_id,
+    )
+    definition_table = SimpleNamespace(
+        id=uuid4(),
+        table=table,
+        constructed_table=None,
+        connection_table_selection=selection,
+    )
+    params = _build_params(schema_name="default_schema")
+
+    entry = data_quality_metadata._definition_table_entry(definition_table, system, params)
+
+    assert entry is not None
+    assert entry.schema_name == "sample_schema"
+    assert entry.table_name == "sample_table"
+    assert entry.selection_id == str(selection_id)
+    assert entry.connection is connection

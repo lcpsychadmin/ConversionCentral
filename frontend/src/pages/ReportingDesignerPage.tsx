@@ -112,6 +112,7 @@ import {
   fetchReportPreview,
   listReports,
   publishReport,
+  REPORTS_QUERY_KEY,
   reportQueryKeys,
   updateReport,
   type ReportPreviewResponse,
@@ -119,6 +120,7 @@ import {
   type ReportSavePayload,
   type ReportUpdatePayload
 } from '@services/reportingService';
+import { useWorkspaces } from '@hooks/useWorkspaces';
 import type { DataDefinition, DataObject, Field, ProcessArea, Table } from '../types/data';
 import type {
   ReportAggregateFn,
@@ -426,39 +428,63 @@ const arraysShallowEqual = (first: readonly string[], second: readonly string[])
 };
 
 const ReportingDesignerContent = () => {
+  const [workspaceFilterId, setWorkspaceFilterId] = useState<string | null>(null);
   const {
     data: tables = [],
     isLoading: tablesLoading,
     isError: tablesLoadError,
     error: tablesError
   } = useQuery<Table[]>(['reporting-tables'], fetchReportingTables);
+  const dataDefinitionsQuery = useQuery<DataDefinition[]>(
+    ['reporting-data-definitions', workspaceFilterId],
+    () => fetchAllDataDefinitions({ workspaceId: workspaceFilterId ?? undefined }),
+    {
+      enabled: Boolean(workspaceFilterId),
+      keepPreviousData: true
+    }
+  );
   const {
     data: dataDefinitions = [],
-    isLoading: definitionsLoading,
     isError: definitionsLoadError,
     error: definitionsError
-  } = useQuery<DataDefinition[]>(['reporting-data-definitions'], fetchAllDataDefinitions);
+  } = dataDefinitionsQuery;
+  const definitionsLoading = dataDefinitionsQuery.isLoading || !workspaceFilterId;
+
+  const dataObjectsQuery = useQuery<DataObject[]>(
+    ['reporting-data-objects', workspaceFilterId],
+    () => fetchDataObjects({ workspaceId: workspaceFilterId ?? undefined }),
+    {
+      enabled: Boolean(workspaceFilterId),
+      keepPreviousData: true
+    }
+  );
   const {
     data: dataObjects = [],
-    isLoading: dataObjectsLoading,
     isError: dataObjectsLoadError,
     error: dataObjectsError
-  } = useQuery<DataObject[]>(['reporting-data-objects'], fetchDataObjects);
+  } = dataObjectsQuery;
+  const dataObjectsLoading = dataObjectsQuery.isLoading || !workspaceFilterId;
   const {
     data: processAreas = [],
     isLoading: processAreasLoading,
     isError: processAreasLoadError,
     error: processAreasError
   } = useQuery<ProcessArea[]>(['reporting-process-areas'], fetchProcessAreas);
+  const { data: workspaces = [], isLoading: workspacesLoading } = useWorkspaces();
   const queryClient = useQueryClient();
   const {
     data: draftReports = [],
     isLoading: draftReportsLoading,
     isFetching: draftReportsFetching,
     refetch: refetchDraftReports
-  } = useQuery(reportQueryKeys.list('draft'), () => listReports('draft'), {
-    staleTime: 30_000
-  });
+  } = useQuery(
+    reportQueryKeys.list('draft', workspaceFilterId ?? undefined),
+    () => listReports('draft', workspaceFilterId ?? undefined),
+    {
+      enabled: Boolean(workspaceFilterId),
+      staleTime: 30_000
+    }
+  );
 
   const createReportMutation = useMutation<ReportDetail, unknown, ReportSavePayload>(createReport);
   const updateReportMutation = useMutation<
@@ -493,6 +519,18 @@ const ReportingDesignerContent = () => {
     return 'Unable to load table palette data.';
   }, [dataObjectsError, definitionsError, processAreasError, tablesError]);
   const { data: rawFields = [] } = useQuery<Field[]>(['reporting-fields'], fetchFields);
+
+  useEffect(() => {
+    if (workspaces.length === 0) {
+      setWorkspaceFilterId(null);
+      return;
+    }
+    if (workspaceFilterId && workspaces.some((workspace) => workspace.id === workspaceFilterId)) {
+      return;
+    }
+    const preferred = workspaces.find((workspace) => workspace.isDefault) ?? workspaces[0];
+    setWorkspaceFilterId(preferred.id);
+  }, [workspaceFilterId, workspaces]);
 
   const databricksTableIdSet = useMemo(() => new Set(tables.map((table) => table.id)), [tables]);
   const allowedTableIds = useMemo(() => {
@@ -663,6 +701,13 @@ const ReportingDesignerContent = () => {
     return map;
   }, [dataObjects]);
 
+  const selectedDataObject = useMemo(() => {
+    if (!selectedDataObjectId) {
+      return null;
+    }
+    return dataObjectsById.get(selectedDataObjectId) ?? null;
+  }, [dataObjectsById, selectedDataObjectId]);
+
   const processAreasById = useMemo(() => {
     const map = new Map<string, ProcessArea>();
     processAreas.forEach((processArea) => {
@@ -683,14 +728,18 @@ const ReportingDesignerContent = () => {
     return items;
   }, [dataObjects]);
 
+  const workspaceFilter = workspaceFilterId
+    ? workspaces.find((workspace) => workspace.id === workspaceFilterId) ?? null
+    : null;
+
   const filteredDataObjects = useMemo(() => {
-    if (!draftProductTeamIdInput) {
-      return sortedDataObjects;
-    }
-    return sortedDataObjects.filter(
-      (dataObject) => (dataObject.processAreaId ?? null) === draftProductTeamIdInput
-    );
-  }, [draftProductTeamIdInput, sortedDataObjects]);
+    return sortedDataObjects.filter((dataObject) => {
+      const matchesProcessArea = !draftProductTeamIdInput
+        || (dataObject.processAreaId ?? null) === draftProductTeamIdInput;
+      const matchesWorkspace = !workspaceFilterId || dataObject.workspaceId === workspaceFilterId;
+      return matchesProcessArea && matchesWorkspace;
+    });
+  }, [draftProductTeamIdInput, sortedDataObjects, workspaceFilterId]);
 
   const paletteHierarchy = useMemo<PaletteTreeNode[]>(() => {
     const productTeamNodes = new Map<string, PaletteTreeNode>();
@@ -2472,18 +2521,20 @@ const ReportingDesignerContent = () => {
     }
 
     const normalizedDescription = trimmedDescription.length > 0 ? trimmedDescription : null;
-    const selectedDataObject = draftDataObjectIdInput ? dataObjectsById.get(draftDataObjectIdInput) ?? null : null;
-    const resolvedProductTeamId = selectedDataObject
-      ? selectedDataObject.processAreaId ?? null
+    const selectedDraftDataObject = draftDataObjectIdInput
+      ? dataObjectsById.get(draftDataObjectIdInput) ?? null
+      : null;
+    const resolvedProductTeamId = selectedDraftDataObject
+      ? selectedDraftDataObject.processAreaId ?? null
       : draftProductTeamIdInput ?? null;
     const resolvedDataObjectId = draftDataObjectIdInput ?? null;
 
-    if (resolvedDataObjectId && !selectedDataObject) {
+    if (resolvedDataObjectId && !selectedDraftDataObject) {
       setDialogError('Selected data object is no longer available.');
       return;
     }
 
-    if (selectedDataObject && resolvedProductTeamId && selectedDataObject.processAreaId && selectedDataObject.processAreaId !== resolvedProductTeamId) {
+    if (selectedDraftDataObject && resolvedProductTeamId && selectedDraftDataObject.processAreaId && selectedDraftDataObject.processAreaId !== resolvedProductTeamId) {
       setDialogError('Selected data object belongs to a different process area.');
       return;
     }
@@ -2499,13 +2550,20 @@ const ReportingDesignerContent = () => {
       }
     }
 
+    const resolvedWorkspaceId = selectedDraftDataObject?.workspaceId ?? activeReport?.workspaceId ?? workspaceFilterId;
+    if (!resolvedWorkspaceId) {
+      setDialogError('Select a workspace before saving this report.');
+      return;
+    }
+
     const payloadDefinition = reportDefinition;
     const basePayload: ReportSavePayload = {
       name: trimmedName,
       description: normalizedDescription,
       definition: payloadDefinition,
       productTeamId: resolvedProductTeamId,
-      dataObjectId: resolvedDataObjectId
+      dataObjectId: resolvedDataObjectId,
+      workspaceId: resolvedWorkspaceId
     };
 
     setPersisting(true);
@@ -2521,7 +2579,8 @@ const ReportingDesignerContent = () => {
             description: normalizedDescription,
             definition: payloadDefinition,
             productTeamId: resolvedProductTeamId,
-            dataObjectId: resolvedDataObjectId
+            dataObjectId: resolvedDataObjectId,
+            workspaceId: resolvedWorkspaceId
           };
           result = await updateReportMutation.mutateAsync({ reportId: activeReport.id, payload: updatePayload });
         } else {
@@ -2536,7 +2595,8 @@ const ReportingDesignerContent = () => {
             description: normalizedDescription,
             definition: payloadDefinition,
             productTeamId: resolvedProductTeamId!,
-            dataObjectId: resolvedDataObjectId!
+            dataObjectId: resolvedDataObjectId!,
+            workspaceId: resolvedWorkspaceId
           };
           result = await publishReportMutation.mutateAsync({ reportId: activeReport.id, payload: publishPayload });
         } else {
@@ -2546,7 +2606,8 @@ const ReportingDesignerContent = () => {
             description: normalizedDescription,
             definition: payloadDefinition,
             productTeamId: resolvedProductTeamId!,
-            dataObjectId: resolvedDataObjectId!
+            dataObjectId: resolvedDataObjectId!,
+            workspaceId: resolvedWorkspaceId
           };
           result = await publishReportMutation.mutateAsync({ reportId: created.id, payload: publishPayload });
         }
@@ -2573,8 +2634,7 @@ const ReportingDesignerContent = () => {
       hasHydratedDraftRef.current = true;
 
       await Promise.all([
-        queryClient.invalidateQueries(reportQueryKeys.list()),
-        queryClient.invalidateQueries(reportQueryKeys.list('draft')),
+        queryClient.invalidateQueries(REPORTS_QUERY_KEY),
         queryClient.invalidateQueries(reportQueryKeys.detail(result.id))
       ]);
 
@@ -2612,7 +2672,8 @@ const ReportingDesignerContent = () => {
     setSelectedDataObjectId,
     setSelectedProductTeamId,
     setStatusBanner,
-    updateReportMutation
+    updateReportMutation,
+    workspaceFilterId
   ]);
 
   const formatTimestamp = (value?: string | null) => {
@@ -2625,8 +2686,10 @@ const ReportingDesignerContent = () => {
 
   const handleOpenDraftList = useCallback(() => {
     setDraftListOpen(true);
-    refetchDraftReports();
-  }, [refetchDraftReports]);
+    if (workspaceFilterId) {
+      refetchDraftReports();
+    }
+  }, [refetchDraftReports, workspaceFilterId]);
 
   const handleDraftListClose = useCallback(() => {
     if (persisting) {
@@ -2663,6 +2726,9 @@ const ReportingDesignerContent = () => {
           window.localStorage.removeItem(designerStorageKey);
         }
         hasHydratedDraftRef.current = true;
+        if (detail.workspaceId) {
+          setWorkspaceFilterId(detail.workspaceId);
+        }
       } catch (error) {
         const message = isAxiosError(error)
           ? error.response?.data?.detail ?? error.message
@@ -2694,7 +2760,8 @@ const ReportingDesignerContent = () => {
       setSelectedProductTeamId,
       setSaveDialogOpen,
       setLoadingReportId,
-      setStatusBanner
+      setStatusBanner,
+      setWorkspaceFilterId
     ]
   );
 
@@ -2758,8 +2825,7 @@ const ReportingDesignerContent = () => {
         await deleteReportMutation.mutateAsync(report.id);
 
         await Promise.all([
-          queryClient.invalidateQueries(reportQueryKeys.list()),
-          queryClient.invalidateQueries(reportQueryKeys.list('draft')),
+          queryClient.invalidateQueries(REPORTS_QUERY_KEY),
           queryClient.invalidateQueries(reportQueryKeys.detail(report.id))
         ]);
 
@@ -3165,22 +3231,21 @@ const ReportingDesignerContent = () => {
     : null;
   const selectedProductTeamLabel = selectedProductTeam?.name
     ?? (selectedProductTeamId ? activeReport?.productTeamName ?? 'Unknown process area' : 'Unassigned');
-  const selectedDataObject = selectedDataObjectId
-    ? dataObjectsById.get(selectedDataObjectId) ?? null
-    : null;
   const selectedDataObjectLabel = selectedDataObject?.name
     ?? (selectedDataObjectId ? activeReport?.dataObjectName ?? 'Unknown data object' : 'Unassigned');
   const selectedDataObjectTeamName = selectedDataObject?.processAreaId
     ? processAreasById.get(selectedDataObject.processAreaId)?.name ?? null
     : null;
+  const selectedWorkspaceLabel = selectedDataObject?.workspaceName
+    ?? (selectedDataObjectId ? activeReport?.workspaceName ?? 'Unknown workspace' : workspaceFilter?.name ?? 'Unassigned');
   const productTeamHelperText =
     pendingPersistAction === 'publish' ? 'Process area required to publish.' : 'Optional for drafts.';
   const dataObjectHelperText =
     pendingPersistAction === 'publish' ? 'Data object required to publish.' : 'Optional for drafts.';
   const dataObjectPlaceholderLabel = dataObjects.length === 0
     ? 'No data objects available'
-    : draftProductTeamIdInput && filteredDataObjects.length === 0
-      ? 'No data objects for selected process area'
+    : filteredDataObjects.length === 0
+      ? 'No data objects match the selected filters'
       : 'Select data object';
 
   return (
@@ -3188,6 +3253,33 @@ const ReportingDesignerContent = () => {
       <PageHeader
         title="Report Designer"
         subtitle="Compose relational-style report definitions by combining enterprise tables, mapping joins, and shaping output fields prior to publishing."
+        actions={
+          <TextField
+            select
+            size="small"
+            label="Workspace"
+            value={workspaceFilterId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value as string;
+              setWorkspaceFilterId(value || null);
+            }}
+            sx={{ minWidth: 220 }}
+            disabled={workspacesLoading || workspaces.length === 0}
+          >
+            {workspaces.length === 0 ? (
+              <MenuItem disabled value="">
+                {workspacesLoading ? 'Loading workspaces…' : 'No workspaces available'}
+              </MenuItem>
+            ) : (
+              workspaces.map((workspace) => (
+                <MenuItem key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                  {!workspace.isActive ? ' (inactive)' : ''}
+                </MenuItem>
+              ))
+            )}
+          </TextField>
+        }
       />
       <Paper
         elevation={2}
@@ -3326,6 +3418,11 @@ const ReportingDesignerContent = () => {
                     ? `Data Object: ${selectedDataObjectLabel} (${selectedDataObjectTeamName})`
                     : `Data Object: ${selectedDataObjectLabel}`
                 }
+              />
+              <Chip
+                variant="outlined"
+                color={workspaceFilterId ? 'primary' : 'default'}
+                label={`Workspace: ${selectedWorkspaceLabel}`}
               />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -3650,7 +3747,16 @@ const ReportingDesignerContent = () => {
           </Typography>
         </DialogTitle>
         <DialogContent dividers>
-          {draftReportsLoading || draftReportsFetching ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {workspaceFilterId
+              ? `Showing drafts for workspace "${workspaceFilter?.name ?? 'Unknown workspace'}".`
+              : 'Select a workspace from the page header to load drafts.'}
+          </Typography>
+          {!workspaceFilterId ? (
+            <Typography variant="body2" color="text.secondary">
+              Choose a workspace to display its drafts.
+            </Typography>
+          ) : draftReportsLoading || draftReportsFetching ? (
             <Stack spacing={1.5} alignItems="center" sx={{ py: 4 }}>
               <CircularProgress size={24} />
               <Typography variant="body2" color="text.secondary">

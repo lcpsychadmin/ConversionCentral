@@ -58,6 +58,16 @@ export interface SecurityClassification {
   updatedAt?: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  description?: string | null;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ReleaseFormValues {
   projectId: string;
   name: string;
@@ -74,6 +84,8 @@ export interface DataObject {
   status: string;
   processAreaId: string | null;
   processAreaName?: string | null;
+  workspaceId: string | null;
+  workspaceName?: string | null;
   systems: System[];
   createdAt?: string;
   updatedAt?: string;
@@ -85,6 +97,7 @@ export interface DataObjectFormValues {
   status: string;
   processAreaId: string;
   systemIds: string[];
+  workspaceId?: string | null;
 }
 
 export interface ProjectSummary {
@@ -389,6 +402,7 @@ export interface DataQualityProject {
   name: string;
   description?: string | null;
   sqlFlavor?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface DataQualityConnection {
@@ -937,6 +951,7 @@ export interface DataQualityDatasetTableContext {
   dataDefinitionTableId: string;
   dataDefinitionId: string;
   dataObjectId: string;
+  workspaceId?: string | null;
   applicationId: string;
   productTeamId?: string | null;
   tableGroupId: string;
@@ -956,6 +971,7 @@ export interface DataQualityDatasetObject {
   dataObjectId: string;
   name: string;
   description?: string | null;
+  workspaceId?: string | null;
   dataDefinitions: DataQualityDatasetDefinition[];
 }
 
@@ -1130,6 +1146,8 @@ export interface DataDefinitionTable {
   description?: string | null;
   loadOrder?: number | null;
   isConstruction: boolean;
+  systemConnectionId?: string | null;
+  connectionTableSelectionId?: string | null;
   table: Table;
   fields: DataDefinitionField[];
   createdAt?: string;
@@ -1161,6 +1179,8 @@ export interface DataDefinitionTableInput {
   description?: string | null;
   loadOrder?: number | null;
   isConstruction?: boolean;
+  systemConnectionId?: string | null;
+  connectionTableSelectionId?: string | null;
   fields: DataDefinitionFieldInput[];
 }
 

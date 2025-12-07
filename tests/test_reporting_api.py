@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.models.entities import (
     System,
     SystemConnection,
     Table,
+    Workspace,
 )
 
 
@@ -51,7 +52,11 @@ def _sample_definition() -> dict[str, object]:
     }
 
 
-def test_report_crud_and_publish_flow(client: TestClient) -> None:
+def test_report_crud_and_publish_flow(client: TestClient, db_session: Session) -> None:
+    workspace = Workspace(name="Insights Workspace", description="", is_default=True, is_active=True)
+    db_session.add(workspace)
+    db_session.commit()
+
     process_area_response = client.post(
         "/process-areas",
         json={"name": "Insights", "description": "", "status": "active"},
@@ -72,10 +77,16 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
     assert data_object_response.status_code == 201
     data_object_id = data_object_response.json()["id"]
 
+    data_object = db_session.get(DataObject, UUID(data_object_id))
+    assert data_object is not None
+    data_object.workspace_id = workspace.id
+    db_session.commit()
+
     create_payload = {
         "name": "Quarterly Sales",
         "description": "Initial draft",
         "definition": _sample_definition(),
+        "workspaceId": str(workspace.id),
     }
 
     create_response = client.post("/reporting/reports", json=create_payload)
@@ -83,6 +94,7 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
     created = create_response.json()
     assert created["status"] == "draft"
     assert created["publishedAt"] is None
+    assert created["workspaceId"] == str(workspace.id)
     report_id = created["id"]
 
     list_response = client.get("/reporting/reports")
@@ -99,6 +111,7 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["name"] == "Quarterly Sales"
+    assert detail["workspaceId"] == str(workspace.id)
 
     update_response = client.put(
         f"/reporting/reports/{report_id}",
@@ -113,6 +126,7 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
         json={
             "productTeamId": process_area_id,
             "dataObjectId": data_object_id,
+            "workspaceId": str(workspace.id),
         },
     )
     assert publish_response.status_code == 200
@@ -121,6 +135,7 @@ def test_report_crud_and_publish_flow(client: TestClient) -> None:
     assert published["publishedAt"] is not None
     assert published["productTeamId"] == process_area_id
     assert published["dataObjectId"] == data_object_id
+    assert published["workspaceId"] == str(workspace.id)
 
     published_listing = client.get("/reporting/reports", params={"status": "published"})
     assert published_listing.status_code == 200

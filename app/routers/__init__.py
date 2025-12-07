@@ -50,6 +50,7 @@ from app.routers import (
 	application_database,
 	application_settings,
 	upload_data,
+	workspace,
 )
 
 api_router = APIRouter()
@@ -102,5 +103,6 @@ api_router.include_router(sap_hana_settings.router)
 api_router.include_router(application_database.router)
 api_router.include_router(application_settings.router)
 api_router.include_router(upload_data.router)
+api_router.include_router(workspace.router)
 
 __all__ = ["api_router"]

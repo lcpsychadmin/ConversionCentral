@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
@@ -38,6 +38,7 @@ from app.services.data_quality_profiling import (
 )
 from app.services.data_quality_table_context import resolve_table_context, resolve_table_contexts_for_data_object
 from app.services.data_quality_testgen import TestGenClient, TestGenClientError
+from app.services.workspace_scope import resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/data-quality", tags=["Data Quality"])
@@ -110,8 +111,12 @@ def _resolve_connection_uuid(
 
 
 @router.get("/datasets", response_model=List[DataQualityDatasetProductTeam])
-def get_dataset_hierarchy(db: Session = Depends(get_db)) -> List[DataQualityDatasetProductTeam]:
-    return build_dataset_hierarchy(db)
+def get_dataset_hierarchy(
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
+    db: Session = Depends(get_db),
+) -> List[DataQualityDatasetProductTeam]:
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+    return build_dataset_hierarchy(db, resolved_workspace_id)
 
 
 @router.get(
@@ -119,11 +124,13 @@ def get_dataset_hierarchy(db: Session = Depends(get_db)) -> List[DataQualityData
     response_model=DataQualityDatasetProfilingStatsResponse,
 )
 def get_dataset_profiling_stats(
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
     db: Session = Depends(get_db),
     client: TestGenClient = Depends(get_testgen_client),
 ) -> DataQualityDatasetProfilingStatsResponse:
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
     try:
-        return build_dataset_profiling_stats(db, client)
+        return build_dataset_profiling_stats(db, client, resolved_workspace_id)
     except TestGenClientError as exc:  # pragma: no cover - defensive
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -134,13 +141,16 @@ def get_dataset_profiling_stats(
 )
 def get_dataset_table_context(
     data_definition_table_id: UUID,
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
     db: Session = Depends(get_db)
 ) -> DataQualityDatasetTableContext:
-    context = resolve_table_context(db, data_definition_table_id)
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+    context = resolve_table_context(db, data_definition_table_id, workspace_id=resolved_workspace_id)
     return DataQualityDatasetTableContext(
         data_definition_table_id=context.data_definition_table_id,
         data_definition_id=context.data_definition_id,
         data_object_id=context.data_object_id,
+        workspace_id=context.workspace_id,
         application_id=context.application_id,
         product_team_id=context.product_team_id,
         table_group_id=context.table_group_id,
@@ -164,10 +174,25 @@ def start_profile_runs_for_data_object(
     data_object_id: UUID,
     request: Request,
     background_tasks: BackgroundTasks,
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
     db: Session = Depends(get_db),
     profiling_service: DataQualityProfilingService = Depends(get_profiling_service),
 ) -> DataQualityBulkProfileRunResponse:
-    contexts, skipped_table_ids = resolve_table_contexts_for_data_object(db, data_object_id)
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+
+    data_object_exists = (
+        db.query(DataObject.id)
+        .filter(DataObject.id == data_object_id, DataObject.workspace_id == resolved_workspace_id)
+        .one_or_none()
+    )
+    if not data_object_exists:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Data object not found")
+
+    contexts, skipped_table_ids = resolve_table_contexts_for_data_object(
+        db,
+        data_object_id,
+        workspace_id=resolved_workspace_id,
+    )
 
     if not contexts and not skipped_table_ids:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Data object not found or has no tables")
@@ -237,8 +262,24 @@ def start_profile_run_for_table_group(
     table_group_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
+    db: Session = Depends(get_db),
     profiling_service: DataQualityProfilingService = Depends(get_profiling_service),
 ) -> ProfileRunStartResponse:
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+
+    _, data_object_uuid = _extract_ids_from_table_group(table_group_id)
+    if not data_object_uuid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Table group is not linked to a data object")
+
+    data_object_exists = (
+        db.query(DataObject.id)
+        .filter(DataObject.id == data_object_uuid, DataObject.workspace_id == resolved_workspace_id)
+        .one_or_none()
+    )
+    if not data_object_exists:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Data object not found")
+
     callback_template = str(
         request.url_for(
             "complete_profile_run",
@@ -277,6 +318,7 @@ def _build_entity_maps(
     *,
     connection_ids: set[UUID],
     data_object_ids: set[UUID],
+    workspace_id: UUID | None = None,
 ) -> tuple[Dict[UUID, SystemConnection], Dict[UUID, DataObject]]:
     connections: Dict[UUID, SystemConnection] = {}
     data_objects: Dict[UUID, DataObject] = {}
@@ -284,21 +326,122 @@ def _build_entity_maps(
     if connection_ids:
         rows = (
             db.query(SystemConnection)
+            .options(joinedload(SystemConnection.system))
             .filter(SystemConnection.id.in_(connection_ids))
             .all()
         )
         connections = {row.id: row for row in rows}
 
     if data_object_ids:
-        rows = (
+        query = (
             db.query(DataObject)
             .options(joinedload(DataObject.process_area))
             .filter(DataObject.id.in_(data_object_ids))
-            .all()
         )
+        if workspace_id:
+            query = query.filter(DataObject.workspace_id == workspace_id)
+        rows = query.all()
         data_objects = {row.id: row for row in rows}
 
     return connections, data_objects
+
+
+def _derive_workspace_table_groups(
+    db: Session,
+    *,
+    workspace_id: UUID,
+    data_objects_map: Dict[UUID, DataObject],
+    connections_map: Dict[UUID, SystemConnection],
+) -> List[DataQualityProfileRunTableGroup]:
+    if not data_objects_map:
+        return []
+
+    accumulators: Dict[str, Dict[str, Any]] = {}
+    required_connection_ids: set[UUID] = set()
+
+    for data_object in data_objects_map.values():
+        if getattr(data_object, "workspace_id", None) != workspace_id:
+            continue
+        if not data_object.id:
+            continue
+        try:
+            contexts, _ = resolve_table_contexts_for_data_object(
+                db,
+                data_object.id,
+                workspace_id=workspace_id,
+            )
+        except HTTPException:
+            continue
+        for context in contexts:
+            table_group_id = context.table_group_id
+            if not table_group_id:
+                continue
+            connection_uuid, _ = _extract_ids_from_table_group(table_group_id)
+            if connection_uuid:
+                required_connection_ids.add(connection_uuid)
+            bucket = accumulators.setdefault(
+                table_group_id,
+                {
+                    "data_object_id": context.data_object_id,
+                    "application_id": context.application_id,
+                    "product_team_id": context.product_team_id,
+                    "connection_id": connection_uuid,
+                    "table_names": set(),
+                    "schema_names": set(),
+                },
+            )
+            if connection_uuid and bucket.get("connection_id") is None:
+                bucket["connection_id"] = connection_uuid
+            if context.table_name:
+                bucket["table_names"].add(context.table_name)
+            if context.schema_name:
+                bucket["schema_names"].add(context.schema_name)
+
+    missing_connections = [cid for cid in required_connection_ids if cid not in connections_map]
+    if missing_connections:
+        rows = (
+            db.query(SystemConnection)
+            .options(joinedload(SystemConnection.system))
+            .filter(SystemConnection.id.in_(missing_connections))
+            .all()
+        )
+        for row in rows:
+            connections_map[row.id] = row
+
+    fallback_groups: List[DataQualityProfileRunTableGroup] = []
+    for table_group_id, accumulator in accumulators.items():
+        data_object = data_objects_map.get(accumulator.get("data_object_id"))
+        if not data_object:
+            continue
+        process_area: ProcessArea | None = getattr(data_object, "process_area", None)
+        connection_uuid = accumulator.get("connection_id")
+        connection = connections_map.get(connection_uuid)
+        system: System | None = getattr(connection, "system", None) if connection else None
+        table_group_name = f"{data_object.name} Tables" if getattr(data_object, "name", None) else None
+        schema_name = next(iter(accumulator["schema_names"]), None) if accumulator["schema_names"] else None
+
+        fallback_groups.append(
+            DataQualityProfileRunTableGroup(
+                table_group_id=table_group_id,
+                table_group_name=table_group_name,
+                connection_id=connection_uuid,
+                connection_name=getattr(connection, "display_name", None),
+                catalog=getattr(connection, "databricks_catalog", None),
+                schema_name=schema_name or getattr(connection, "databricks_schema", None),
+                data_object_id=getattr(data_object, "id", None),
+                data_object_name=getattr(data_object, "name", None),
+                application_id=getattr(system, "id", None) or accumulator.get("application_id"),
+                application_name=getattr(system, "name", None),
+                application_description=getattr(system, "description", None),
+                product_team_id=getattr(process_area, "id", None),
+                product_team_name=getattr(process_area, "name", None),
+                table_count=len(accumulator["table_names"]) or None,
+                field_count=None,
+                profiling_job_id=None,
+            )
+        )
+
+    return fallback_groups
 
 
 @router.get("/profile-runs", response_model=DataQualityProfileRunListResponse)
@@ -306,17 +449,13 @@ def list_profile_runs(
     table_group_id: str | None = Query(default=None, alias="tableGroupId"),
     limit: int = Query(default=50, ge=1, le=500),
     include_groups: bool = Query(default=True, alias="includeGroups"),
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
     db: Session = Depends(get_db),
     client: TestGenClient = Depends(get_testgen_client),
 ) -> DataQualityProfileRunListResponse:
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
     try:
         runs_raw = client.list_profile_runs_overview(table_group_id=table_group_id, limit=limit)
-    except TestGenClientError as exc:  # pragma: no cover - defensive
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-
-    run_ids = [row.get("profile_run_id") for row in runs_raw if row.get("profile_run_id")]
-    try:
-        severity_map = client.profile_run_anomaly_counts(run_ids)
     except TestGenClientError as exc:  # pragma: no cover - defensive
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -329,43 +468,75 @@ def list_profile_runs(
 
     connection_ids: set[UUID] = set()
     data_object_ids: set[UUID] = set()
-    table_group_ids: set[str] = set()
+
+    def _register_row(row: dict) -> None:
+        conn_uuid, obj_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
+        if conn_uuid:
+            connection_ids.add(conn_uuid)
+        if obj_uuid:
+            data_object_ids.add(obj_uuid)
+        conn_uuid, obj_uuid = _extract_ids_from_table_group(row.get("table_group_id"))
+        if conn_uuid:
+            connection_ids.add(conn_uuid)
+        if obj_uuid:
+            data_object_ids.add(obj_uuid)
 
     for row in runs_raw:
-        conn_uuid, obj_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
-        if conn_uuid:
-            connection_ids.add(conn_uuid)
-        if obj_uuid:
-            data_object_ids.add(obj_uuid)
-        conn_uuid, obj_uuid = _extract_ids_from_table_group(row.get("table_group_id"))
-        if conn_uuid:
-            connection_ids.add(conn_uuid)
-        if obj_uuid:
-            data_object_ids.add(obj_uuid)
-        if row.get("table_group_id"):
-            table_group_ids.add(row["table_group_id"])
+        _register_row(row)
 
     for row in group_rows:
-        conn_uuid, obj_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
-        if conn_uuid:
-            connection_ids.add(conn_uuid)
-        if obj_uuid:
-            data_object_ids.add(obj_uuid)
-        conn_uuid, obj_uuid = _extract_ids_from_table_group(row.get("table_group_id"))
-        if conn_uuid:
-            connection_ids.add(conn_uuid)
-        if obj_uuid:
-            data_object_ids.add(obj_uuid)
-        if row.get("table_group_id"):
-            table_group_ids.add(row["table_group_id"])
+        _register_row(row)
+
+    if resolved_workspace_id:
+        workspace_object_rows = (
+            db.query(DataObject.id)
+            .filter(DataObject.workspace_id == resolved_workspace_id)
+            .all()
+        )
+        for row in workspace_object_rows:
+            data_object_id = row[0]
+            if data_object_id:
+                data_object_ids.add(data_object_id)
 
     connections_map, data_objects_map = _build_entity_maps(
         db,
         connection_ids=connection_ids,
         data_object_ids=data_object_ids,
+        workspace_id=resolved_workspace_id,
     )
 
-    group_rows = [row for row in group_rows if _resolve_connection_uuid(row.get("connection_id"), row.get("table_group_id"))]
+    def _data_object_uuid_for_row(row: dict) -> UUID | None:
+        _, data_object_uuid = _extract_ids_from_table_group(row.get("table_group_id"))
+        if data_object_uuid:
+            return data_object_uuid
+        _, data_object_uuid = _extract_ids_from_connection_identifier(row.get("connection_id"))
+        return data_object_uuid
+
+    def _row_in_workspace(row: dict) -> bool:
+        data_object_uuid = _data_object_uuid_for_row(row)
+        return bool(data_object_uuid and data_object_uuid in data_objects_map)
+
+    runs_filtered = [row for row in runs_raw if _row_in_workspace(row)]
+
+    group_rows_filtered = [
+        row
+        for row in group_rows
+        if _row_in_workspace(row) and _resolve_connection_uuid(row.get("connection_id"), row.get("table_group_id"))
+    ]
+
+    filtered_run_ids = [row.get("profile_run_id") for row in runs_filtered if row.get("profile_run_id")]
+    try:
+        severity_map = client.profile_run_anomaly_counts(filtered_run_ids)
+    except TestGenClientError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    table_group_ids: set[str] = set()
+    for row in runs_filtered:
+        if row.get("table_group_id"):
+            table_group_ids.add(row["table_group_id"])
+    for row in group_rows_filtered:
+        if row.get("table_group_id"):
+            table_group_ids.add(row["table_group_id"])
 
     table_group_counts: Dict[str, Dict[str, int]] = {}
     if table_group_ids:
@@ -387,7 +558,7 @@ def list_profile_runs(
 
     reference_time = datetime.now(timezone.utc)
     runs_payload: List[DataQualityProfileRunEntry] = []
-    for row in runs_raw:
+    for row in runs_filtered:
         profile_run_id = row.get("profile_run_id")
         table_group = row.get("table_group_id")
         connection_uuid = _resolve_connection_uuid(row.get("connection_id"), table_group)
@@ -436,7 +607,7 @@ def list_profile_runs(
         )
 
     table_group_payload: List[DataQualityProfileRunTableGroup] = []
-    for row in group_rows:
+    for row in group_rows_filtered:
         table_group = row.get("table_group_id")
         connection_uuid = _resolve_connection_uuid(row.get("connection_id"), table_group)
         _, data_object_uuid = _extract_ids_from_table_group(table_group)
@@ -466,6 +637,19 @@ def list_profile_runs(
                 profiling_job_id=row.get("profiling_job_id"),
             )
         )
+
+    if include_groups and resolved_workspace_id:
+        fallback_groups = _derive_workspace_table_groups(
+            db,
+            workspace_id=resolved_workspace_id,
+            data_objects_map=data_objects_map,
+            connections_map=connections_map,
+        )
+        if fallback_groups:
+            existing_ids = {entry.table_group_id for entry in table_group_payload}
+            for entry in fallback_groups:
+                if entry.table_group_id not in existing_ids:
+                    table_group_payload.append(entry)
 
     table_group_payload.sort(
         key=lambda entry: (

@@ -35,6 +35,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import PageHeader from '@components/common/PageHeader';
 import ConfirmDialog from '@components/common/ConfirmDialog';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import { useWorkspaceScope } from '@hooks/useWorkspaceScope';
 import {
   createDataQualityTestSuite,
   deleteDataQualityTestSuite,
@@ -53,8 +54,9 @@ import {
   DataQualityTestSuiteSeverity
 } from '@cc-types/data';
 
-const TEST_SUITES_QUERY_KEY = ['data-quality', 'test-suites'];
-const DATASET_HIERARCHY_QUERY_KEY = ['data-quality', 'dataset-hierarchy'];
+const TEST_SUITES_QUERY_KEY = ['data-quality', 'test-suites'] as const;
+const datasetHierarchyQueryKey = (workspaceId: string | null) =>
+  ['data-quality', 'dataset-hierarchy', workspaceId ?? 'auto'] as const;
 
 const SEVERITY_OPTIONS: { value: DataQualityTestSuiteSeverity; label: string; description: string }[] = [
   { value: 'low', label: 'Low', description: 'Advisory coverage; informative checks with minimal operational risk.' },
@@ -167,6 +169,7 @@ const mapSuiteToInput = (form: FormState): DataQualityTestSuiteInput => ({
 });
 
 const DataQualityTestSuitesPage = () => {
+  const { workspaceId } = useWorkspaceScope();
   const queryClient = useQueryClient();
   const { snackbar, showSuccess, showError } = useSnackbarFeedback();
 
@@ -183,7 +186,7 @@ const DataQualityTestSuitesPage = () => {
     }
   });
 
-  const hierarchyQuery = useQuery(DATASET_HIERARCHY_QUERY_KEY, fetchDatasetHierarchy, {
+  const hierarchyQuery = useQuery(datasetHierarchyQueryKey(workspaceId ?? null), () => fetchDatasetHierarchy(workspaceId ?? undefined), {
     staleTime: 5 * 60 * 1000
   });
 

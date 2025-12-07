@@ -66,6 +66,8 @@ type TableRow = {
   description: string;
   loadOrder: string;
   isConstruction: boolean;
+  systemConnectionId: string | null;
+  connectionTableSelectionId: string | null;
   fields: FieldRow[];
 };
 
@@ -86,6 +88,8 @@ type Snapshot = {
     description: string;
     loadOrder: string;
     isConstruction: boolean;
+    systemConnectionId: string | null;
+    connectionTableSelectionId: string | null;
     fields: Array<{ fieldId: string; fieldName: string; notes: string; isUnique: boolean }>;
   }>;
 };
@@ -126,6 +130,8 @@ const snapshotFromDefinition = (definition?: DataDefinition | null): Snapshot =>
       description: table.description ?? '',
       loadOrder: (table.loadOrder ?? index + 1).toString(),
       isConstruction: table.isConstruction ?? false,
+      systemConnectionId: table.systemConnectionId ?? null,
+      connectionTableSelectionId: table.connectionTableSelectionId ?? null,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
         fieldName: field.field?.name ?? '',
@@ -143,6 +149,8 @@ const normalizeSnapshot = (snapshot: Snapshot) => ({
     description: table.description.trim(),
     loadOrder: table.loadOrder.trim(),
     isConstruction: table.isConstruction,
+    systemConnectionId: table.systemConnectionId,
+    connectionTableSelectionId: table.connectionTableSelectionId,
     fields: table.fields.map((field) => ({
       fieldId: field.fieldId,
       fieldName: field.fieldName.trim(),
@@ -160,6 +168,8 @@ const buildRows = (tables: Snapshot['tables']): TableRow[] =>
     description: table.description,
     loadOrder: table.loadOrder,
     isConstruction: table.isConstruction,
+    systemConnectionId: table.systemConnectionId,
+    connectionTableSelectionId: table.connectionTableSelectionId,
     fields: table.fields.map((field) => ({
       id: generateId(),
       fieldId: field.fieldId,
@@ -319,6 +329,8 @@ const DataDefinitionForm = ({
         description: table.description,
         loadOrder: table.loadOrder,
         isConstruction: table.isConstruction,
+        systemConnectionId: table.systemConnectionId,
+        connectionTableSelectionId: table.connectionTableSelectionId,
         fields: table.fields.map((field) => ({
           fieldId: field.fieldId,
           fieldName: field.fieldName,
@@ -360,6 +372,8 @@ const DataDefinitionForm = ({
           alias: target.alias || existingTable.name,
           description: target.description || existingTable.description || fallbackDescription,
           loadOrder: target.loadOrder,
+          systemConnectionId: null,
+          connectionTableSelectionId: null,
           fields: []
         };
         return updated;
@@ -374,6 +388,8 @@ const DataDefinitionForm = ({
           description: existingTable.description ?? fallbackDescription,
           loadOrder: getNextLoadOrderValue(prev),
           isConstruction: false,
+          systemConnectionId: null,
+          connectionTableSelectionId: null,
           fields: []
         }
       ];
@@ -415,7 +431,9 @@ const DataDefinitionForm = ({
           description: table ? row.description || table.description || '' : row.description,
           fields: [],
           loadOrder: row.loadOrder,
-          isConstruction: shouldDisableConstruction ? false : row.isConstruction
+          isConstruction: shouldDisableConstruction ? false : row.isConstruction,
+          systemConnectionId: null,
+          connectionTableSelectionId: null
         };
       })
     );
@@ -628,6 +646,8 @@ const DataDefinitionForm = ({
             description: `Source: ${alias}`,
             loadOrder: nextLoadOrder,
             isConstruction: false,
+            systemConnectionId: sourceTable.systemConnectionId ?? null,
+            connectionTableSelectionId: sourceTable.selectionId ?? null,
             fields: createdFields
           }
         ];
@@ -798,6 +818,8 @@ const DataDefinitionForm = ({
             alias: target.alias || newTable.name,
             description: target.description || newTable.description || fallbackDescription,
             loadOrder: target.loadOrder,
+            systemConnectionId: null,
+            connectionTableSelectionId: null,
             fields: []
           };
           return updated;
@@ -811,6 +833,8 @@ const DataDefinitionForm = ({
             description: newTable.description ?? sanitized.description ?? '',
             loadOrder: getNextLoadOrderValue(prev),
             isConstruction: false,
+            systemConnectionId: null,
+            connectionTableSelectionId: null,
             fields: []
           }
         ];
@@ -889,6 +913,8 @@ const DataDefinitionForm = ({
       description: table.description.trim() || null,
       loadOrder: Number(table.loadOrder.trim()),
       isConstruction: table.isConstruction,
+      systemConnectionId: table.systemConnectionId ?? null,
+      connectionTableSelectionId: table.connectionTableSelectionId ?? null,
       fields: table.fields.map((field) => ({
         fieldId: field.fieldId,
         notes: field.notes.trim() || null,

@@ -26,7 +26,7 @@ from app.main import app
 from app.routers import data_quality_testgen as dq_router
 
 
-PROJECT_KEY = build_project_key("system-alpha", "object-beta")
+PROJECT_KEY = build_project_key("workspace-alpha")
 CONNECTION_ID = build_connection_id("conn-1", "object-beta")
 TABLE_GROUP_ID = build_table_group_id("conn-1", "object-beta")
 TABLE_ID = build_table_id("tbl-1", "object-beta")
@@ -219,6 +219,64 @@ class StubTestGenClient:
         self.closed = True
 
 
+def _seed_workspace_table_group(db_session):
+    product_team = ProcessArea(name="Analytics", description="Product team", status="active")
+    system = System(name="Billing", physical_name="billing", description="Billing platform")
+    data_object = DataObject(name="Invoices", description="Billing data", status="active", process_area=product_team)
+    definition = DataDefinition(data_object=data_object, system=system, description="Primary definition")
+
+    table = Table(
+        system=system,
+        name="invoices",
+        physical_name="raw.invoices",
+        schema_name="finance",
+        description="Invoices source table",
+        table_type="base",
+    )
+    definition_table = DataDefinitionTable(
+        data_definition=definition,
+        table=table,
+        alias="Invoices",
+        description="Invoices table",
+        load_order=1,
+    )
+
+    connection = SystemConnection(
+        connection_type="jdbc",
+        connection_string="jdbc:databricks://example",
+        auth_method="username_password",
+        active=True,
+        databricks_catalog="hive_metastore",
+        databricks_schema="finance",
+        display_name="Databricks Warehouse",
+    )
+    selection = ConnectionTableSelection(
+        system_connection=connection,
+        schema_name="finance",
+        table_name="invoices",
+    )
+
+    db_session.add_all(
+        [
+            product_team,
+            system,
+            data_object,
+            definition,
+            table,
+            definition_table,
+            connection,
+            selection,
+        ]
+    )
+    db_session.commit()
+
+    return {
+        "table_group_id": build_table_group_id(connection.id, data_object.id),
+        "connection_id": build_connection_id(connection.id, data_object.id),
+        "data_object_id": data_object.id,
+    }
+
+
 @contextmanager
 def override_client(stub: StubTestGenClient):
     def _override():  # pragma: no cover - FastAPI handles execution
@@ -242,6 +300,7 @@ def test_list_projects_endpoint(client):
             "name": "Alpha",
             "description": None,
             "sql_flavor": None,
+            "workspaceId": None,
         }
     ]
 
@@ -303,22 +362,26 @@ def test_list_connections_and_tables(client):
     assert ("list_tables", TABLE_GROUP_ID) in stub.calls
 
 
-def test_recent_queries_apply_limits(client):
+def test_recent_queries_apply_limits(client, db_session):
+    seed = _seed_workspace_table_group(db_session)
+    table_group_id = seed["table_group_id"]
+    connection_id = seed["connection_id"]
+
     stub = StubTestGenClient()
-    stub.profile_runs = [{"profile_run_id": "p1", "table_group_id": TABLE_GROUP_ID, "status": "completed"}]
+    stub.profile_runs = [{"profile_run_id": "p1", "table_group_id": table_group_id, "status": "completed"}]
     stub.test_runs = [{"test_run_id": "t1", "project_key": PROJECT_KEY, "status": "completed"}]
 
     stub.profile_run_overview = [
         {
             "profile_run_id": "p1",
-            "table_group_id": TABLE_GROUP_ID,
+            "table_group_id": table_group_id,
             "status": "completed",
             "started_at": None,
             "completed_at": None,
             "row_count": None,
             "anomaly_count": None,
             "table_group_name": "default",
-            "connection_id": CONNECTION_ID,
+            "connection_id": connection_id,
             "connection_name": "Primary",
             "catalog": None,
             "schema_name": None,
@@ -327,9 +390,9 @@ def test_recent_queries_apply_limits(client):
     stub.profile_run_anomaly_counts_map = {"p1": {"definite": 2}}
     stub.table_group_overview = [
         {
-            "table_group_id": TABLE_GROUP_ID,
+            "table_group_id": table_group_id,
             "table_group_name": "default",
-            "connection_id": CONNECTION_ID,
+            "connection_id": connection_id,
             "connection_name": "Primary",
             "catalog": None,
             "schema_name": None,
@@ -337,13 +400,13 @@ def test_recent_queries_apply_limits(client):
     ]
 
     with override_client(stub):
-        profile_resp = client.get(f"/data-quality/testgen/table-groups/{TABLE_GROUP_ID}/profile-runs?limit=5")
+        profile_resp = client.get(f"/data-quality/testgen/table-groups/{table_group_id}/profile-runs?limit=5")
         test_resp = client.get(f"/data-quality/testgen/projects/{PROJECT_KEY}/test-runs?limit=3")
         overview_resp = client.get("/data-quality/profile-runs")
 
     assert profile_resp.status_code == 200
     assert test_resp.status_code == 200
-    assert ("recent_profile_runs", TABLE_GROUP_ID, 5) in stub.calls
+    assert ("recent_profile_runs", table_group_id, 5) in stub.calls
     assert ("recent_test_runs", PROJECT_KEY, 3) in stub.calls
     assert overview_resp.status_code == 200
     payload = overview_resp.json()
@@ -351,6 +414,26 @@ def test_recent_queries_apply_limits(client):
     assert payload["runs"][0]["anomaliesBySeverity"] == {"definite": 2}
     assert ("list_profile_runs_overview", None, 50) in stub.calls
     assert ("profile_run_anomaly_counts", ("p1",)) in stub.calls
+    assert ("list_table_groups_with_connections",) in stub.calls
+
+
+def test_profile_runs_include_workspace_table_groups_when_overview_empty(client, db_session):
+    stub = StubTestGenClient()
+    stub.profile_run_overview = []
+    stub.table_group_overview = []
+    stub.profile_run_anomaly_counts_map = {}
+
+    seed = _seed_workspace_table_group(db_session)
+    expected_group_id = seed["table_group_id"]
+
+    with override_client(stub):
+        response = client.get("/data-quality/profile-runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["runs"] == []
+    table_groups = payload["tableGroups"]
+    assert any(group["tableGroupId"] == expected_group_id for group in table_groups)
     assert ("list_table_groups_with_connections",) in stub.calls
 
 

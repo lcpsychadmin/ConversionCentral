@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.constants.audit_fields import AUDIT_FIELD_DEFINITIONS, AUDIT_FIELD_NAME_SET
 from app.database import get_db
 from app.models import (
@@ -34,6 +35,8 @@ from app.services.data_construction_sync import (
     delete_constructed_tables_for_definition,
     sync_construction_tables_for_definition,
 )
+from app.services.data_quality_provisioning import trigger_data_quality_provisioning
+from app.services.workspace_scope import resolve_workspace_id
 from app.services.table_filters import (
     connection_is_databricks,
     table_is_databricks_eligible,
@@ -107,6 +110,15 @@ def _get_definition_or_404(definition_id: UUID, db: Session) -> DataDefinition:
     if not definition:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data definition not found")
     return definition
+
+
+def _refresh_data_quality_metadata(reason: str) -> None:
+    """Trigger metadata reprovisioning when definitions change."""
+
+    settings = get_settings()
+    if not getattr(settings, "databricks_data_quality_auto_manage_tables", True):
+        return
+    trigger_data_quality_provisioning(reason=reason, wait=True)
 
 
 def _ensure_link_exists(data_object_id: UUID, system_id: UUID, db: Session) -> None:
@@ -610,7 +622,8 @@ def _ensure_definition_field(
 def create_data_definition(
     payload: DataDefinitionCreate, db: Session = Depends(get_db)
 ) -> DataDefinitionRead:
-    if not db.get(DataObject, payload.data_object_id):
+    data_object = db.get(DataObject, payload.data_object_id)
+    if not data_object:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data object not found")
     if not db.get(System, payload.system_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
@@ -630,10 +643,13 @@ def create_data_definition(
             status_code=status.HTTP_409_CONFLICT,
             detail="A data definition already exists for this data object and system.",
         )
+    workspace_id = data_object.workspace_id or resolve_workspace_id(db, None)
+
     definition = DataDefinition(
         data_object_id=payload.data_object_id,
         system_id=payload.system_id,
         description=payload.description,
+        workspace_id=workspace_id,
     )
     db.add(definition)
     db.flush()
@@ -642,6 +658,7 @@ def create_data_definition(
     db.flush()
     sync_construction_tables_for_definition(definition.id, db)
     db.commit()
+    _refresh_data_quality_metadata("data-definition-created")
     return _get_definition_or_404(definition.id, db)
 
 
@@ -793,6 +810,7 @@ def delete_relationship(
 def list_data_definitions(
     data_object_id: UUID | None = Query(default=None),
     system_id: UUID | None = Query(default=None),
+    workspace_id: UUID | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[DataDefinitionRead]:
     query = _definition_query(db)
@@ -800,6 +818,14 @@ def list_data_definitions(
         query = query.filter(DataDefinition.data_object_id == data_object_id)
     if system_id:
         query = query.filter(DataDefinition.system_id == system_id)
+
+    if workspace_id is not None:
+        resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+        query = query.filter(DataDefinition.workspace_id == resolved_workspace_id)
+    elif data_object_id is None:
+        resolved_workspace_id = resolve_workspace_id(db, None)
+        query = query.filter(DataDefinition.workspace_id == resolved_workspace_id)
+
     return query.all()
 
 
@@ -829,18 +855,19 @@ def get_available_source_tables(
         return []
     
     # Get all system connections (some seed data omits explicit system links)
-    connections = db.query(SystemConnection).all()
+    connections: list[SystemConnection] = db.query(SystemConnection).all()
     scoped_connections = [
         connection for connection in connections if connection.system_id in system_ids
     ]
-    primary_connections = scoped_connections or connections
 
     allowed_tables: list[dict] = []
     seen_keys: set[tuple[str | None, str]] = set()
 
-    connection_ids = [connection.id for connection in primary_connections]
+    def append_tables_from_connections(target_connections: list[SystemConnection]) -> None:
+        if not target_connections:
+            return
 
-    if connection_ids:
+        connection_ids = [connection.id for connection in target_connections]
         selections = (
             db.query(ConnectionTableSelection)
             .filter(ConnectionTableSelection.system_connection_id.in_(connection_ids))
@@ -860,8 +887,21 @@ def get_available_source_tables(
                     "tableType": selection.table_type,
                     "columnCount": selection.column_count,
                     "estimatedRows": selection.estimated_rows,
+                    "selectionId": selection.id,
+                    "systemConnectionId": selection.system_connection_id,
                 }
             )
+
+    # Always prefer system-scoped connections so tables stay prioritized to the selected system.
+    append_tables_from_connections(scoped_connections)
+
+    if not allowed_tables:
+        # Fallback to every connection so locally profiled sources (that may not be linked to a
+        # system) still remain available.
+        fallback_connections = [
+            connection for connection in connections if connection not in scoped_connections
+        ]
+        append_tables_from_connections(fallback_connections if fallback_connections else connections)
 
     return allowed_tables
 
@@ -1023,6 +1063,7 @@ def update_data_definition(
     sync_construction_tables_for_definition(definition.id, db)
     _delete_definition_tables(tables_to_remove, db)
     db.commit()
+    _refresh_data_quality_metadata("data-definition-updated")
     return _get_definition_or_404(definition.id, db)
 
 
@@ -1032,3 +1073,4 @@ def delete_data_definition(definition_id: UUID, db: Session = Depends(get_db)) -
     delete_constructed_tables_for_definition(definition.id, db)
     db.delete(definition)
     db.commit()
+    _refresh_data_quality_metadata("data-definition-deleted")

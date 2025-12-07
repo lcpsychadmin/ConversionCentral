@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -14,13 +16,28 @@ from app.services.data_quality_seed import (
 )
 
 
+WORKSPACE_ID = "a0000000-0000-0000-0000-000000000001"
+
+
 def _build_session_factory() -> sessionmaker:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, future=True)
+    Session = sessionmaker(bind=engine, future=True)
+    with Session.begin() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO workspaces (id, name, is_default, is_active, created_at, updated_at)
+                VALUES (:id, 'Test Workspace', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+            ),
+            {"id": WORKSPACE_ID},
+        )
+    return Session
 
 
 def _make_seed(group_suffix: str) -> DataQualitySeed:
+    project_key = f"workspace:{WORKSPACE_ID}"
     table = TableSeed(
         table_id=f"selection:{group_suffix}:table",
         table_group_id=f"group:{group_suffix}",
@@ -37,7 +54,7 @@ def _make_seed(group_suffix: str) -> DataQualitySeed:
     )
     connection = ConnectionSeed(
         connection_id="conn:alpha",
-        project_key="system:alpha",
+        project_key=project_key,
         system_id="system:alpha",
         name="Alpha",
         catalog="workspace",
@@ -48,10 +65,11 @@ def _make_seed(group_suffix: str) -> DataQualitySeed:
         table_groups=(group,),
     )
     project = ProjectSeed(
-        project_key="system:alpha",
+        project_key=project_key,
         name="Alpha",
         description=None,
         sql_flavor="databricks",
+        workspace_id=UUID(WORKSPACE_ID),
         connections=(connection,),
     )
     return DataQualitySeed(projects=(project,))
@@ -74,6 +92,6 @@ def test_local_repository_seed_and_prune():
         table_groups = session.execute(text("SELECT table_group_id FROM dq_table_groups")).scalars().all()
         tables = session.execute(text("SELECT table_id FROM dq_tables")).scalars().all()
 
-    assert projects == ["system:alpha"]
+    assert projects == [f"workspace:{WORKSPACE_ID}"]
     assert table_groups == ["group:two"]
     assert tables == ["selection:two:table"]

@@ -64,6 +64,7 @@ def list_reporting_tables(db: Session = Depends(get_db)) -> List[TableRead]:
 def _serialize_list_item(report: Report) -> ReportListItem:
     product_team = report.process_area
     data_object = report.data_object
+    workspace = report.workspace
     return ReportListItem(
         id=report.id,
         name=report.name,
@@ -76,6 +77,8 @@ def _serialize_list_item(report: Report) -> ReportListItem:
         product_team_name=product_team.name if product_team else None,
         data_object_id=report.data_object_id,
         data_object_name=data_object.name if data_object else None,
+        workspace_id=report.workspace_id,
+        workspace_name=workspace.name if workspace else None,
     )
 
 
@@ -83,6 +86,7 @@ def _serialize_response(report: Report) -> ReportResponse:
     definition = ReportDesignerDefinition.parse_obj(report.definition)
     product_team = report.process_area
     data_object = report.data_object
+    workspace = report.workspace
     return ReportResponse(
         id=report.id,
         name=report.name,
@@ -95,6 +99,8 @@ def _serialize_response(report: Report) -> ReportResponse:
         product_team_name=product_team.name if product_team else None,
         data_object_id=report.data_object_id,
         data_object_name=data_object.name if data_object else None,
+        workspace_id=report.workspace_id,
+        workspace_name=workspace.name if workspace else None,
         definition=definition,
     )
 
@@ -139,9 +145,10 @@ def preview_report(request: ReportPreviewRequest, db: Session = Depends(get_db))
 @router.get("/reports", response_model=List[ReportListItem])
 def list_saved_reports(
     status: ReportStatus | None = Query(default=None),
+    workspace_id: UUID | None = Query(default=None, alias="workspaceId"),
     db: Session = Depends(get_db),
 ) -> List[ReportListItem]:
-    reports = list_reports(db, status)
+    reports = list_reports(db, status, workspace_id)
     return [_serialize_list_item(report) for report in reports]
 
 
@@ -156,6 +163,7 @@ def create_saved_report(request: ReportCreateRequest, db: Session = Depends(get_
             status=request.status,
             process_area_id=request.product_team_id,
             data_object_id=request.data_object_id,
+            workspace_id=request.workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -185,10 +193,13 @@ def update_saved_report(
     try:
         process_area_id = report.process_area_id
         data_object_id = report.data_object_id
+        workspace_id = report.workspace_id
         if "product_team_id" in request.__fields_set__:
             process_area_id = request.product_team_id
         if "data_object_id" in request.__fields_set__:
             data_object_id = request.data_object_id
+        if "workspace_id" in request.__fields_set__:
+            workspace_id = request.workspace_id
 
         report = update_report(
             db,
@@ -199,6 +210,7 @@ def update_saved_report(
             status=request.status,
             process_area_id=process_area_id,
             data_object_id=data_object_id,
+            workspace_id=workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -220,6 +232,7 @@ def publish_report(
     try:
         process_area_id = report.process_area_id
         data_object_id = report.data_object_id
+        workspace_id = report.workspace_id
         if request is not None:
             report = update_report(
                 db,
@@ -229,14 +242,17 @@ def publish_report(
                 definition=request.definition,
                 process_area_id=request.product_team_id,
                 data_object_id=request.data_object_id,
+                workspace_id=request.workspace_id,
             )
             process_area_id = report.process_area_id
             data_object_id = report.data_object_id
+            workspace_id = report.workspace_id
         report = publish_report_record(
             db,
             report,
             process_area_id=process_area_id,
             data_object_id=data_object_id,
+            workspace_id=workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

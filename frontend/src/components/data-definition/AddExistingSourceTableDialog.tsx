@@ -41,6 +41,8 @@ export interface SelectedSourceTablePayload {
 	columnCount?: number | null;
 	estimatedRows?: number | null;
 	selectedColumns: SourceTableColumn[];
+	selectionId: string | null;
+	systemConnectionId: string | null;
 }
 
 interface ColumnSelectionState {
@@ -536,7 +538,9 @@ const AddExistingSourceTableDialog = ({
 					tableType: metadata.tableType ?? null,
 					columnCount: metadata.columnCount ?? null,
 					estimatedRows: metadata.estimatedRows ?? null,
-					selectedColumns
+					selectedColumns,
+					selectionId: metadata.selectionId ?? null,
+					systemConnectionId: metadata.systemConnectionId ?? null
 				});
 			}
 

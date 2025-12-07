@@ -30,7 +30,8 @@ export const fetchReportPreview = async (
 export const REPORTS_QUERY_KEY = ['reporting', 'reports'] as const;
 
 export const reportQueryKeys = {
-  list: (status?: ReportStatus) => [...REPORTS_QUERY_KEY, status ?? 'all'] as const,
+  list: (status?: ReportStatus, workspaceId?: string | null) =>
+    [...REPORTS_QUERY_KEY, status ?? 'all', workspaceId ?? 'all'] as const,
   detail: (reportId: string) => [...REPORTS_QUERY_KEY, 'detail', reportId] as const,
   dataset: (reportId: string, limit: number) => [...REPORTS_QUERY_KEY, 'dataset', reportId, limit] as const
 };
@@ -42,6 +43,7 @@ export interface ReportSavePayload {
   status?: ReportStatus;
   productTeamId?: string | null;
   dataObjectId?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface ReportUpdatePayload {
@@ -51,6 +53,7 @@ export interface ReportUpdatePayload {
   status?: ReportStatus;
   productTeamId?: string | null;
   dataObjectId?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface ReportPublishPayload {
@@ -59,11 +62,22 @@ export interface ReportPublishPayload {
   definition?: ReportDesignerDefinition;
   productTeamId: string;
   dataObjectId: string;
+  workspaceId?: string | null;
 }
 
-export const listReports = async (status?: ReportStatus): Promise<ReportSummary[]> => {
+export const listReports = async (
+  status?: ReportStatus,
+  workspaceId?: string | null
+): Promise<ReportSummary[]> => {
+  const params: Record<string, string> = {};
+  if (status) {
+    params.status = status;
+  }
+  if (workspaceId) {
+    params.workspaceId = workspaceId;
+  }
   const response = await client.get<ReportSummary[]>('/reporting/reports', {
-    params: status ? { status } : undefined
+    params: Object.keys(params).length ? params : undefined
   });
   return response.data;
 };

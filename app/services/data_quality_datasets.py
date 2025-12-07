@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -32,9 +33,10 @@ def _table_sort_key(table: DataQualityDatasetTable) -> tuple[int, str]:
     return load_order, _safe_sort_key(table.table_name)
 
 
-def build_dataset_hierarchy(db: Session) -> List[DataQualityDatasetProductTeam]:
+def build_dataset_hierarchy(db: Session, workspace_id: UUID) -> List[DataQualityDatasetProductTeam]:
     stmt = (
         select(DataDefinition)
+        .join(DataObject)
         .options(
             joinedload(DataDefinition.data_object).joinedload(DataObject.process_area),
             joinedload(DataDefinition.system),
@@ -43,6 +45,7 @@ def build_dataset_hierarchy(db: Session) -> List[DataQualityDatasetProductTeam]:
             .selectinload(DataDefinitionTable.fields)
             .selectinload(DataDefinitionField.field),
         )
+        .where(DataObject.workspace_id == workspace_id)
     )
     definitions = db.execute(stmt).unique().scalars().all()
 
@@ -183,6 +186,7 @@ def build_dataset_hierarchy(db: Session) -> List[DataQualityDatasetProductTeam]:
                         data_object_id=data_object_model.id,
                         name=data_object_model.name,
                         description=data_object_model.description,
+                        workspace_id=data_object_model.workspace_id,
                         data_definitions=definitions_payload,
                     )
                 )

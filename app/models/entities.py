@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, event
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +23,39 @@ class TimestampMixin:
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+class Workspace(Base, TimestampMixin):
+    __tablename__ = "workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    slug: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    data_objects: Mapped[list["DataObject"]] = relationship(
+        "DataObject",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    data_definitions: Mapped[list["DataDefinition"]] = relationship(
+        "DataDefinition",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    data_quality_project: Mapped[Optional["DataQualityProject"]] = relationship(
+        "DataQualityProject",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
     )
 
 
@@ -487,11 +520,15 @@ class DataObject(Base, TimestampMixin):
     process_area_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("process_areas.id", ondelete="CASCADE"), nullable=False
     )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
 
     process_area: Mapped[ProcessArea] = relationship("ProcessArea", back_populates="data_objects")
+    workspace: Mapped[Workspace | None] = relationship("Workspace", back_populates="data_objects")
     system_links: Mapped[list["DataObjectSystem"]] = relationship(
         "DataObjectSystem",
         back_populates="data_object",
@@ -555,6 +592,30 @@ class DataObject(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+
+@event.listens_for(DataObject, "before_insert")
+def assign_default_workspace(mapper, connection, target):
+    """Ensure every data object is associated with an active workspace."""
+    if target.workspace_id:
+        return
+
+    workspace_id = connection.execute(
+        sa.text(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE is_active = true
+            ORDER BY is_default DESC, created_at ASC
+            LIMIT 1
+            """
+        )
+    ).scalar()
+
+    if workspace_id is not None:
+        if isinstance(workspace_id, str):
+            workspace_id = uuid.UUID(workspace_id)
+        target.workspace_id = workspace_id
 
 
 
@@ -643,10 +704,14 @@ class DataDefinition(Base, TimestampMixin):
     system_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("systems.id", ondelete="CASCADE"), nullable=False
     )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     data_object: Mapped[DataObject] = relationship("DataObject", back_populates="data_definitions")
     system: Mapped[System] = relationship("System", back_populates="data_definitions")
+    workspace: Mapped[Workspace | None] = relationship("Workspace", back_populates="data_definitions")
     tables: Mapped[list["DataDefinitionTable"]] = relationship(
         "DataDefinitionTable",
         back_populates="data_definition",
@@ -1949,6 +2014,11 @@ class Report(Base, TimestampMixin):
         ForeignKey("data_objects.id", ondelete="SET NULL"),
         nullable=True,
     )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     process_area: Mapped[ProcessArea | None] = relationship(
         "ProcessArea",
         back_populates="reports",
@@ -1957,3 +2027,4 @@ class Report(Base, TimestampMixin):
         "DataObject",
         back_populates="reports",
     )
+    workspace: Mapped[Workspace | None] = relationship("Workspace")

@@ -32,6 +32,8 @@ interface DataDefinitionTableResponse {
   description?: string | null;
   loadOrder?: number | null;
   isConstruction?: boolean | null;
+  systemConnectionId?: string | null;
+  connectionTableSelectionId?: string | null;
   table: TableResponse;
   fields: DataDefinitionFieldResponse[];
   createdAt?: string;
@@ -119,6 +121,8 @@ const mapDataDefinition = (payload: DataDefinitionResponse): DataDefinition => (
     description: table.description ?? null,
     loadOrder: table.loadOrder ?? null,
     isConstruction: table.isConstruction ?? false,
+    systemConnectionId: table.systemConnectionId ?? null,
+    connectionTableSelectionId: table.connectionTableSelectionId ?? null,
     table: mapTable(table.table),
     fields: (table.fields ?? []).map(mapDataDefinitionField),
     createdAt: table.createdAt,
@@ -135,6 +139,8 @@ const normalizeTableInput = (table: DataDefinitionTableInput) => ({
   description: table.description ?? null,
   load_order: table.loadOrder ?? null,
   is_construction: table.isConstruction ?? false,
+  system_connection_id: table.systemConnectionId ?? null,
+  connection_table_selection_id: table.connectionTableSelectionId ?? null,
   fields: table.fields.map((field, index) => ({
     field_id: field.fieldId,
     notes: field.notes ?? null,
@@ -166,9 +172,22 @@ export const fetchDataDefinition = async (
   return mapDataDefinition(definitions[0]);
 };
 
-export const fetchAllDataDefinitions = async (): Promise<DataDefinition[]> => {
+export interface DataDefinitionFilters {
+  workspaceId?: string | null;
+}
+
+export const fetchAllDataDefinitions = async (
+  filters: DataDefinitionFilters = {}
+): Promise<DataDefinition[]> => {
+  const params: Record<string, string> = {};
+  if (filters.workspaceId) {
+    params.workspace_id = filters.workspaceId;
+  }
   const response = await client.get<DataDefinitionResponse[] | PaginatedResponse<DataDefinitionResponse>>(
-    '/data-definitions'
+    '/data-definitions',
+    {
+      params: Object.keys(params).length ? params : undefined
+    }
   );
   const definitions = ensureArrayResponse(response.data);
   return definitions.map(mapDataDefinition);
@@ -227,6 +246,8 @@ export interface AvailableSourceTable {
   tableType?: string | null;
   columnCount?: number | null;
   estimatedRows?: number | null;
+  selectionId?: string | null;
+  systemConnectionId?: string | null;
 }
 
 export interface SourceTableColumn {
@@ -250,7 +271,9 @@ export const fetchAvailableSourceTables = async (
     tableName: item.tableName,
     tableType: item.tableType ?? null,
     columnCount: item.columnCount ?? null,
-    estimatedRows: item.estimatedRows ?? null
+    estimatedRows: item.estimatedRows ?? null,
+    selectionId: item.selectionId ?? null,
+    systemConnectionId: item.systemConnectionId ?? null
   }));
 };
 

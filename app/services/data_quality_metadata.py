@@ -6,7 +6,8 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence, cast
+from uuid import UUID
 
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
@@ -24,6 +25,7 @@ from app.models import (
     SystemConnection,
     Table,
 )
+from app.services.connection_table_selection_resolver import resolve_connection_table_selection
 from app.services.constructed_schema_resolver import resolve_constructed_schema
 from app.services.data_quality_backend import (
     LOCAL_BACKEND,
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "3"
 _SUPPORTED_STORAGE_FORMATS = {"delta"}
-_PROJECT_KEY_PREFIX = "system:"
+_PROJECT_KEY_PREFIX = "workspace:"
 _CONNECTION_ID_PREFIX = "conn:"
 _TABLE_GROUP_ID_PREFIX = "group:"
 _TABLE_ID_PREFIX = "selection:"
@@ -76,6 +78,8 @@ class _DefinitionTableEntry:
     schema_name: str
     table_name: str
     source_table_id: str | None
+    selection_id: str | None
+    connection: SystemConnection | None
 
 
 def _select_profiling_connection(system: System) -> SystemConnection | None:
@@ -99,26 +103,55 @@ def _ingestion_schema_name_for_system(system: System, params: DatabricksConnecti
     return params.schema_name
 
 
-def _format_ingested_table_name(table: Table) -> str:
-    schema_part = _sanitize_part(getattr(table, "schema_name", None) or "default", default="segment")
-    table_part = _sanitize_part(
-        getattr(table, "physical_name", None) or getattr(table, "name", None) or "table",
-        default="segment",
-    )
-    parts = [part for part in (schema_part, table_part) if part]
-    return "_".join(parts) if parts else "segment"
+def _resolved_definition_table_system_id(definition_table: DataDefinitionTable) -> UUID | None:
+    connection = getattr(definition_table, "system_connection", None)
+    if connection is not None:
+        connection_system_id = getattr(connection, "system_id", None)
+        if connection_system_id is not None:
+            return connection_system_id
+
+    table = getattr(definition_table, "table", None)
+    if table is not None:
+        return getattr(table, "system_id", None)
+
+    return None
 
 
 def _definition_table_entry(
     definition_table: DataDefinitionTable,
     system: System,
     params: DatabricksConnectionParams,
+    fallback_connection: SystemConnection | None = None,
 ) -> _DefinitionTableEntry | None:
     table = getattr(definition_table, "table", None)
     if table is None:
         return None
 
     constructed = getattr(definition_table, "constructed_table", None)
+    target_system_id = getattr(system, "id", None)
+    table_system_id = _resolved_definition_table_system_id(definition_table)
+    if table_system_id is not None and table_system_id != target_system_id:
+        return None
+
+    selection = resolve_connection_table_selection(definition_table)
+    selection_schema = getattr(selection, "schema_name", None)
+    selection_table = getattr(selection, "table_name", None)
+    selection_id = str(getattr(selection, "id", "") or "") or None
+
+    connection = getattr(selection, "system_connection", None)
+    if connection is None:
+        connection = getattr(definition_table, "system_connection", None)
+    if connection is None:
+        connection = fallback_connection
+    if connection is None:
+        connection = _select_profiling_connection(system)
+    if connection is None:
+        return None
+
+    connection_system_id = getattr(connection, "system_id", None)
+    if connection_system_id is not None and target_system_id is not None and connection_system_id != target_system_id:
+        return None
+
     if constructed is not None:
         schema_name = resolve_constructed_schema(
             table=constructed,
@@ -131,20 +164,26 @@ def _definition_table_entry(
             schema_name=schema_name,
             table_name=table_name,
             source_table_id=str(getattr(table, "id", "")) or None,
+            selection_id=selection_id,
+            connection=connection,
         )
 
-    if getattr(table, "system_id", None) == getattr(system, "id", None):
-        schema_name = _ingestion_schema_name_for_system(system, params)
-        table_name = _format_ingested_table_name(table)
+    if table_system_id == target_system_id:
+        schema_name = selection_schema or getattr(table, "schema_name", None) or _ingestion_schema_name_for_system(system, params)
+        table_name = selection_table or getattr(table, "physical_name", None) or getattr(table, "name", None)
+        if not table_name:
+            table_name = f"table_{table.id.hex[:8]}"
         return _DefinitionTableEntry(
             definition_table_id=str(definition_table.id),
             schema_name=schema_name or params.schema_name or "default",
             table_name=table_name,
             source_table_id=str(getattr(table, "id", "")) or None,
+            selection_id=selection_id,
+            connection=connection,
         )
 
-    schema_name = getattr(table, "schema_name", None) or params.schema_name
-    table_name = getattr(table, "physical_name", None) or getattr(table, "name", None)
+    schema_name = selection_schema or getattr(table, "schema_name", None) or params.schema_name
+    table_name = selection_table or getattr(table, "physical_name", None) or getattr(table, "name", None)
     if not schema_name or not table_name:
         return None
     return _DefinitionTableEntry(
@@ -152,6 +191,8 @@ def _definition_table_entry(
         schema_name=schema_name,
         table_name=table_name,
         source_table_id=str(getattr(table, "id", "")) or None,
+        selection_id=selection_id,
+        connection=connection,
     )
 
 
@@ -159,6 +200,7 @@ def _definition_table_entries(
     definitions: Iterable[DataDefinition],
     system: System,
     params: DatabricksConnectionParams,
+    fallback_connection: SystemConnection | None = None,
 ) -> list[_DefinitionTableEntry]:
     entries: list[_DefinitionTableEntry] = []
     seen: set[str] = set()
@@ -167,12 +209,33 @@ def _definition_table_entries(
             identifier = str(getattr(definition_table, "id", ""))
             if not identifier or identifier in seen:
                 continue
-            entry = _definition_table_entry(definition_table, system, params)
+            entry = _definition_table_entry(
+                definition_table,
+                system,
+                params,
+                fallback_connection=fallback_connection,
+            )
             if entry is None:
                 continue
             entries.append(entry)
             seen.add(identifier)
     return entries
+
+
+def _definition_targets_system(definition: DataDefinition, system: System) -> bool:
+    target_system_id = getattr(system, "id", None)
+    if target_system_id is None:
+        return False
+
+    for definition_table in getattr(definition, "tables", []) or []:
+        table_system_id = _resolved_definition_table_system_id(definition_table)
+        if table_system_id is None and getattr(definition_table, "constructed_table", None) is not None:
+            table_system_id = getattr(definition, "system_id", None)
+
+        if table_system_id == target_system_id:
+            return True
+
+    return False
 
 def _format_connection_name(system_name: str, data_object_name: str, connection_type: str | None) -> str:
     suffix = f" ({connection_type.upper()})" if connection_type else ""
@@ -254,11 +317,13 @@ def _run_statements(execute, statements: Iterable[str]) -> None:
 
 
 def _upgrade_schema(execute, params: DatabricksConnectionParams, schema: str) -> None:
+    projects_table = _format_table(params.catalog, schema, "dq_projects")
     table_groups_table = _format_table(params.catalog, schema, "dq_table_groups")
     profiles_table = _format_table(params.catalog, schema, "dq_profiles")
     table_chars_table = _format_table(params.catalog, schema, "dq_data_table_chars")
     column_chars_table = _format_table(params.catalog, schema, "dq_data_column_chars")
     statements = [
+        (projects_table, "workspace_id STRING"),
         (table_groups_table, "profiling_job_id STRING"),
         (profiles_table, "databricks_run_id STRING"),
         (profiles_table, "payload_path STRING"),
@@ -316,39 +381,16 @@ def _schema_statements(
 
 
 def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
-    projects: list[ProjectSeed] = []
+    project_map: dict[str, dict[str, object]] = {}
 
     with SessionLocal() as session:
-        systems = (
-            session.execute(
-                select(System).options(
-                    selectinload(System.data_object_links)
-                    .selectinload(DataObjectSystem.data_object)
-                    .selectinload(DataObject.data_definitions)
-                    .selectinload(DataDefinition.tables)
-                    .selectinload(DataDefinitionTable.table),
-                    selectinload(System.data_object_links)
-                    .selectinload(DataObject.data_definitions)
-                    .selectinload(DataDefinition.tables)
-                    .selectinload(DataDefinitionTable.constructed_table),
-                )
-            )
-            .scalars()
-            .unique()
-            .all()
-        )
+        systems = session.execute(select(System)).scalars().unique().all()
 
         for system in systems:
             if system.status and system.status.lower() != "active":
                 continue
 
             profiling_connection = _select_profiling_connection(system)
-            if profiling_connection is None:
-                logger.debug(
-                    "Skipping system %s: no active profiling connection available.",
-                    getattr(system, "name", system.id),
-                )
-                continue
 
             data_object_links = [link for link in system.data_object_links if link.data_object is not None]
 
@@ -357,68 +399,126 @@ def _collect_metadata(params: DatabricksConnectionParams) -> DataQualitySeed:
                 if not data_object or (data_object.status and data_object.status.lower() == "archived"):
                     continue
 
+                workspace = getattr(data_object, "workspace", None)
+                workspace_id = getattr(workspace, "id", None)
+                if workspace_id is None:
+                    logger.debug(
+                        "Skipping data object %s: no workspace assigned for data quality provisioning.",
+                        getattr(data_object, "name", data_object.id),
+                    )
+                    continue
+
                 definitions = [
                     definition
                     for definition in data_object.data_definitions
-                    if definition.system_id == system.id
+                    if _definition_targets_system(definition, system)
                 ]
 
                 if not definitions:
                     continue
 
-                entries = _definition_table_entries(definitions, system, params)
+                entries = _definition_table_entries(
+                    definitions,
+                    system,
+                    params,
+                    fallback_connection=profiling_connection,
+                )
                 if not entries:
                     continue
 
-                project_key = build_project_key(system.id, data_object.id)
-                connection_id = build_connection_id(profiling_connection.id, data_object.id)
-                table_group_id = build_table_group_id(profiling_connection.id, data_object.id)
+                entries_by_connection: dict[UUID, list[_DefinitionTableEntry]] = {}
+                for entry in entries:
+                    connection = entry.connection
+                    connection_id = getattr(connection, "id", None)
+                    if connection is None or connection_id is None:
+                        continue
+                    if not getattr(connection, "active", True):
+                        continue
+                    entries_by_connection.setdefault(connection_id, []).append(entry)
 
-                tables = tuple(
-                    TableSeed(
-                        table_id=build_table_id(entry.definition_table_id, data_object.id),
+                if not entries_by_connection:
+                    continue
+
+                project_key = build_project_key(workspace_id)
+                project_entry = project_map.setdefault(
+                    project_key,
+                    {
+                        "workspace_id": workspace_id,
+                        "name": getattr(workspace, "name", None)
+                        or getattr(workspace, "slug", None)
+                        or f"Workspace {workspace_id}",
+                        "description": getattr(workspace, "description", None),
+                        "connections": [],
+                    },
+                )
+                connections = cast(list[ConnectionSeed], project_entry.setdefault("connections", []))
+
+                for connection_uuid in sorted(entries_by_connection):
+                    grouped_entries = entries_by_connection[connection_uuid]
+                    if not grouped_entries:
+                        continue
+                    connection = grouped_entries[0].connection
+                    if connection is None:
+                        continue
+
+                    connection_identifier = build_connection_id(connection_uuid, data_object.id)
+                    table_group_id = build_table_group_id(connection_uuid, data_object.id)
+
+                    tables = tuple(
+                        TableSeed(
+                            table_id=build_table_id(entry.selection_id or entry.definition_table_id, data_object.id),
+                            table_group_id=table_group_id,
+                            schema_name=entry.schema_name,
+                            table_name=entry.table_name,
+                            source_table_id=entry.source_table_id,
+                        )
+                        for entry in grouped_entries
+                    )
+
+                    table_group = TableGroupSeed(
                         table_group_id=table_group_id,
-                        schema_name=entry.schema_name,
-                        table_name=entry.table_name,
-                        source_table_id=entry.source_table_id,
-                    )
-                    for entry in entries
-                )
-
-                table_group = TableGroupSeed(
-                    table_group_id=table_group_id,
-                    connection_id=connection_id,
-                    name=f"{data_object.name} Tables",
-                    description=data_object.description or system.description,
-                    tables=tables,
-                )
-
-                connection_seed = ConnectionSeed(
-                    connection_id=connection_id,
-                    project_key=project_key,
-                    system_id=str(getattr(system, "id", "")) or None,
-                    name=_format_connection_name(
-                        system.name,
-                        data_object.name,
-                        getattr(profiling_connection, "connection_type", None),
-                    ),
-                    catalog=params.catalog,
-                    schema_name=params.schema_name,
-                    http_path=params.http_path,
-                    managed_credentials_ref=None,
-                    is_active=bool(profiling_connection.active),
-                    table_groups=(table_group,),
-                )
-
-                projects.append(
-                    ProjectSeed(
-                        project_key=project_key,
-                        name=f"{system.name} · {data_object.name}",
+                        connection_id=connection_identifier,
+                        name=f"{data_object.name} Tables",
                         description=data_object.description or system.description,
-                        sql_flavor="databricks-sql",
-                        connections=(connection_seed,),
+                        tables=tables,
                     )
-                )
+
+                    connection_name_source = (
+                        getattr(connection, "display_name", None)
+                        or getattr(system, "name", None)
+                        or "Connection"
+                    )
+
+                    connection_seed = ConnectionSeed(
+                        connection_id=connection_identifier,
+                        project_key=project_key,
+                        system_id=str(getattr(system, "id", "")) or None,
+                        name=_format_connection_name(
+                            connection_name_source,
+                            data_object.name,
+                            getattr(connection, "connection_type", None),
+                        ),
+                        catalog=params.catalog,
+                        schema_name=params.schema_name,
+                        http_path=params.http_path,
+                        managed_credentials_ref=None,
+                        is_active=bool(getattr(connection, "active", False)),
+                        table_groups=(table_group,),
+                    )
+
+                    connections.append(connection_seed)
+
+    projects = [
+        ProjectSeed(
+            project_key=project_key,
+            name=str(entry["name"]),
+            description=entry.get("description") if isinstance(entry.get("description"), str) else None,
+            sql_flavor="databricks-sql",
+            workspace_id=entry.get("workspace_id"),
+            connections=tuple(cast(list[ConnectionSeed], entry.get("connections", []))),
+        )
+        for project_key, entry in project_map.items()
+    ]
 
     return DataQualitySeed(projects=tuple(projects))
 
@@ -455,16 +555,18 @@ USING (
     SELECT :project_key AS project_key,
            :name AS name,
            :description AS description,
-           :sql_flavor AS sql_flavor
+           :sql_flavor AS sql_flavor,
+           :workspace_id AS workspace_id
 ) AS source
 ON target.project_key = source.project_key
 WHEN MATCHED THEN UPDATE SET
     name = source.name,
     description = source.description,
     sql_flavor = source.sql_flavor,
+    workspace_id = source.workspace_id,
     updated_at = current_timestamp()
-WHEN NOT MATCHED THEN INSERT (project_key, name, description, sql_flavor, created_at, updated_at)
-VALUES (source.project_key, source.name, source.description, source.sql_flavor, current_timestamp(), current_timestamp())
+WHEN NOT MATCHED THEN INSERT (project_key, name, description, sql_flavor, workspace_id, created_at, updated_at)
+VALUES (source.project_key, source.name, source.description, source.sql_flavor, source.workspace_id, current_timestamp(), current_timestamp())
 """
         ),
         {
@@ -472,6 +574,7 @@ VALUES (source.project_key, source.name, source.description, source.sql_flavor, 
             "name": project.name,
             "description": project.description,
             "sql_flavor": project.sql_flavor,
+            "workspace_id": str(project.workspace_id) if project.workspace_id else None,
         },
     )
 
@@ -760,6 +863,7 @@ def _table_definitions() -> "OrderedDict[str, list[str]]":
                     "name STRING",
                     "description STRING",
                     "sql_flavor STRING",
+                    "workspace_id STRING",
                     "created_at TIMESTAMP",
                     "updated_at TIMESTAMP",
                 ],

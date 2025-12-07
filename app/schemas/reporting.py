@@ -102,6 +102,7 @@ class ReportCreateRequest(BaseModel):
     status: ReportStatus = Field(default=ReportStatus.DRAFT)
     product_team_id: Optional[UUID] = Field(None, alias="productTeamId")
     data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
+    workspace_id: Optional[UUID] = Field(None, alias="workspaceId")
 
     class Config:
         allow_population_by_field_name = True
@@ -115,6 +116,7 @@ class ReportUpdateRequest(BaseModel):
     status: Optional[ReportStatus] = None
     product_team_id: Optional[UUID] = Field(None, alias="productTeamId")
     data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
+    workspace_id: Optional[UUID] = Field(None, alias="workspaceId")
 
     class Config:
         allow_population_by_field_name = True
@@ -127,6 +129,7 @@ class ReportPublishRequest(BaseModel):
     definition: Optional[ReportDesignerDefinition] = None
     product_team_id: UUID = Field(..., alias="productTeamId")
     data_object_id: UUID = Field(..., alias="dataObjectId")
+    workspace_id: Optional[UUID] = Field(None, alias="workspaceId")
 
     class Config:
         allow_population_by_field_name = True
@@ -145,6 +148,8 @@ class ReportListItem(BaseModel):
     product_team_name: Optional[str] = Field(None, alias="productTeamName")
     data_object_id: Optional[UUID] = Field(None, alias="dataObjectId")
     data_object_name: Optional[str] = Field(None, alias="dataObjectName")
+    workspace_id: Optional[UUID] = Field(None, alias="workspaceId")
+    workspace_name: Optional[str] = Field(None, alias="workspaceName")
 
     class Config:
         allow_population_by_field_name = True

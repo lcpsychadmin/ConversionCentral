@@ -73,6 +73,8 @@ export interface ReportSummary {
   productTeamName?: string | null;
   dataObjectId?: string | null;
   dataObjectName?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
 }
 
 export interface ReportDetail extends ReportSummary {

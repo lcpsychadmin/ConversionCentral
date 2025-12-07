@@ -24,6 +24,7 @@ import {
   DataQualityProfileRunTableGroup
 } from '@cc-types/data';
 import { ProfileRunResultsContainer, formatDateTime } from '@pages/DataQualityProfileRunResultsPage';
+import { useWorkspaceScope } from '@hooks/useWorkspaceScope';
 
 const ALL_PROCESS_AREAS = 'all';
 const UNASSIGNED_PROCESS_AREA = 'unassigned';
@@ -79,15 +80,17 @@ const describeProcessAreaOption = (group: DataQualityProfileRunTableGroup) => {
 };
 
 const DataQualityDatasetsPage = () => {
+  const { workspaceId } = useWorkspaceScope();
   const [selectedProcessAreaId, setSelectedProcessAreaId] = useState<string>(ALL_PROCESS_AREAS);
   const [selectedTableGroupId, setSelectedTableGroupId] = useState<string | null>(null);
 
   const profileRunsQuery = useQuery<DataQualityProfileRunListResponse>(
-    ['data-quality', 'profiling-runs', 'catalog-view'],
+    ['data-quality', 'profiling-runs', 'catalog-view', workspaceId ?? 'auto'],
     () =>
       fetchDataQualityProfileRuns({
         limit: 500,
-        includeGroups: true
+        includeGroups: true,
+        workspaceId: workspaceId ?? undefined
       }),
     {
       staleTime: 30 * 1000

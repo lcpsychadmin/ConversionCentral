@@ -34,6 +34,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import PageHeader from '@components/common/PageHeader';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import { useWorkspaceScope } from '@hooks/useWorkspaceScope';
 import {
   fetchDataQualityProfileRuns,
   fetchProfileRunAnomalies,
@@ -401,6 +402,7 @@ interface MonitoredRun {
 }
 
 const DataQualityProfilingRunsPage = () => {
+  const { workspaceId } = useWorkspaceScope();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -464,11 +466,12 @@ const DataQualityProfilingRunsPage = () => {
   );
 
   const profileRunsQuery = useQuery<DataQualityProfileRunListResponse>(
-    ['data-quality', 'profiling-runs', limit],
+    ['data-quality', 'profiling-runs', limit, workspaceId ?? 'auto'],
     () =>
       fetchDataQualityProfileRuns({
         limit,
-        includeGroups: true
+        includeGroups: true,
+        workspaceId: workspaceId ?? undefined
       }),
     {
       keepPreviousData: true,
@@ -477,8 +480,8 @@ const DataQualityProfilingRunsPage = () => {
   );
 
   const profilingSchedulesQuery = useQuery<DataQualityProfilingSchedule[]>(
-    ['data-quality', 'profiling-schedules'],
-    fetchProfilingSchedules,
+    ['data-quality', 'profiling-schedules', workspaceId ?? 'auto'],
+    () => fetchProfilingSchedules(workspaceId ?? undefined),
     {
       staleTime: 60 * 1000,
       onError: (error) => {
@@ -572,12 +575,13 @@ const DataQualityProfilingRunsPage = () => {
 
   const monitorQueries = useQueries(
     monitoredRuns.map((run) => ({
-      queryKey: ['data-quality', 'profiling-runs', 'monitor', run.tableGroupId],
+      queryKey: ['data-quality', 'profiling-runs', 'monitor', run.tableGroupId, workspaceId ?? 'auto'],
       queryFn: () =>
         fetchDataQualityProfileRuns({
           tableGroupId: run.tableGroupId,
           limit: 5,
-          includeGroups: true
+          includeGroups: true,
+          workspaceId: workspaceId ?? undefined
         }),
       enabled: Boolean(monitoredRuns.length),
       refetchInterval: (data?: DataQualityProfileRunListResponse) => {
@@ -618,7 +622,8 @@ const DataQualityProfilingRunsPage = () => {
   const monitorIsFetching = monitorQueries.some((query) => query?.isFetching);
 
   const createScheduleMutation = useMutation(
-    (input: DataQualityProfilingScheduleInput) => createProfilingSchedule(input),
+    (input: DataQualityProfilingScheduleInput) =>
+      createProfilingSchedule(input, workspaceId ?? undefined),
     {
       onSuccess: () => {
         queryClient.invalidateQueries(['data-quality', 'profiling-schedules']);
@@ -634,12 +639,14 @@ const DataQualityProfilingRunsPage = () => {
     }
   );
 
-  const deleteScheduleMutation = useMutation((scheduleId: string) => deleteProfilingSchedule(scheduleId), {
+  const deleteScheduleMutation = useMutation(
+    (scheduleId: string) => deleteProfilingSchedule(scheduleId, workspaceId ?? undefined),
+    {
     onMutate: (scheduleId: string) => {
       setPendingDeleteId(scheduleId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['data-quality', 'profiling-schedules']);
+        queryClient.invalidateQueries(['data-quality', 'profiling-schedules']);
       showSuccess('Profiling schedule removed.');
     },
     onError: (error) => {
@@ -648,10 +655,11 @@ const DataQualityProfilingRunsPage = () => {
     onSettled: () => {
       setPendingDeleteId(null);
     }
-  });
+    }
+  );
 
   const mutation = useMutation(
-    ({ tableGroupId }: { tableGroupId: string }) => startProfileRun(tableGroupId),
+    ({ tableGroupId }: { tableGroupId: string }) => startProfileRun(tableGroupId, workspaceId ?? undefined),
     {
       onSuccess: (result, variables) => {
         queryClient.invalidateQueries(['data-quality', 'profiling-runs']);

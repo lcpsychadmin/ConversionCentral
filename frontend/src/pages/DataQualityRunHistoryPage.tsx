@@ -59,6 +59,7 @@ import {
   DataQualityTestRun
 } from '@cc-types/data';
 import useSnackbarFeedback from '@hooks/useSnackbarFeedback';
+import { useWorkspaceScope } from '@hooks/useWorkspaceScope';
 import PageHeader from '../components/common/PageHeader';
 
 const formatDateTime = (value?: string | null) => {
@@ -185,6 +186,7 @@ const useTableGroups = (connectionId: string | null) =>
   );
 
 const DataQualityRunHistoryPage = () => {
+  const { workspaceId } = useWorkspaceScope();
   const projectsQuery = useProjects();
   const [projectKey, setProjectKey] = useState<string | null>(null);
   const [projectSelectionMode, setProjectSelectionMode] = useState<'auto' | 'manual'>('auto');
@@ -205,8 +207,8 @@ const DataQualityRunHistoryPage = () => {
     error instanceof Error ? error.message : 'Unexpected error.';
 
   const datasetQuery = useQuery<DataQualityDatasetProductTeam[]>(
-    ['data-quality', 'dataset-hierarchy'],
-    fetchDatasetHierarchy,
+    ['data-quality', 'dataset-hierarchy', workspaceId ?? 'auto'],
+    () => fetchDatasetHierarchy(workspaceId ?? undefined),
     {
       staleTime: 5 * 60 * 1000,
       onError: (error) => {
@@ -271,21 +273,21 @@ const DataQualityRunHistoryPage = () => {
     if (!projectsQuery.data) {
       return null;
     }
-    if (!selectedApplicationId || !selectedDataObjectId) {
+    if (!selectedApplicationId || !selectedDataObjectId || !selectedDataObject?.workspaceId) {
       return null;
     }
 
-    const normalizedTarget = `system:${selectedApplicationId}:object:${selectedDataObjectId}`.toLowerCase();
+    const normalizedWorkspaceId = selectedDataObject.workspaceId.toLowerCase();
     const matchedProject = projectsQuery.data.find((project) => {
-      const key = project?.projectKey;
-      if (!key) {
+      const workspaceId = project.workspaceId;
+      if (!workspaceId) {
         return false;
       }
-      return key.toLowerCase() === normalizedTarget;
+      return workspaceId.toLowerCase() === normalizedWorkspaceId;
     });
 
     return matchedProject?.projectKey ?? null;
-  }, [projectsQuery.data, selectedApplicationId, selectedDataObjectId]);
+  }, [projectsQuery.data, selectedApplicationId, selectedDataObjectId, selectedDataObject?.workspaceId]);
 
   useEffect(() => {
     if (!datasetQuery.data || datasetQuery.data.length === 0) {
@@ -392,12 +394,13 @@ const DataQualityRunHistoryPage = () => {
   );
 
   const profileRunsQuery = useQuery<DataQualityProfileRunListResponse>(
-    ['data-quality', 'profile-runs', profileRunFilters],
+    ['data-quality', 'profile-runs', profileRunFilters, workspaceId ?? 'auto'],
     () =>
       fetchDataQualityProfileRuns({
         tableGroupId: profileRunScope === 'selected' ? tableGroupId ?? undefined : undefined,
         limit: profileRunLimit,
-        includeGroups: true
+        includeGroups: true,
+        workspaceId: workspaceId ?? undefined
       }),
     {
       enabled: profileRunScope === 'all' || Boolean(tableGroupId),
@@ -476,7 +479,7 @@ const DataQualityRunHistoryPage = () => {
   });
 
   const startProfileRunMutation = useMutation(
-    ({ tableGroupId: groupId }: { tableGroupId: string }) => startProfileRun(groupId),
+    ({ tableGroupId: groupId }: { tableGroupId: string }) => startProfileRun(groupId, workspaceId ?? undefined),
     {
       onSuccess: () => {
         queryClient.invalidateQueries(['data-quality', 'profile-runs']);

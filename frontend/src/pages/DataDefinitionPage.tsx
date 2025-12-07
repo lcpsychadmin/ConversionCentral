@@ -382,6 +382,8 @@ const DataDefinitionsPage = () => {
           description: table.description ?? null,
           loadOrder: table.loadOrder ?? null,
           isConstruction: table.isConstruction,
+          systemConnectionId: table.systemConnectionId ?? null,
+          connectionTableSelectionId: table.connectionTableSelectionId ?? null,
           fields: table.tableId === tableId ? [...existingFields, ...newEntries] : existingFields
         };
       });
@@ -582,6 +584,8 @@ const DataDefinitionsPage = () => {
         description: table.description ?? null,
         loadOrder: table.loadOrder ?? null,
         isConstruction: table.isConstruction,
+        systemConnectionId: table.systemConnectionId ?? null,
+        connectionTableSelectionId: table.connectionTableSelectionId ?? null,
         fields:
           table.id === definitionTableId
             ? table.fields.map((field) => ({
@@ -890,6 +894,8 @@ const DataDefinitionsPage = () => {
           description: table.description ?? null,
           loadOrder: table.loadOrder ?? null,
           isConstruction: table.isConstruction,
+          systemConnectionId: table.systemConnectionId ?? null,
+          connectionTableSelectionId: table.connectionTableSelectionId ?? null,
           fields:
             table.id === definitionTableId
               ? orderedFieldsInput
@@ -947,6 +953,8 @@ const DataDefinitionsPage = () => {
           description: table.description ?? null,
           loadOrder: table.loadOrder ?? null,
           isConstruction: table.isConstruction,
+          systemConnectionId: table.systemConnectionId ?? null,
+          connectionTableSelectionId: table.connectionTableSelectionId ?? null,
           fields:
             table.id === definitionTableId
               ? remainingFields.map((field) => ({

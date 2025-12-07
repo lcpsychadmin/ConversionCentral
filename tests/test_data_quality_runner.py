@@ -25,7 +25,7 @@ def _build_params(**overrides) -> DatabricksConnectionParams:
     return DatabricksConnectionParams(**base)
 
 
-PROJECT_KEY = build_project_key("system-123", "object-456")
+PROJECT_KEY = build_project_key("workspace-123")
 TEST_SUITE_KEY = build_table_group_id("conn-456", "object-456")
 
 

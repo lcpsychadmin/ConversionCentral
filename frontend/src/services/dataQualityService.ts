@@ -59,6 +59,7 @@ interface TestGenProjectResponse {
   name: string;
   description?: string | null;
   sql_flavor?: string | null;
+  workspace_id?: string | null;
 }
 
 interface TestGenConnectionResponse {
@@ -369,7 +370,8 @@ const mapProject = (payload: TestGenProjectResponse): DataQualityProject => ({
   projectKey: payload.project_key,
   name: payload.name,
   description: payload.description ?? null,
-  sqlFlavor: payload.sql_flavor ?? null
+  sqlFlavor: payload.sql_flavor ?? null,
+  workspaceId: payload.workspace_id ?? null
 });
 
 const mapConnection = (payload: TestGenConnectionResponse): DataQualityConnection => ({
@@ -1097,11 +1099,13 @@ export const fetchDataQualityTables = async (
 export const fetchDataQualityProfileRuns = async ({
   tableGroupId,
   limit = 50,
-  includeGroups = true
+  includeGroups = true,
+  workspaceId
 }: {
   tableGroupId?: string | null;
   limit?: number;
   includeGroups?: boolean;
+  workspaceId?: string | null;
 } = {}): Promise<DataQualityProfileRunListResponse> => {
   const params: Record<string, string | number | boolean> = {
     limit,
@@ -1110,6 +1114,9 @@ export const fetchDataQualityProfileRuns = async ({
 
   if (tableGroupId) {
     params.tableGroupId = tableGroupId;
+  }
+  if (workspaceId) {
+    params.workspaceId = workspaceId;
   }
 
   const response = await client.get<DataQualityProfileRunListResponse>(
@@ -1246,10 +1253,15 @@ export const deleteDataQualityAlert = async (alertId: string): Promise<void> => 
 };
 
 export const startProfileRun = async (
-  tableGroupId: string
+  tableGroupId: string,
+  workspaceId?: string | null
 ): Promise<DataQualityProfileRunStartResponse> => {
   const response = await client.post<TestGenProfileRunStartResponse>(
-    `/data-quality/table-groups/${encodeURIComponent(tableGroupId)}/profile-runs`
+    `/data-quality/table-groups/${encodeURIComponent(tableGroupId)}/profile-runs`,
+    undefined,
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
   );
   return { profileRunId: response.data.profile_run_id };
 };
@@ -1266,25 +1278,41 @@ export const startTestRun = async (
   return { testRunId: response.data.test_run_id };
 };
 
-export const fetchDatasetHierarchy = async (): Promise<DataQualityDatasetProductTeam[]> => {
-  const response = await client.get<DataQualityDatasetProductTeam[]>('/data-quality/datasets');
+export const fetchDatasetHierarchy = async (
+  workspaceId?: string | null
+): Promise<DataQualityDatasetProductTeam[]> => {
+  const response = await client.get<DataQualityDatasetProductTeam[]>(
+    '/data-quality/datasets',
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
+  );
   return response.data;
 };
 
 export const fetchDataQualityTableContext = async (
-  dataDefinitionTableId: string
+  dataDefinitionTableId: string,
+  workspaceId?: string | null
 ): Promise<DataQualityDatasetTableContext> => {
   const response = await client.get<DataQualityDatasetTableContext>(
-    `/data-quality/datasets/tables/${encodeURIComponent(dataDefinitionTableId)}/context`
+    `/data-quality/datasets/tables/${encodeURIComponent(dataDefinitionTableId)}/context`,
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
   );
   return response.data;
 };
 
 export const startDataObjectProfileRuns = async (
-  dataObjectId: string
+  dataObjectId: string,
+  workspaceId?: string | null
 ): Promise<DataQualityBulkProfileRunResponse> => {
   const response = await client.post<DataQualityBulkProfileRunResponse>(
-    `/data-quality/datasets/${encodeURIComponent(dataObjectId)}/profile-runs`
+    `/data-quality/datasets/${encodeURIComponent(dataObjectId)}/profile-runs`,
+    undefined,
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
   );
   return response.data;
 };
@@ -1477,13 +1505,18 @@ export const deleteDataQualitySuiteTest = async (testId: string): Promise<void> 
   await client.delete(`/data-quality/testgen/tests/${encodeURIComponent(testId)}`);
 };
 
-export const fetchProfilingSchedules = async (): Promise<DataQualityProfilingSchedule[]> => {
-  const response = await client.get<DataQualityProfilingSchedule[]>('/data-quality/profiling-schedules');
+export const fetchProfilingSchedules = async (
+  workspaceId?: string | null
+): Promise<DataQualityProfilingSchedule[]> => {
+  const response = await client.get<DataQualityProfilingSchedule[]>('/data-quality/profiling-schedules', {
+    params: workspaceId ? { workspaceId } : undefined
+  });
   return response.data;
 };
 
 export const createProfilingSchedule = async (
-  input: DataQualityProfilingScheduleInput
+  input: DataQualityProfilingScheduleInput,
+  workspaceId?: string | null
 ): Promise<DataQualityProfilingSchedule> => {
   const payload = {
     tableGroupId: input.tableGroupId,
@@ -1491,10 +1524,24 @@ export const createProfilingSchedule = async (
     timezone: input.timezone ?? 'UTC',
     isActive: input.isActive ?? true
   };
-  const response = await client.post<DataQualityProfilingSchedule>('/data-quality/profiling-schedules', payload);
+  const response = await client.post<DataQualityProfilingSchedule>(
+    '/data-quality/profiling-schedules',
+    payload,
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
+  );
   return response.data;
 };
 
-export const deleteProfilingSchedule = async (profilingScheduleId: string): Promise<void> => {
-  await client.delete(`/data-quality/profiling-schedules/${profilingScheduleId}`);
+export const deleteProfilingSchedule = async (
+  profilingScheduleId: string,
+  workspaceId?: string | null
+): Promise<void> => {
+  await client.delete(
+    `/data-quality/profiling-schedules/${profilingScheduleId}`,
+    {
+      params: workspaceId ? { workspaceId } : undefined
+    }
+  );
 };

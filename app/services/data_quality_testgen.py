@@ -279,7 +279,7 @@ class TestGenClient:
     def list_projects(self) -> list[dict[str, Any]]:
         projects_table = _format_table(self._params.catalog, self._schema, "dq_projects")
         statement = text(
-            f"SELECT project_key, name, description, sql_flavor FROM {projects_table} ORDER BY name"
+            f"SELECT project_key, name, description, sql_flavor, workspace_id FROM {projects_table} ORDER BY name"
         )
         return self._fetch(statement)
 

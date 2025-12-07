@@ -11,12 +11,12 @@ from app.models import (
     ConnectionTableSelection,
     DataDefinition,
     DataDefinitionTable,
+    DataObject,
     DataObjectSystem,
     Table,
 )
 
-_PROJECT_PREFIX = "system:"
-_DATA_OBJECT_PREFIX = "object:"
+_PROJECT_PREFIX = "workspace:"
 _CONNECTION_PREFIX = "conn:"
 _TABLE_GROUP_PREFIX = "group:"
 _TABLE_PREFIX = "selection:"
@@ -32,8 +32,8 @@ def _normalize_identifier(value: UUID | str) -> str:
     return text.strip().lower()
 
 
-def build_project_key(system_id: UUID | str, data_object_id: UUID | str) -> str:
-    return f"{_PROJECT_PREFIX}{_normalize_identifier(system_id)}:{_DATA_OBJECT_PREFIX}{_normalize_identifier(data_object_id)}"
+def build_project_key(workspace_id: UUID | str) -> str:
+    return f"{_PROJECT_PREFIX}{_normalize_identifier(workspace_id)}"
 
 
 def build_connection_id(connection_id: UUID | str, data_object_id: UUID | str) -> str:
@@ -52,8 +52,8 @@ def parse_project_key(project_key: str) -> Tuple[Optional[str], Optional[str]]:
     if not project_key:
         return None, None
     parts = project_key.split(":")
-    if len(parts) >= 4 and parts[0] == "system" and parts[2] == "object":
-        return parts[1], parts[3]
+    if len(parts) >= 2 and parts[0] == "workspace":
+        return parts[1], None
     return None, None
 
 
@@ -74,32 +74,38 @@ def parse_table_group_id(value: str | None) -> Tuple[Optional[str], Optional[str
 def project_keys_for_data_object(db: Session, data_object_id: Optional[UUID | str]) -> Set[str]:
     if not data_object_id:
         return set()
-    stmt = select(DataObjectSystem.system_id).where(DataObjectSystem.data_object_id == data_object_id)
-    system_ids = db.execute(stmt).scalars().all()
-    return {build_project_key(system_id, data_object_id) for system_id in system_ids if system_id}
+    stmt = select(DataObject.workspace_id).where(DataObject.id == data_object_id)
+    workspace_ids = db.execute(stmt).scalars().all()
+    return {build_project_key(workspace_id) for workspace_id in workspace_ids if workspace_id}
 
 
 def project_keys_for_system(db: Session, system_id: Optional[UUID | str]) -> Set[str]:
     if not system_id:
         return set()
-    stmt = select(DataObjectSystem.data_object_id).where(DataObjectSystem.system_id == system_id)
-    object_ids = db.execute(stmt).scalars().all()
-    return {build_project_key(system_id, obj_id) for obj_id in object_ids if obj_id}
+    stmt = (
+        select(DataObject.workspace_id)
+        .join(DataObjectSystem, DataObjectSystem.data_object_id == DataObject.id)
+        .where(DataObjectSystem.system_id == system_id)
+        .distinct()
+    )
+    workspace_ids = db.execute(stmt).scalars().all()
+    return {build_project_key(workspace_id) for workspace_id in workspace_ids if workspace_id}
 
 
 def project_keys_for_table(db: Session, table_id: Optional[UUID | str]) -> Set[str]:
     if not table_id:
         return set()
     stmt = (
-        select(DataDefinition.system_id, DataDefinition.data_object_id)
+        select(DataObject.workspace_id)
+        .join(DataDefinition, DataDefinition.data_object_id == DataObject.id)
         .join(DataDefinitionTable, DataDefinitionTable.data_definition_id == DataDefinition.id)
         .where(DataDefinitionTable.table_id == table_id)
         .distinct()
     )
     keys: Set[str] = set()
-    for system_id, data_object_id in db.execute(stmt):
-        if system_id and data_object_id:
-            keys.add(build_project_key(system_id, data_object_id))
+    for workspace_id in db.execute(stmt).scalars():
+        if workspace_id:
+            keys.add(build_project_key(workspace_id))
     return keys
 
 
@@ -111,15 +117,17 @@ def project_keys_for_table_selection(
         return set()
 
     stmt = (
-        select(DataDefinition.system_id, DataDefinition.data_object_id)
+        select(DataObject.workspace_id)
+        .join(DataDefinition, DataDefinition.data_object_id == DataObject.id)
         .join(DataDefinitionTable, DataDefinitionTable.data_definition_id == DataDefinition.id)
         .where(DataDefinitionTable.connection_table_selection_id == selection.id)
+        .distinct()
     )
 
     keys: Set[str] = set()
-    for sys_id, data_object_id in db.execute(stmt):
-        if sys_id and data_object_id:
-            keys.add(build_project_key(sys_id, data_object_id))
+    for workspace_id in db.execute(stmt).scalars():
+        if workspace_id:
+            keys.add(build_project_key(workspace_id))
 
     if keys:
         return keys
@@ -132,7 +140,8 @@ def project_keys_for_table_selection(
         return set()
 
     stmt = (
-        select(DataDefinition.system_id, DataDefinition.data_object_id)
+        select(DataObject.workspace_id)
+        .join(DataDefinition, DataDefinition.data_object_id == DataObject.id)
         .join(DataDefinitionTable, DataDefinitionTable.data_definition_id == DataDefinition.id)
         .join(Table, Table.id == DataDefinitionTable.table_id)
         .where(
@@ -141,15 +150,15 @@ def project_keys_for_table_selection(
                 func.lower(Table.name) == normalized_table,
             )
         )
+        .distinct()
     )
 
     if normalized_schema:
         stmt = stmt.where(func.lower(func.coalesce(Table.schema_name, "")) == normalized_schema)
 
-    stmt = stmt.distinct()
-    for sys_id, data_object_id in db.execute(stmt):
-        if sys_id and data_object_id:
-            keys.add(build_project_key(sys_id, data_object_id))
+    for workspace_id in db.execute(stmt).scalars():
+        if workspace_id:
+            keys.add(build_project_key(workspace_id))
 
     if keys:
         return keys

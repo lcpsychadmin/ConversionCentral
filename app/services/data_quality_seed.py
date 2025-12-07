@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class ProjectSeed:
     name: str
     description: str | None
     sql_flavor: str
+    workspace_id: UUID | None = None
     connections: tuple[ConnectionSeed, ...] = ()
 
 

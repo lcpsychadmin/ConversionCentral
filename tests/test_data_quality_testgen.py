@@ -24,7 +24,7 @@ from app.services import data_quality_testgen
 from app.services.databricks_sql import DatabricksConnectionParams
 
 
-PROJECT_KEY = build_project_key("system-alpha", "object-beta")
+PROJECT_KEY = build_project_key("workspace-alpha")
 CONNECTION_ID = build_connection_id("conn-alpha", "object-beta")
 TABLE_GROUP_ID = build_table_group_id("conn-alpha", "object-beta")
 TABLE_ID = build_table_id("tbl-alpha", "object-beta")

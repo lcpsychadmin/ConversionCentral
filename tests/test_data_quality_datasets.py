@@ -219,6 +219,7 @@ def test_dataset_hierarchy_groups_by_product_team_application_and_data_object(cl
                             "dataObjectId": str(data_object.id),
                             "name": "Invoice",
                             "description": "Invoices data object",
+                            "workspaceId": str(data_object.workspace_id) if getattr(data_object, "workspace_id", None) else None,
                             "dataDefinitions": [
                                 {
                                     "dataDefinitionId": str(definition.id),

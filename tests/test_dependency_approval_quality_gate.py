@@ -17,6 +17,7 @@ from app.models import (
     Table,
     TableDependency,
     User,
+    Workspace,
 )
 from app.services.data_quality_keys import build_project_key
 
@@ -24,8 +25,14 @@ from app.services.data_quality_keys import build_project_key
 def _seed_table_dependency(db_session):
     approver = User(id=uuid4(), name="Approver", email="approver@example.com")
     system = System(id=uuid4(), name="CRM", physical_name="crm_base")
+    workspace = Workspace(id=uuid4(), name="Workspace QA", slug="workspace-qa")
     process_area = ProcessArea(id=uuid4(), name="Sales")
-    data_object = DataObject(id=uuid4(), process_area_id=process_area.id, name="Customers")
+    data_object = DataObject(
+        id=uuid4(),
+        process_area_id=process_area.id,
+        workspace_id=workspace.id,
+        name="Customers",
+    )
     table_upstream = Table(
         id=uuid4(),
         system=system,
@@ -62,6 +69,7 @@ def _seed_table_dependency(db_session):
         [
             approver,
             system,
+            workspace,
             process_area,
             data_object,
             table_upstream,
@@ -166,7 +174,7 @@ def test_update_collects_project_keys_and_allows_when_gate_passes(
     assert response.status_code == 200
     payload = response.json()
     assert payload["decision"] == "approved"
-    expected_key = build_project_key(system.id, data_object.id)
+    expected_key = build_project_key(data_object.workspace_id)
     assert captured["keys"] == {expected_key}
 
 
@@ -196,5 +204,5 @@ def test_create_invokes_gate_for_immediate_approval(
     assert response.status_code == 201
     payload = response.json()
     assert payload["decision"] == "approved"
-    expected_key = build_project_key(system.id, data_object.id)
+    expected_key = build_project_key(data_object.workspace_id)
     assert captured["keys"] == {expected_key}

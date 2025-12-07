@@ -5,8 +5,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  MenuItem,
   Paper,
   Stack,
+  TextField,
   Typography
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -32,6 +34,7 @@ import {
   listReports,
   reportQueryKeys
 } from '@services/reportingService';
+import { useWorkspaces } from '@hooks/useWorkspaces';
 import type { ReportSummary } from '@cc-types/reporting';
 
 const DATASET_LIMIT = 500;
@@ -70,11 +73,30 @@ const formatDateTime = (value: string | null | undefined): string => {
 const ReportingCatalogPage = () => {
   const navigate = useNavigate();
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [workspaceFilterId, setWorkspaceFilterId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const [pendingDeleteReport, setPendingDeleteReport] = useState<ReportSummary | null>(null);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const { data: workspaces = [], isLoading: workspacesLoading } = useWorkspaces();
+
+  useEffect(() => {
+    if (workspaces.length === 0) {
+      setWorkspaceFilterId(null);
+      return;
+    }
+    if (workspaceFilterId && workspaces.some((workspace) => workspace.id === workspaceFilterId)) {
+      return;
+    }
+    const preferred = workspaces.find((workspace) => workspace.isDefault) ?? workspaces[0];
+    setWorkspaceFilterId(preferred.id);
+  }, [workspaceFilterId, workspaces]);
+
+  const workspaceFilter = workspaceFilterId
+    ? workspaces.find((workspace) => workspace.id === workspaceFilterId) ?? null
+    : null;
+  const reportsEnabled = Boolean(workspaceFilterId);
 
   const {
     data: publishedReports = [],
@@ -82,14 +104,19 @@ const ReportingCatalogPage = () => {
     isError: reportsError,
     error: reportsErrorRaw,
     refetch: refetchReports
-  } = useQuery(reportQueryKeys.list('published'), () => listReports('published'), {
-    staleTime: 60_000,
-    onSuccess: (reports) => {
-      if (reports.length > 0 && !selectedReportId) {
-        setSelectedReportId(reports[0].id);
+  } = useQuery(
+    reportQueryKeys.list('published', workspaceFilterId ?? undefined),
+    () => listReports('published', workspaceFilterId ?? undefined),
+    {
+      enabled: reportsEnabled,
+      staleTime: 60_000,
+      onSuccess: (reports) => {
+        if (reports.length > 0 && !selectedReportId) {
+          setSelectedReportId(reports[0].id);
+        }
       }
     }
-  });
+  );
 
   useEffect(() => {
     if (publishedReports.length === 0) {
@@ -100,7 +127,7 @@ const ReportingCatalogPage = () => {
   }, [publishedReports, selectedReportId]);
 
   const catalogTree = useMemo<CatalogTreeNode[]>(() => {
-    if (publishedReports.length === 0) {
+    if (!reportsEnabled || publishedReports.length === 0) {
       return [];
     }
 
@@ -161,7 +188,7 @@ const ReportingCatalogPage = () => {
     const roots = Array.from(productTeamNodes.values());
     sortNodes(roots);
     return roots;
-  }, [publishedReports]);
+  }, [publishedReports, reportsEnabled]);
 
   const autoExpandedItems = useMemo(() => {
     const ids: string[] = [];
@@ -399,6 +426,33 @@ const ReportingCatalogPage = () => {
       <PageHeader
         title="Report Catalog"
         subtitle="Browse published reports grouped by process area and data object, preview result sets, and export to CSV."
+        actions={
+          <TextField
+            select
+            size="small"
+            label="Workspace"
+            value={workspaceFilterId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value as string;
+              setWorkspaceFilterId(value || null);
+            }}
+            sx={{ minWidth: 220 }}
+            disabled={workspacesLoading || workspaces.length === 0}
+          >
+            {workspaces.length === 0 ? (
+              <MenuItem disabled value="">
+                {workspacesLoading ? 'Loading workspaces…' : 'No workspaces available'}
+              </MenuItem>
+            ) : (
+              workspaces.map((workspace) => (
+                <MenuItem key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                  {!workspace.isActive ? ' (inactive)' : ''}
+                </MenuItem>
+              ))
+            )}
+          </TextField>
+        }
       />
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems={{ xs: 'stretch', lg: 'flex-start' }}>
@@ -427,8 +481,12 @@ const ReportingCatalogPage = () => {
               <Button
                 size="small"
                 startIcon={<RefreshIcon fontSize="small" />}
-                onClick={() => refetchReports()}
-                disabled={reportsLoading}
+                onClick={() => {
+                  if (reportsEnabled) {
+                    refetchReports();
+                  }
+                }}
+                disabled={!reportsEnabled || reportsLoading}
               >
                 Refresh
               </Button>
@@ -449,26 +507,32 @@ const ReportingCatalogPage = () => {
             </Stack>
           </Stack>
 
-          {reportsLoading && (
+          {(workspacesLoading || !reportsEnabled || reportsLoading) && (
             <Stack alignItems="center" spacing={1} sx={{ py: 4 }}>
               <CircularProgress size={24} />
               <Typography variant="body2" color="text.secondary">
-                Loading published reports…
+                {workspacesLoading
+                  ? 'Loading workspaces…'
+                  : !reportsEnabled
+                    ? workspaces.length === 0
+                      ? 'No workspaces are available yet.'
+                      : 'Select a workspace to view published reports.'
+                    : 'Loading published reports…'}
               </Typography>
             </Stack>
           )}
 
-          {!reportsLoading && reportsErrorMessage && (
+          {!workspacesLoading && reportsEnabled && !reportsLoading && reportsErrorMessage && (
             <Alert severity="error">{reportsErrorMessage}</Alert>
           )}
 
-          {!reportsLoading && !reportsError && publishedReports.length === 0 && (
+          {!workspacesLoading && reportsEnabled && !reportsLoading && !reportsError && publishedReports.length === 0 && (
             <Typography variant="body2" color="text.secondary">
               No reports have been published yet. Publish a report from the designer to see it here.
             </Typography>
           )}
 
-          {!reportsLoading && !reportsError && publishedReports.length > 0 && (
+          {!workspacesLoading && reportsEnabled && !reportsLoading && !reportsError && publishedReports.length > 0 && (
             <SimpleTreeView
               aria-label="Published reports"
               expandedItems={expandedItems}
@@ -489,7 +553,9 @@ const ReportingCatalogPage = () => {
                   {dataset?.name ?? 'Select a report'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {datasetSubtitle}
+                  {workspaceFilter
+                    ? `${datasetSubtitle} Workspace: ${workspaceFilter.name}.`
+                    : datasetSubtitle}
                 </Typography>
               </Box>
               <Stack

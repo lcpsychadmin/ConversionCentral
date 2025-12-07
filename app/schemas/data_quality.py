@@ -13,6 +13,10 @@ class TestGenProject(BaseModel):
     name: str
     description: Optional[str] = None
     sql_flavor: Optional[str] = None
+    workspace_id: Optional[UUID] = Field(default=None, alias="workspaceId")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 class TestGenConnection(BaseModel):
@@ -334,6 +338,7 @@ class DataQualityDatasetTableContext(BaseModel):
     data_definition_table_id: UUID = Field(alias="dataDefinitionTableId")
     data_definition_id: UUID = Field(alias="dataDefinitionId")
     data_object_id: UUID = Field(alias="dataObjectId")
+    workspace_id: Optional[UUID] = Field(default=None, alias="workspaceId")
     application_id: UUID = Field(alias="applicationId")
     product_team_id: Optional[UUID] = Field(default=None, alias="productTeamId")
     table_group_id: str = Field(alias="tableGroupId")
@@ -359,6 +364,7 @@ class DataQualityDatasetDataObject(BaseModel):
     data_object_id: UUID = Field(alias="dataObjectId")
     name: str
     description: Optional[str] = None
+    workspace_id: Optional[UUID] = Field(default=None, alias="workspaceId")
     data_definitions: List[DataQualityDatasetDefinition] = Field(default_factory=list, alias="dataDefinitions")
 
     class Config:

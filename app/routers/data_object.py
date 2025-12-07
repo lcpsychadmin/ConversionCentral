@@ -1,12 +1,16 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import DataObject, DataObjectSystem, ProcessArea, System
+from app.models import DataDefinition, DataObject, DataObjectSystem, ProcessArea, System
 from app.schemas import DataObjectCreate, DataObjectRead, DataObjectUpdate
+from app.services.workspace_scope import resolve_workspace_id
+
+router = APIRouter(prefix="/data-objects", tags=["Data Objects"])
+
 
 router = APIRouter(prefix="/data-objects", tags=["Data Objects"])
 
@@ -14,7 +18,7 @@ router = APIRouter(prefix="/data-objects", tags=["Data Objects"])
 def _get_data_object_or_404(data_object_id: UUID, db: Session) -> DataObject:
     data_object = (
         db.query(DataObject)
-        .options(selectinload(DataObject.systems))
+        .options(selectinload(DataObject.systems), selectinload(DataObject.workspace))
         .filter(DataObject.id == data_object_id)
         .one_or_none()
     )
@@ -30,6 +34,8 @@ def create_data_object(
     if not db.get(ProcessArea, payload.process_area_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
 
+    workspace_id = resolve_workspace_id(db, payload.workspace_id)
+
     system_ids = list(dict.fromkeys(payload.system_ids))
     if system_ids:
         existing_count = (
@@ -40,7 +46,8 @@ def create_data_object(
         if existing_count != len(system_ids):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more systems not found")
 
-    data_object = DataObject(**payload.dict(exclude={"system_ids"}))
+    data_object_payload = payload.dict(exclude={"system_ids", "workspace_id"})
+    data_object = DataObject(**data_object_payload, workspace_id=workspace_id)
     db.add(data_object)
     db.flush()
 
@@ -58,12 +65,23 @@ def create_data_object(
 
 
 @router.get("", response_model=list[DataObjectRead])
-def list_data_objects(db: Session = Depends(get_db)) -> list[DataObjectRead]:
-    return (
+def list_data_objects(
+    workspace_id: UUID | None = Query(default=None),
+    process_area_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[DataObjectRead]:
+    resolved_workspace_id = resolve_workspace_id(db, workspace_id)
+
+    query = (
         db.query(DataObject)
-        .options(selectinload(DataObject.systems))
-        .all()
+        .options(selectinload(DataObject.systems), selectinload(DataObject.workspace))
+        .filter(DataObject.workspace_id == resolved_workspace_id)
     )
+
+    if process_area_id:
+        query = query.filter(DataObject.process_area_id == process_area_id)
+
+    return query.all()
 
 
 @router.get("/{data_object_id}", response_model=DataObjectRead)
@@ -81,12 +99,21 @@ def update_data_object(
 
     update_data = payload.dict(exclude_unset=True)
     system_ids = update_data.pop("system_ids", None)
+    workspace_provided = "workspace_id" in payload.__fields_set__
+    requested_workspace_id = update_data.pop("workspace_id", None)
     process_area_id = update_data.get("process_area_id")
     if process_area_id and not db.get(ProcessArea, process_area_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Process area not found")
 
     for field, value in update_data.items():
         setattr(data_object, field, value)
+
+    if workspace_provided:
+        resolved_workspace_id = resolve_workspace_id(db, requested_workspace_id)
+        data_object.workspace_id = resolved_workspace_id
+        db.query(DataDefinition).filter(DataDefinition.data_object_id == data_object.id).update(
+            {DataDefinition.workspace_id: resolved_workspace_id}, synchronize_session=False
+        )
 
     if system_ids is not None:
         unique_system_ids = list(dict.fromkeys(system_ids))

@@ -145,6 +145,7 @@ class LocalTestGenClient:
             "name": project.name,
             "description": project.description,
             "sql_flavor": project.sql_flavor,
+            "workspace_id": str(project.workspace_id) if project.workspace_id else None,
         }
 
     def _connection_payload(self, connection: DataQualityConnection) -> dict[str, Any]:

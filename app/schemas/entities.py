@@ -18,6 +18,28 @@ class TimestampSchema(BaseModel):
         orm_mode = True
 
 
+class WorkspaceBase(BaseModel):
+    name: str = Field(..., max_length=200)
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class WorkspaceCreate(WorkspaceBase):
+    is_default: bool = False
+
+
+class WorkspaceUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+
+
+class WorkspaceRead(WorkspaceBase, TimestampSchema):
+    id: UUID
+    is_default: bool = False
+    slug: Optional[str] = None
+
 class ProjectBase(BaseModel):
     name: str = Field(..., max_length=200)
     description: Optional[str] = None
@@ -547,6 +569,7 @@ class ProcessAreaRoleAssignmentRead(ProcessAreaRoleAssignmentBase, TimestampSche
 
 class DataObjectBase(BaseModel):
     process_area_id: UUID
+    workspace_id: Optional[UUID] = None
     name: str = Field(..., max_length=200)
     description: Optional[str] = None
     status: str = Field("draft", max_length=50)
@@ -558,6 +581,7 @@ class DataObjectCreate(DataObjectBase):
 
 class DataObjectUpdate(BaseModel):
     process_area_id: Optional[UUID] = None
+    workspace_id: Optional[UUID] = None
     name: Optional[str] = Field(None, max_length=200)
     description: Optional[str] = None
     status: Optional[str] = Field(None, max_length=50)
@@ -567,6 +591,7 @@ class DataObjectUpdate(BaseModel):
 class DataObjectRead(DataObjectBase, TimestampSchema):
     id: UUID
     systems: list["SystemRead"] = []
+    workspace: Optional["WorkspaceRead"] = None
     process_area: Optional["ProcessAreaRead"] = None
 
 
@@ -762,6 +787,8 @@ class DataDefinitionTableInput(BaseModel):
     description: Optional[str] = None
     load_order: Optional[int] = Field(None, ge=1)
     is_construction: bool = False
+    system_connection_id: Optional[UUID] = None
+    connection_table_selection_id: Optional[UUID] = None
     fields: list[DataDefinitionFieldInput] = []
 
 
@@ -795,6 +822,8 @@ class DataDefinitionTableRead(TimestampSchema):
     description: Optional[str] = None
     load_order: Optional[int] = None
     is_construction: bool
+    system_connection_id: Optional[UUID] = None
+    connection_table_selection_id: Optional[UUID] = None
     table: TableRead
     fields: list[DataDefinitionFieldRead] = []
     constructed_table_id: Optional[UUID] = Field(
@@ -935,6 +964,7 @@ class DataDefinitionRead(TimestampSchema):
     id: UUID
     data_object_id: UUID
     system_id: UUID
+    workspace_id: Optional[UUID] = None
     description: Optional[str] = None
     system: Optional[SystemRead] = None
     data_object: Optional[DataObjectRead] = None

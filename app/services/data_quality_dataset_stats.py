@@ -71,8 +71,9 @@ class _StatsAccumulator:
 def build_dataset_profiling_stats(
     db: Session,
     client: TestGenClient,
+    workspace_id: UUID,
 ) -> DataQualityDatasetProfilingStatsResponse:
-    contexts = resolve_all_table_contexts(db)
+    contexts = resolve_all_table_contexts(db, workspace_id=workspace_id)
     table_ids = sorted({ctx.table_id for ctx in contexts if ctx.table_id})
     metrics = _load_table_metrics(client, table_ids)
 

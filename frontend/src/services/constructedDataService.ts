@@ -350,7 +350,7 @@ export async function fetchDataObjects(processAreaId: string): Promise<DataObjec
   const response = await client.get<DataObject[]>(
     '/data-objects',
     {
-      params: { processAreaId }
+      params: { process_area_id: processAreaId }
     }
   );
   return response.data;

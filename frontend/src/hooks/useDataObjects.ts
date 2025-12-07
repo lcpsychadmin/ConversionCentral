@@ -10,6 +10,7 @@ import {
 } from '../services/dataObjectService';
 import { DataObject } from '../types/data';
 import { useToast } from './useToast';
+import { useWorkspaceScope } from './useWorkspaceScope';
 
 const DATA_OBJECTS_KEY = ['data-objects'];
 
@@ -26,21 +27,46 @@ const getErrorMessage = (error: unknown) => {
 export const useDataObjects = () => {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const { workspaceId } = useWorkspaceScope();
 
-  const dataObjectsQuery = useQuery<DataObject[]>(DATA_OBJECTS_KEY, fetchDataObjects);
+  const queryKey = workspaceId ? [...DATA_OBJECTS_KEY, workspaceId] : DATA_OBJECTS_KEY;
+
+  const dataObjectsQuery = useQuery<DataObject[]>(
+    queryKey,
+    () => fetchDataObjects({ workspaceId }),
+    {
+      enabled: Boolean(workspaceId),
+      keepPreviousData: true
+    }
+  );
 
   const invalidate = () => queryClient.invalidateQueries(DATA_OBJECTS_KEY);
 
-  const createMutation = useMutation(createDataObject, {
-    onSuccess: () => {
-      toast.showSuccess('Data object created.');
-      invalidate();
-    },
-    onError: (error) => toast.showError(getErrorMessage(error))
-  });
+  const ensureWorkspace = () => {
+    if (!workspaceId) {
+      throw new Error('Select an active workspace before managing data objects.');
+    }
+    return workspaceId;
+  };
+
+  const createMutation = useMutation(
+    (input: DataObjectInput) =>
+      createDataObject({ ...input, workspaceId: input.workspaceId ?? ensureWorkspace() }),
+    {
+      onSuccess: () => {
+        toast.showSuccess('Data object created.');
+        invalidate();
+      },
+      onError: (error) => toast.showError(getErrorMessage(error))
+    }
+  );
 
   const updateMutation = useMutation(
-    ({ id, input }: { id: string; input: DataObjectInput }) => updateDataObject(id, input),
+    ({ id, input }: { id: string; input: DataObjectInput }) =>
+      updateDataObject(id, {
+        ...input,
+        workspaceId: input.workspaceId ?? workspaceId ?? undefined
+      }),
     {
       onSuccess: () => {
         toast.showSuccess('Data object updated.');

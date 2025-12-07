@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.entities import DataObject, ProcessArea, Report
+from app.models.entities import DataObject, ProcessArea, Report, Workspace
 from app.schemas.reporting import ReportDesignerDefinition, ReportStatus
 
 
@@ -31,11 +31,13 @@ def _normalize_definition(definition: ReportDesignerDefinition | dict[str, Any])
     return jsonable_encoder(data)
 
 
-def _resolve_report_associations(
+def _resolve_report_scope(
     db: Session,
+    workspace_id: UUID | None,
     process_area_id: UUID | None,
     data_object_id: UUID | None,
-) -> tuple[UUID | None, UUID | None]:
+) -> tuple[UUID | None, UUID | None, UUID | None]:
+    normalized_workspace_id = workspace_id
     normalized_process_area_id = process_area_id
     normalized_data_object_id = data_object_id
 
@@ -48,14 +50,29 @@ def _resolve_report_associations(
             raise ValueError("Selected data object does not belong to the chosen product team.")
         normalized_process_area_id = data_object.process_area_id
 
+        if data_object.workspace_id is not None:
+            if normalized_workspace_id is not None and data_object.workspace_id != normalized_workspace_id:
+                raise ValueError("Selected data object does not belong to the chosen workspace.")
+            normalized_workspace_id = data_object.workspace_id
+        elif normalized_workspace_id is None:
+            raise ValueError("Selected data object is not assigned to a workspace.")
+
     if normalized_process_area_id is not None:
         if db.get(ProcessArea, normalized_process_area_id) is None:
             raise ValueError("Selected product team could not be found.")
 
-    return normalized_process_area_id, normalized_data_object_id
+    if normalized_workspace_id is not None:
+        if db.get(Workspace, normalized_workspace_id) is None:
+            raise ValueError("Selected workspace could not be found.")
+
+    return normalized_workspace_id, normalized_process_area_id, normalized_data_object_id
 
 
-def list_reports(db: Session, status: ReportStatus | None = None) -> list[Report]:
+def list_reports(
+    db: Session,
+    status: ReportStatus | None = None,
+    workspace_id: UUID | None = None,
+) -> list[Report]:
     statement = (
         select(Report)
         .options(selectinload(Report.process_area), selectinload(Report.data_object))
@@ -63,6 +80,8 @@ def list_reports(db: Session, status: ReportStatus | None = None) -> list[Report
     )
     if status is not None:
         statement = statement.where(Report.status == status.value)
+    if workspace_id is not None:
+        statement = statement.where(Report.workspace_id == workspace_id)
     return list(db.execute(statement).scalars())
 
 
@@ -86,6 +105,7 @@ def create_report(
     status: ReportStatus = ReportStatus.DRAFT,
     process_area_id: UUID | None = None,
     data_object_id: UUID | None = None,
+    workspace_id: UUID | None = None,
 ) -> Report:
     cleaned_name = name.strip()
     if not cleaned_name:
@@ -94,14 +114,21 @@ def create_report(
     normalized_description = description.strip() if description and description.strip() else None
     payload = _normalize_definition(definition)
 
-    resolved_process_area_id, resolved_data_object_id = _resolve_report_associations(
+    (
+        resolved_workspace_id,
+        resolved_process_area_id,
+        resolved_data_object_id,
+    ) = _resolve_report_scope(
         db,
+        workspace_id,
         process_area_id,
         data_object_id,
     )
 
     if status == ReportStatus.PUBLISHED and (resolved_process_area_id is None or resolved_data_object_id is None):
         raise ValueError("Published reports must be linked to a product team and data object.")
+    if resolved_workspace_id is None:
+        raise ValueError("Reports must be linked to a workspace.")
 
     report = Report(
         name=cleaned_name,
@@ -110,6 +137,7 @@ def create_report(
         definition=payload,
         process_area_id=resolved_process_area_id,
         data_object_id=resolved_data_object_id,
+        workspace_id=resolved_workspace_id,
     )
 
     if status == ReportStatus.PUBLISHED:
@@ -131,6 +159,7 @@ def update_report(
     status: ReportStatus | None = None,
     process_area_id: UUID | None | object = _UNSET,
     data_object_id: UUID | None | object = _UNSET,
+    workspace_id: UUID | None | object = _UNSET,
 ) -> Report:
     if name is not None:
         cleaned_name = name.strip()
@@ -152,14 +181,21 @@ def update_report(
         else:
             report.published_at = None
 
-    if process_area_id is not _UNSET or data_object_id is not _UNSET:
+    if workspace_id is not _UNSET or process_area_id is not _UNSET or data_object_id is not _UNSET:
+        next_workspace_id = report.workspace_id if workspace_id is _UNSET else workspace_id
         next_process_area_id = report.process_area_id if process_area_id is _UNSET else process_area_id
         next_data_object_id = report.data_object_id if data_object_id is _UNSET else data_object_id
-        resolved_process_area_id, resolved_data_object_id = _resolve_report_associations(
+        (
+            resolved_workspace_id,
+            resolved_process_area_id,
+            resolved_data_object_id,
+        ) = _resolve_report_scope(
             db,
+            next_workspace_id,
             next_process_area_id,
             next_data_object_id,
         )
+        report.workspace_id = resolved_workspace_id
         report.process_area_id = resolved_process_area_id
         report.data_object_id = resolved_data_object_id
 
@@ -175,18 +211,30 @@ def publish_report(
     *,
     process_area_id: UUID | None = None,
     data_object_id: UUID | None = None,
+    workspace_id: UUID | None = None,
 ) -> Report:
     target_process_area_id = process_area_id if process_area_id is not None else report.process_area_id
     target_data_object_id = data_object_id if data_object_id is not None else report.data_object_id
-    resolved_process_area_id, resolved_data_object_id = _resolve_report_associations(
+    target_workspace_id = workspace_id if workspace_id is not None else report.workspace_id
+    (
+        resolved_workspace_id,
+        resolved_process_area_id,
+        resolved_data_object_id,
+    ) = _resolve_report_scope(
         db,
+        target_workspace_id,
         target_process_area_id,
         target_data_object_id,
     )
 
-    if resolved_process_area_id is None or resolved_data_object_id is None:
+    if (
+        resolved_workspace_id is None
+        or resolved_process_area_id is None
+        or resolved_data_object_id is None
+    ):
         raise ValueError("Published reports must be linked to a product team and data object.")
 
+    report.workspace_id = resolved_workspace_id
     report.process_area_id = resolved_process_area_id
     report.data_object_id = resolved_data_object_id
 
@@ -196,6 +244,7 @@ def publish_report(
         status=ReportStatus.PUBLISHED,
         process_area_id=resolved_process_area_id,
         data_object_id=resolved_data_object_id,
+        workspace_id=resolved_workspace_id,
     )
 
 
@@ -214,6 +263,7 @@ def upsert_report(
     status: ReportStatus = ReportStatus.DRAFT,
     process_area_id: UUID | None = None,
     data_object_id: UUID | None = None,
+    workspace_id: UUID | None = None,
 ) -> Report:
     if report_id:
         report = require_report(db, report_id)
@@ -226,6 +276,7 @@ def upsert_report(
             status=status,
             process_area_id=process_area_id,
             data_object_id=data_object_id,
+            workspace_id=workspace_id,
         )
     return create_report(
         db,
@@ -235,4 +286,5 @@ def upsert_report(
         status=status,
         process_area_id=process_area_id,
         data_object_id=data_object_id,
+        workspace_id=workspace_id,
     )

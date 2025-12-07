@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -16,6 +18,10 @@ class DataQualityProject(Base, TimestampMixin):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sql_flavor: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="data_quality_project")
 
     connections: Mapped[list["DataQualityConnection"]] = relationship(
         "DataQualityConnection",

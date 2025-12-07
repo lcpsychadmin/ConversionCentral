@@ -49,6 +49,7 @@ from app.models.entities import (
     ApplicationSetting,
     SecurityClassification,
     Report,
+    Workspace,
 )
 from app.models.data_quality import (
     DataQualityProject,
@@ -79,6 +80,7 @@ __all__ = [
     "MockCycle",
     "ExecutionContext",
     "ConstructedTable",
+    "Workspace",
     "ProcessArea",
     "DataObject",
     "System",
