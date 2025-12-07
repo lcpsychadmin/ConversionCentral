@@ -18,6 +18,80 @@ def test_dashboard_summary(client):
     assert expected_keys.issubset(data.keys())
 
 
+def test_workspace_create_and_switch_default(client):
+    initial = client.get("/workspaces").json()
+    initial_default_ids = {item["id"] for item in initial if item["is_default"]}
+    assert initial_default_ids, "Seed data should include a default workspace"
+
+    create_resp = client.post(
+        "/workspaces",
+        json={
+            "name": "Finance Workspace",
+            "description": "Handles finance artifacts",
+            "is_active": True,
+            "is_default": False,
+        },
+    )
+    assert create_resp.status_code == HTTPStatus.CREATED
+    created = create_resp.json()
+    assert created["name"] == "Finance Workspace"
+    assert created["is_default"] is False
+
+    workspace_id = created["id"]
+    switch_resp = client.patch(
+        f"/workspaces/{workspace_id}",
+        json={"is_default": True},
+    )
+    assert switch_resp.status_code == HTTPStatus.OK
+    assert switch_resp.json()["is_default"] is True
+
+    updated_list = client.get("/workspaces").json()
+    assert any(item["id"] == workspace_id and item["is_default"] for item in updated_list)
+    assert not any(item["id"] in initial_default_ids and item["is_default"] for item in updated_list)
+
+    deactivate_resp = client.patch(
+        f"/workspaces/{workspace_id}",
+        json={"is_active": False},
+    )
+    assert deactivate_resp.status_code == HTTPStatus.OK
+    assert deactivate_resp.json()["is_active"] is False
+
+
+def test_workspace_delete_promotes_new_default(client):
+    # Create two workspaces so we can delete one safely.
+    keep_resp = client.post(
+        "/workspaces",
+        json={
+            "name": "Workspace Keep",
+            "description": "",
+            "is_active": True,
+            "is_default": False,
+        },
+    )
+    assert keep_resp.status_code == HTTPStatus.CREATED
+    keep_workspace_id = keep_resp.json()["id"]
+
+    delete_resp = client.post(
+        "/workspaces",
+        json={
+            "name": "Workspace Remove",
+            "description": "",
+            "is_active": True,
+            "is_default": True,
+        },
+    )
+    assert delete_resp.status_code == HTTPStatus.CREATED
+    delete_workspace_id = delete_resp.json()["id"]
+
+    delete_call = client.delete(f"/workspaces/{delete_workspace_id}")
+    assert delete_call.status_code == HTTPStatus.NO_CONTENT
+
+    remaining = client.get("/workspaces").json()
+    assert all(item["id"] != delete_workspace_id for item in remaining)
+    assert any(item["is_default"] for item in remaining)
+    assert any(item["id"] == keep_workspace_id for item in remaining)
+
+
 def test_project_crud_flow(client):
     payload = {"name": "Project Alpha", "description": "Test project", "status": "planned"}
     response = client.post("/projects", json=payload)
@@ -207,7 +281,9 @@ def test_data_object_crud_flow(client):
     }
     response = client.post("/data-objects", json=payload)
     assert response.status_code == HTTPStatus.CREATED
-    data_object_id = response.json()["id"]
+    created_object = response.json()
+    data_object_id = created_object["id"]
+    assert created_object["workspace_id"] is not None
 
     list_resp = client.get("/data-objects")
     assert list_resp.status_code == HTTPStatus.OK
